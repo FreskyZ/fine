@@ -1,0 +1,23 @@
+{
+  "name": "home-fresky",
+  "version": "0.1.0",
+  "description": "a personal website for fun",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "nodejs src/index.js",
+    "stop": "pkill --signal SIGINT nodejs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FreskyZ/home-fresky.git"
+  },
+  "author": "FreskyZ",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/FreskyZ/home-fresky/issues"
+  },
+  "homepage": "https://github.com/FreskyZ/home-fresky#readme",
+  "dependencies": {
+    "express": "^4.15.4"
+  }
+}
