@@ -3,28 +3,39 @@
   <head>
     <title>~</title>
     <style type="text/css">
-      div.header {
+      div#header {
         text-align: center;
         font-family: Georgia, serif;
         margin-top: 16%
       }
+      div#avatar {
+        width: 100px;
+        height: 100px;
+        background-color: #EFF4F0;
+        display: inline-block;
+      }
     </style>
   </head>
   <body>
-    <div class='header'>
+    <div id='header'>
+      <div id='avatar'></div>
       <p style="font-size: 24px">/home/fresky</p>
       <br/> <br/>
       <p style="color: grey; font-style: italic">a personal website for fun</p>
       <br/>
-      <a href='#' style='font-size: 16px'>Available sites</a>
+      <a href='/blog' style='font-size: 16px'>blogs</a>
       <br/> <br/>
-      <a href='#' style='font-size: 16px'>API reference</a>
-      <br/> <br/> 
+      <a href='/sh-bus' style='font-size: 16px'>sh-bus</a>
+      <br/> <br/>
       <a href='mailto://FreskyZ@outlook.com' style="font-size: 14px">FreskyZ@outlook.com</a>
       |
       <a href='https://github.com/FreskyZ' style='font-size: 14px'>github@FreskyZ</a>
       <br/>
-      <p style="font-size: 12px"><br/>For ZYH</p>
+      <p id='date' style="font-size: 12px"><br/>2019-1-30</p>
     </div>
+    <script lang="text/javascript">
+      var time = new Date();
+      document.getElementById('date').innerText = time.getFullYear() + '-' + (time.getMonth() + 1) + '-' + time.getDate();
+    </script>
   </body>
 </html>
