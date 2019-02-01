@@ -4,7 +4,7 @@
   "description": "a personal website for fun",
   "main": "src/index.js",
   "scripts": {
-    "build": "tsc && cp src/static/* build/static",
+    "build": "tsc",
     "start": "nodejs build/index.js",
     "stop": "pkill --signal SIGINT nodejs"
   },
@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
+    "@types/node": "^10.12.21",
     "express": "^4.15.4"
   },
   "devDependencies": {
