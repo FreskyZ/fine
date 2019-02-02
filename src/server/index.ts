@@ -7,20 +7,21 @@ let app = express();
 
 // html files (one for each app) and other static files
 const static_directory = path.join(__dirname, '../../static');
-const other_static_files: string[] = [];
+const other_static_files: { [name: string]: string } = {};
 for (const filename of fs.readdirSync(static_directory)) {
     if (path.extname(filename) == '.html') {
         const route_name = filename == 'index.html' ? '' : path.basename(filename, '.html');
         const fullpath = path.join(static_directory, filename);
         app.get('/' + route_name, (_, response) => response.sendFile(fullpath));
     } else {
-        other_static_files.push(filename);
+        other_static_files[filename] = path.join(static_directory, filename);
     }
 }
 app.get('/static/*', (request, response) => {
     const request_file = path.basename(request.url);
-    if (other_static_files.includes(request_file)) {
-        response.sendFile(path.join(static_directory, request_file));
+    const request_path = other_static_files[request_file];
+    if (request_path) {
+        response.sendFile(request_path);
     } else {
         response.redirect('/404');
     }
