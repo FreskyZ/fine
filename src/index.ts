@@ -3,28 +3,38 @@ import path from 'path';
 import express from 'express';
 import ShanghaiBusInfoController from './api/sh-bus-controller';
 
-const STATIC_DIRECTORY = path.join(__dirname, '../static');
-const HTML_FILES = fs.readdirSync(STATIC_DIRECTORY)
-    .filter(filename => path.extname(filename) == '.html')
-    .map(filename => ({
-        name: filename == 'index.html' ? '' : path.basename(filename, '.html'),
-        path: path.join(STATIC_DIRECTORY, filename),
-    }));
-const HTML404 = `<html>
-    <head><title>404!</title></head>
-    <body>404!</body>
-</html>`;
-
 let app = express();
 
-for (const html_file of HTML_FILES) {
-    app.get('/' + html_file.name, (_request, response) => {
-        response.sendFile(html_file.path);
-    });
+// html files (one for each app) and other static files
+const static_directory = path.join(__dirname, '../static');
+const other_static_files: string[] = [];
+for (const filename of fs.readdirSync(static_directory)) {
+    if (path.extname(filename) == '.html') {
+        const route_name = filename == 'index.html' ? '' : path.basename(filename, '.html');
+        const fullpath = path.join(static_directory, filename);
+        app.get('/' + route_name, (_, response) => response.sendFile(fullpath));
+    } else {
+        other_static_files.push(filename);
+    }
 }
+app.get('/static/*', (request, response) => {
+    const request_file = path.basename(request.url);
+    if (other_static_files.includes(request_file)) {
+        response.sendFile(path.join(static_directory, request_file));
+    } else {
+        response.redirect('/404');
+    }
+});
 
+// api controllers
 app.use('/api/sh-bus', ShanghaiBusInfoController);
-app.use((request, response, _next) => { if (request.accepts('html')) response.send(HTML404); });
+
+// 404
+app.use((request, response, _next) => {
+    if (request.accepts('html')) {
+        response.redirect('/404');
+    }
+});
 
 process.on('SIGINT', () => {
     console.log('INFO: received SIGINT, exiting, waiting for server closing');
