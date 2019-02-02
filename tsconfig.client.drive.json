@@ -1,0 +1,8 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./build/client/drive"
+    },
+    "include": ["./src/client/drive/**/*.ts"],
+    "exclude": ["./src/server/**/*.ts"],
+}

@@ -1,12 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
-import ShanghaiBusInfoController from './api/sh-bus-controller';
+import SehuController from './sehu';
 
 let app = express();
 
 // html files (one for each app) and other static files
-const static_directory = path.join(__dirname, '../static');
+const static_directory = path.join(__dirname, '../../static');
 const other_static_files: string[] = [];
 for (const filename of fs.readdirSync(static_directory)) {
     if (path.extname(filename) == '.html') {
@@ -27,7 +27,7 @@ app.get('/static/*', (request, response) => {
 });
 
 // api controllers
-app.use('/api/sh-bus', ShanghaiBusInfoController);
+app.use('/api/sehu', SehuController);
 
 // 404
 app.use((request, response, _next) => {

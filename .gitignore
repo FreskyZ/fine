@@ -59,3 +59,8 @@ typings/
 
 build
 package-lock.json
+static/*.js
+static/*.css
+static/*.js.map
+
+
