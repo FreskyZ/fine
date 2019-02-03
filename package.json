@@ -5,10 +5,15 @@
   "main": "src/index.js",
   "scripts": {
     "build-server": "tsc --project tsconfig.server.json",
-    "build-sehu-dev": "webpack --config webpack.config.sehu.js --mode development",
-    "build-sehu-pro": "webpack --config webpack.config.sehu.js --mode production",
-    "start": "nodejs build/server/index.js",
-    "stop": "pkill --signal SIGINT nodejs"
+    "build-sehu-dev": "webpack --config webpack.config.sehu.js --display minimal --mode development",
+    "build-sehu-pro": "webpack --config webpack.config.sehu.js --display minimal --mode production",
+    "build-drive-dev": "webpack --config webpack.config.drive.js --display minimal --mode development",
+    "build-drive-pro": "webpack --config webpack.config.drive.js --display minimal --mode production",
+    "build-acct-dev": "webpack --config webpack.config.acct.js --display minimal --mode development",
+    "build-acct-pro": "webpack --config webpack.config.acct.js --display minimal --mode production",
+
+    "start-server": "nodejs build/server/index.js",
+    "stop-server": "pkill --signal SIGINT nodejs"
   },
   "repository": {
     "type": "git",
