@@ -5,7 +5,7 @@
   "scripts": {
     "build-client": "./build-client",
     "build-server": "tsc --project tsconfig/server.json",
-    "start-server": "nodejs build/server/index.js",
+    "start-server": "tsc --project tsconfig/server.json && nodejs build/server/index.js",
     "stop-server": "pkill --signal SIGINT nodejs"
   },
   "repository": {
@@ -25,6 +25,7 @@
     "awesome-typescript-loader": "^5.2.1",
     "csstype": "^2.6.2",
     "express": "^4.15.4",
+    "moment": "^2.24.0",
     "object-assign": "^4.1.1",
     "react": "^16.7.0",
     "react-dom": "^16.7.0"
