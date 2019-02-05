@@ -1,14 +1,14 @@
 {
-    "extends": "./tsconfig.base.json",
+    "extends": "../tsconfig/base.json",
     "compilerOptions": {
-        "outDir": "./build/client/drive",
+        "outDir": "../build/client/acct",
         "jsx": "react",
         "target": "es2017",
         "lib": ["es2017", "dom"],
         "sourceMap": true
     },
     "include": [
-        "./src/client/drive/**/*.ts",
-        "./src/client/drive/**/*.tsx"
+        "../src/client/acct/**/*.ts",
+        "../src/client/acct/**/*.tsx"
     ]
 }

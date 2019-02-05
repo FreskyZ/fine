@@ -8,15 +8,15 @@ Description = <service description>
 
 [Service]
 WorkingDirectory = <working directory>
-ExecStart = npm start
-ExecStop = npm stop
+ExecStart = npm run start-server
+ExecStop = npm run stop-server
 Restart = always
 RestartSec = 15
 User = root
 Group = root
 StandardOutput = syslog
 SyslogIdentifier = <servic name>
-Environment = NODE\_ENV=production
+Environment = "NODE_ENV=production"
 
 [Install]
 WantedBy = multi-user.target

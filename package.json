@@ -2,16 +2,9 @@
   "name": "home-fresky",
   "version": "0.1.0",
   "description": "a personal website for fun",
-  "main": "src/index.js",
   "scripts": {
-    "build-server": "tsc --project tsconfig.server.json",
-    "build-sehu-dev": "webpack --config webpack.config.sehu.js --display minimal --mode development",
-    "build-sehu-pro": "webpack --config webpack.config.sehu.js --display minimal --mode production",
-    "build-drive-dev": "webpack --config webpack.config.drive.js --display minimal --mode development",
-    "build-drive-pro": "webpack --config webpack.config.drive.js --display minimal --mode production",
-    "build-acct-dev": "webpack --config webpack.config.acct.js --display minimal --mode development",
-    "build-acct-pro": "webpack --config webpack.config.acct.js --display minimal --mode production",
-
+    "build-client": "./build-client",
+    "build-server": "tsc --project tsconfig/server.json",
     "start-server": "nodejs build/server/index.js",
     "stop-server": "pkill --signal SIGINT nodejs"
   },
@@ -30,6 +23,7 @@
     "@types/react": "^16.8.1",
     "@types/react-dom": "^16.0.11",
     "awesome-typescript-loader": "^5.2.1",
+    "csstype": "^2.6.2",
     "express": "^4.15.4",
     "object-assign": "^4.1.1",
     "react": "^16.7.0",
