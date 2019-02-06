@@ -1,10 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as http from 'http';
+import * as https from 'https';
 import moment from 'moment';
 import express from 'express';
 import SehuController from './sehu';
 
-const port = 80;
+const ssl_key_file = fs.readFileSync('<SSL_KEY>');
+const ssl_cert_file = fs.readFileSync('<SSL_CERT>');
 
 const logger = console;
 const format_log_time = (time: Date) => moment(time).format('Y-M-D HH:mm:ss:sss Z');
@@ -35,7 +38,7 @@ app.get('/', (_request, response) => {
     response.header('Content-Type', 'text/html').send(index_html_content);
 });
 
-// 404 page, GET /404 => 。/static/404.html
+// 404 page, GET /404 => ./static/404.html
 const _404_path = path.join(static_directory, '404.html');
 const _404_stat = fs.statSync(_404_path);
 const _404_content = fs.readFileSync(_404_path);
@@ -160,12 +163,22 @@ app.use((request, response, _next) => {
 });
 
 process.on('SIGINT', () => {
-    logger.log('received SIGINT, closing server');
-    server.close();
+    logger.log('received SIGINT, closing servers');
+    secureServer.close();
+    insecureServer.close();
     logger.log('received SIGINT, closing watchers');
     static_asset_watcher.close();
 });
 
-logger.log(`starting server on port ${port}`)
-let server = app.listen(port);
+let secureServer = https.createServer({ key: ssl_key_file, cert: ssl_cert_file }, app);
+logger.log('starting normal server on port 443');
+secureServer.listen(443);
+
+// redirect to https if http
+let insecureServer = http.createServer((request, response) => {
+    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url });
+    response.end();
+});
+logger.log('starting insecure server on port 80');
+insecureServer.listen(80);
 
