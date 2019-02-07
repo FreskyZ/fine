@@ -3,11 +3,9 @@ import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
 import express from 'express';
+import config from './config';
 import DynamicAssetLoader from './asset_loader';
 import SehuController from './sehu';
-
-const ssl_key_file = fs.readFileSync('<SSL_KEY>');
-const ssl_cert_file = fs.readFileSync('<SSL_CERT>');
 
 const logger = console;
 
@@ -46,12 +44,15 @@ process.on('SIGINT', () => {
     staticWatcher.stopWatch();
 });
 
-let secureServer = https.createServer({ key: ssl_key_file, cert: ssl_cert_file }, app);
-logger.log('[server] starting normal server on port 443');
+
+const ssl_key_file = fs.readFileSync(config['ssl-key']);
+const ssl_cert_file = fs.readFileSync(config['ssl-cert']);
+const secureServer = https.createServer({ key: ssl_key_file, cert: ssl_cert_file }, app);
+logger.log('[server] starting secure server on port 443');
 secureServer.listen(443);
 
 // redirect to https if http
-let insecureServer = http.createServer((request, response) => {
+const insecureServer = http.createServer((request, response) => {
     response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url });
     response.end();
 });
