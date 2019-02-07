@@ -14,7 +14,7 @@ module.exports = env => {
         entry: './src/client/' + env.project_name + '/app.tsx',
         output: {
             filename: env.project_name + '.js',
-            path: path.join(__dirname, 'static'),
+            path: path.join(__dirname, 'asset/static'),
         },
 
         devtool: 'source-map',
