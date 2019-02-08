@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as process from 'process';
 import express from 'express';
 import moment from 'moment';
+import logger from './logger';
 
 // temp, should be in logger
 const formatLogTime = (time: number) => moment(time).format('Y-M-D HH:mm:ss.sss Z');
@@ -55,7 +56,8 @@ class Handler {
 
         this.updateTime = stat.mtimeMs;
         this.content = fs.readFileSync(assetPath);
-        console.log(`load ${this.logDescription}, init size ${stat.size}, mtime ${formatLogTime(this.updateTime)}`);
+        logger.info('asset',
+            `load ${this.logDescription}, init size ${stat.size}, mtime ${formatLogTime(this.updateTime)}`);
 
         this.call = (_request, response) => {
             if (this.enabled) {
@@ -71,7 +73,7 @@ class Handler {
 
     public disable(): void {
         this.enabled = false;
-        console.log(`disable ${this.logDescription}`);
+        logger.info('asset', `disable ${this.logDescription}`);
     }
 
     public tryUpdate(): void {
@@ -100,7 +102,8 @@ class Handler {
         this.updateTime = stat.mtimeMs;
         this.content = fs.readFileSync(this.assetPath);
 
-        console.log(`${operation} ${this.logDescription}, new size ${stat.size}, mtime ${formatLogTime(this.updateTime)}`);
+        logger.info('asset',
+            `${operation} ${this.logDescription}, new size ${stat.size}, mtime ${formatLogTime(this.updateTime)}`);
     }
 }
 
@@ -154,8 +157,6 @@ export class DynamicAssetLoader {
     public startWatch(): void {
         this.watcher = fs.watch(this.absoluteDirectory, (eventType, fileName) => {
             if (!isAsset(fileName)) return;
-
-            // console.log(`watcher after filter, eventType = ${eventType}, fileName = ${fileName}`);
 
             const routeName = this.routeMapper(fileName);
             const filePath = path.join(this.absoluteDirectory, fileName);
