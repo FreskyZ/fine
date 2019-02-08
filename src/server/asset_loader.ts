@@ -114,25 +114,26 @@ class Handler {
 // because all asset count will not exceed 100, it will not be a performance issue that storing and calling the functions
 // handler will be pooled and unused handlers (unloaded assets) will not be removed but only disabled (redirect 404)
 // later loading will reuse previous pooled handler
-export default class DynamicAssetLoader {
+export class DynamicAssetLoader {
     public readonly subDirectory: string; // '/' or '/app', etc.
     private readonly absoluteDirectory: string; // absolute version
 
     private readonly routeMapper: (name: string) => string;
+
     private readonly router: express.Router;
     private readonly handlers: { [route: string]: Handler };
 
     private watcher: fs.FSWatcher | null;
     constructor(
         subDirectory: string,
-        routeMapper?: (name: string) => string // NOTE that result will be used as key
+        routeMapper: (name: string) => string // NOTE that result will be used as key
     ) {
         this.subDirectory = subDirectory;
         this.absoluteDirectory = path.join(assetDirectory, this.subDirectory);
 
         this.router = express.Router();
         this.handlers = {};
-        this.routeMapper = routeMapper || ((x: string): string => x);
+        this.routeMapper = routeMapper;
 
         this.watcher = null;
 
@@ -146,12 +147,11 @@ export default class DynamicAssetLoader {
         });
     }
 
-    public setup(app: express.Application): DynamicAssetLoader {
+    public setup(app: express.Application): void {
         app.use(this.subDirectory, this.router);
-        return this;
     }
 
-    public startWatch(): DynamicAssetLoader {
+    public startWatch(): void {
         this.watcher = fs.watch(this.absoluteDirectory, (eventType, fileName) => {
             if (!isAsset(fileName)) return;
 
@@ -179,8 +179,6 @@ export default class DynamicAssetLoader {
                 }
             }
         });
-
-        return this;
     }
 
     public stopWatch(): void {
@@ -189,4 +187,24 @@ export default class DynamicAssetLoader {
         }
     }
 };
+
+const mappers = {
+    'default': (name: string) => name,
+    'remove-ext': (name: string) => path.basename(name, path.extname(name)),
+}
+interface AssetCollectionConfig {
+    route: string;
+    mapper: 'default' | 'remove-ext' | ((name: string) => string);
+}
+export function setupAssets(app: express.Application, configs: AssetCollectionConfig[]): DynamicAssetLoader[] {
+    return configs.map(config => {
+        const mapper = config.mapper == 'default' ? mappers['default']
+            : config.mapper == 'remove-ext' ? mappers['remove-ext'] : config.mapper as (name: string) => string;
+
+        const loader = new DynamicAssetLoader(config.route, mapper);
+        loader.setup(app);
+        loader.startWatch();
+        return loader;
+    });
+}
 

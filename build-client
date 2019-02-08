@@ -6,14 +6,12 @@ if (( # != 2 )); then
 fi
 
 if [[ $2 == dev ]]; then
-
     echo "> webpack --env.project_name=$1 --display minimal --mode development"
     webpack --env.project_name=$1 --display minimal --mode development
     exit $?
 fi
 if [[ $2 == pro ]]; then
-    
-    echo "> webpack --env.project_name=$1 --display minimal --mode development"
+    echo "> webpack --env.project_name=$1 --display minimal --mode production"
     webpack --env.project_name=$1 --display minimal --mode production
     exit $?
 fi

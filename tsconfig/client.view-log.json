@@ -1,0 +1,12 @@
+{
+    "extends": "../tsconfig/base.json",
+    "compilerOptions": {
+        "outDir": "../asset/static",
+        "target": "es2015",
+        "lib": ["es2017", "dom"],
+        "sourceMap": true
+    },
+    "include": [
+        "../src/client/view-log.ts"
+    ]
+}
