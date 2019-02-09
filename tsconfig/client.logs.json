@@ -6,6 +6,6 @@
         "lib": ["esnext", "dom"]
     },
     "include": [
-        "../src/client/view-log.ts"
+        "../src/client/logs.ts"
     ]
 }

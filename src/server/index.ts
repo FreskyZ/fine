@@ -48,6 +48,9 @@ const insecureServer = http.createServer((request, response) => {
 logger.info('server', 'starting insecure server on port 80');
 insecureServer.listen(80);
 
+// print something on console so that journalctl can confirm normal init process finished
+console.log('server started, view /logs for more info');
+
 // close servers
 process.on('SIGINT', () => {
     logger.info('server', 'received SIGINT, start finalize');

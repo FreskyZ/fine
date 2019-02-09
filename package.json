@@ -4,7 +4,7 @@
   "description": "a personal website for fun",
   "scripts": {
     "build-client": "./build-client",
-    "build-view-log": "tsc --project tsconfig/client.view-log.json",
+    "build-client-logs": "tsc --project tsconfig/client.logs.json",
     "build-server": "tsc --project tsconfig/server.json",
     "start-server": "tsc --project tsconfig/server.json && nodejs build/server/index.js",
     "stop-server": "pkill --signal SIGINT nodejs"

@@ -100,7 +100,8 @@ export function setupLogFileAPI(app: express.Application): void {
         if (fs.existsSync(filePath)) {
             response.sendFile(filePath);
         } else {
-            response.status(404).end();
+            // send empty file
+            response.status(200).header('Content-Type', 'text/plain').send('[]');
         }
     });
 }
