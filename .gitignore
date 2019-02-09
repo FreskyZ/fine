@@ -63,6 +63,9 @@ asset/static/*.js
 asset/static/*.css
 asset/static/*.js.map
 
+# temp special for this
+!asset/static/logs.css
+
 # this project's config file
 src/server/config.ts
 build/server/config.js
