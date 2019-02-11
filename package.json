@@ -7,6 +7,7 @@
     "build-client-logs": "tsc --project tsconfig/client.logs.json",
     "build-server": "tsc --project tsconfig/server.json",
     "start-server": "tsc --project tsconfig/server.json && nodejs build/server/index.js",
+    "dev-main": "tsc --project tsconfig/server.json && node build/server/dev-main.js",
     "stop-server": "pkill --signal SIGINT nodejs"
   },
   "repository": {
@@ -20,6 +21,7 @@
   },
   "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
+    "@types/mysql": "^2.15.5",
     "@types/node": "^10.12.21",
     "@types/react": "^16.8.1",
     "@types/react-dom": "^16.0.11",

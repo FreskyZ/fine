@@ -15,7 +15,7 @@ const assetDirectory = path.join(rootDirectory, 'asset');
 // so limit valid files to white list extensions
 // 1. .js.map makes you use String.prototype.endsWith not path.extname
 // 2. .ico is for /favicon.ico, .txt is for /robots.txt
-const allowedExtensions = ['.html', '.js', '.js.map', '.css', '.ico', '.txt'];
+const allowedExtensions = ['.html', '.js', '.js.map', '.css', '.ico', '.txt', '.xml'];
 const contentTypes: { [ext: string]: string } = {
     '.html': 'text/html',
     '.js': 'application/javascript',
@@ -23,6 +23,7 @@ const contentTypes: { [ext: string]: string } = {
     '.css': 'text/css',
     '.ico': 'image/x-icon',
     '.txt': 'text/plain',
+    '.xml': 'application/xml',
 };
 const isAsset: (name: string) => boolean = name =>
     name[0] != '.' && allowedExtensions.some(ext => name.endsWith(ext));
@@ -32,9 +33,9 @@ class Handler {
     public readonly assetPath: string;
     public readonly httpContentType: string;
 
-    public enabled: boolean;
-    public updateTime: number;
-    public content: Buffer;
+    private enabled: boolean;
+    private updateTime: number;
+    private content: Buffer;
 
     public readonly call: (request: express.Request, response: express.Response) => void;
 

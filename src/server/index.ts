@@ -5,8 +5,8 @@ import * as https from 'https';
 import express from 'express';
 import config from './config';
 import logger, { setupLogFileAPI } from './logger';
-import { setupAssets } from './asset_loader';
-import SehuController from './sehu';
+import { setupAssets } from './asset';
+import SehuController from './api/sehu';
 
 let app = express();
 
