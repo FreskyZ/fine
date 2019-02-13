@@ -1,0 +1,11 @@
+{
+    "extends": "../tsconfig/base.json",
+    "compilerOptions": {
+        "outDir": "../asset/static",
+        "target": "es2015",
+        "lib": ["esnext", "dom"]
+    },
+    "include": [
+        "../src/client/index.ts"
+    ]
+}

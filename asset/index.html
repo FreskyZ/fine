@@ -2,63 +2,31 @@
 <html>
   <head>
     <title>~</title>
-    <link rel="icon" type='image/x-icon' href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="ROBOTS" content="INDEX">
-    <style type="text/css">
-      div#header {
-        text-align: center;
-        font-family: Georgia, serif;
-        margin-top: 16%
-      }
-      div#avatar {
-        width: 100px;
-        height: 100px;
-        background-color: #EFF4F0;
-        display: inline-block;
-        box-shadow: 1px 1px lightgray;
-      }
-      div.feature-block {
-        width: 300px;
-        height: 50px;
-        background-color: #E4DFDF50;
-        display: inline-block;
-        box-shadow: 1px 1px lightgray;
-      }
-      div.feature-block span {
-        display: block;
-        margin-top: 15px;
-        font-family: sans-serif;
-      }
-      a#mailto {
-        margin-left: -13px;
-      }
-    </style>
+    <link rel="icon" type='image/x-icon' href="/favicon.ico">
+    <link rel="stylesheet" type="text/css" href="/static/index.css">
+    <script type="text/javascript" src="https://momentjs.com/downloads/moment.js"></script>
   </head>
   <body>
     <div id='header'>
-      <div id='avatar'></div>
-      <p style="font-size: 24px">/home/fresky</p>
-      <br />
-      <a href='/app/drive' style='font-size: 16px'><div class='feature-block'><span>"Where is my file?"</span></div></a>
-      <br/> <br/>
-      <a href='/app/acct' style='font-size: 16px'><div class='feature-block'><span>"Where is my money?"</span></div></a>
-      <br/> <br/>
-      <a style='font-size: 16px'><div class='feature-block'><span>"Who am I?"</span></div></a>
-      <br/> <br/>
-      <a style='font-size: 16px'><div class='feature-block'><span>SEHU</span></div></a>
-      <br/> <br/>
-      <br/>
-      <a id='mailto' href='mailto://FreskyZ@outlook.com' style="font-size: 14px">FreskyZ@outlook.com</a>
-      |
-      <a href='https://github.com/FreskyZ' style='font-size: 14px'>github@FreskyZ</a>
-      <br/>
-      <span style='font-size: 12px'><a href="http://www.miitbeian.gov.cn" target=="_blank">浙ICP备 19005835号</a> | </span><span id='date' style="font-size: 12px"></span>
+      <div id="avatar"></div>
+      <span id="title">/home/fresky</span>
     </div>
-    <script lang="text/javascript">
-      var time = new Date();
-      document.getElementById('date').innerText = 
-        time.getFullYear() + '-' + (time.getMonth() + 1) + '-' + time.getDate() + '    ';
-    </script>
+    <div id="apps"> 
+      <a><div class='app-btn'><span>"Who am I?"</span></div></a>
+      <a href='/app/blog'><div class='app-btn'><span>"What am I doing?"</span></div></a>
+      <a href='/app/acct'><div class='app-btn'><span>"Where is my money?"</span></div></a>
+      <a href='/app/drive'><div class='app-btn'><span>"Where are my files?"</span></div></a>
+    </div>
+    <div id="footer">
+      <span id="mail-wrapper"><a id="mail" href='mailto:FreskyZ@outlook.com'>FreskyZ@outlook.com</a></span>
+      <span id="grid-line1"></span>
+      <span id="github-wrapper"><a id="github" href='https://github.com/FreskyZ' target="_blank">github@FreskyZ</a></span>
+      <span id="beian-wrapper"><a id="beian" href="http://www.miitbeian.gov.cn" target=="_blank">浙ICP备 19005835号</a></span>
+      <span id="grid-line2"></span>
+      <span id='date'></span>
+    </div>
+    <script type="text/javascript" src="/static/index.js"></script>
   </body>
 </html>

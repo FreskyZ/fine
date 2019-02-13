@@ -51,19 +51,8 @@ async function verifyToken(token: string): Promise<UserCredential> {
 
     return new UserCredential(dbUser.Id, dbUser.LoginId, dbUser.Name);
 }
+async function requireAuthImpl(request: express.Request, response: express.Response, next: () => void) {
 
-declare global {
-    namespace Express {
-        interface Request {
-            credential?: UserCredential;
-        }
-    }
-}
-
-type RouterNextFunction = express.IRouterHandler<express.Router> & express.IRouterMatcher<express.Router>;
-
-export function requireAuth(
-    request: express.Request, response: express.Response, next: RouterNextFunction) {
     const requestAuth = request.header('Authorization') as string;
     if (requestAuth.slice(0, 7) != 'Bearer ') {
         response.status(401).end();
@@ -78,11 +67,31 @@ export function requireAuth(
     }
 }
 
+
+declare global {
+    namespace Express {
+        interface Request {
+            credential?: UserCredential;
+        }
+    }
+}
+
+type RouterNextFunction = express.IRouterHandler<express.Router> & express.IRouterMatcher<express.Router>;
+
+export function requireAuth(request: express.Request, response: express.Response, next: RouterNextFunction) {
+    requireAuthImpl(request, response, next);
+}
+
 export function setup(app: express.Application): void {
 
     app.get('/token', async (request, response) => {
         const body = JSON.parse(request.body) as { username: string, password: string };
         const result = await verifyPassword(body.username, body.password);
         response.send({ token: result }).end();
+    });
+
+    app.get('/user-info', async (request, response) => {
+        requireAuthImpl(request, response, () => {});
+        response.send(request.credential).end();
     });
 }

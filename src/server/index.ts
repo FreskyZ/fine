@@ -6,12 +6,13 @@ import express from 'express';
 import config from './config';
 import logger, { setupLogFileAPI } from './logger';
 import { setupAssets } from './asset';
+import { setup as setupAuthAPI } from './auth';
 import SehuController from './api/sehu';
 
 let app = express();
 
+setupAuthAPI(app);
 setupLogFileAPI(app);
-
 const assets = setupAssets(app, [
     { route: '/', mapper: (name: string) =>
         name == 'index.html' ? '' : name.endsWith('.html') ? path.basename(name, '.html') : name },
