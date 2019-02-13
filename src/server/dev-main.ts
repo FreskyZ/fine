@@ -14,8 +14,8 @@ async function main(): Promise<void> {
     const result1 = await checker('fresky', '123456');
     const result2 = await checker('fresky', '12345');
 
-    console.log('result1.results[0].e == 1 =', result1.results[0].e == 1);
-    console.log('result2.results[0].e == 0 =', result2.results[0].e == 0);
+    console.log('result1.results[0].e == 1 =', result1.value[0].e == 1);
+    console.log('result2.results[0].e == 0 =', result2.value[0].e == 0);
 }
 
 main().then(() => { process.exit(0); }).catch(ex => { console.log(ex); process.exit(1); });
