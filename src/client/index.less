@@ -2,6 +2,7 @@ body {
     margin: auto;
     width: 30%;
     min-width: 320px;
+    max-width: 350px;
 }
 
 div#header {
@@ -15,6 +16,7 @@ div#header {
         background-color: #EFF4F0;
         display: inline-block;
         box-shadow: 1px 1px lightgray;
+        border-radius: 8px;
     }
     span#title {
         display: block;
@@ -25,6 +27,18 @@ div#header {
 div#apps {
     margin-top: 24px; 
 
+    div#who-btn {
+        font-size: 16px;
+        display: block;
+        margin-bottom: 12px;
+        height: 48px;
+        background-color: #E4DFDF50;
+        border-radius: 4px;
+        &:hover {
+            background-color: #E4DFDF70;
+        }
+    }
+
     a {
         font-size: 16px;
         display: block;
@@ -34,15 +48,30 @@ div#apps {
     div.app-btn {
         display: inline-block;
         width: 100%;
-        height: 50px;
+        height: 48px;
         background-color: #E4DFDF50;
-
-        span {
-            display: block;
-            margin-top: 15px;
-            text-align: center;
-            font-family: sans-serif;
+        border-radius: 4px;
+        &:hover {
+            background-color: #E4DFDF70;
         }
+    }
+
+    div#who-btn>span.line-1, div.app-btn>span.line-1 {
+        display: block;
+        margin-top: 8px;
+        text-align: center;
+        font-family: sans-serif;
+    }
+    div#who-btn>span.line-2, div.app-btn>span.line-2 {
+        display: block;
+        text-align: center;
+        color: #9F9F9F;
+        font-size: 12px;
+        font-family: sans-serif;
+    }
+
+    div#who-btn>span.line-1 {
+        padding-top: 8px; // I don't know why
     }
 }
 
@@ -96,3 +125,46 @@ div#footer {
     }
 }
 
+div#modal-mask {
+    display: none;
+    position: fixed;
+    left: 0px;
+    top: 0px;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.4);
+    padding-top: 200px;
+
+    div#modal-content {
+        width: 300px;
+        margin: 5px auto;
+        background-color: #FEFEFE;
+        border-radius: 4px;
+        border: 1px solid gray;
+        padding: 20px;
+        height: 188px;
+
+        label {
+            font-size: 14px;
+            display: block;
+            margin-top: 16px;
+        }
+
+        input {
+            display: block;
+            width: 95%;
+            height: 24px;
+            background-color: #FEFEFE;
+            border-width: 0px 0px 1px 0px;
+            border-color: lightgray;
+        }
+
+        button {
+            width: 100px;
+            margin-top: 20px;
+            height: 28px;
+            margin-right: 5%;
+            float: right;
+        }
+   }
+}
