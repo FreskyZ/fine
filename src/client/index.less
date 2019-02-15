@@ -27,7 +27,7 @@ div#header {
 div#apps {
     margin-top: 24px; 
 
-    div#who-btn {
+    div.not-app-btn {
         font-size: 16px;
         display: block;
         margin-bottom: 12px;
@@ -43,26 +43,26 @@ div#apps {
         font-size: 16px;
         display: block;
         margin-bottom: 12px;
-    }
 
-    div.app-btn {
-        display: inline-block;
-        width: 100%;
-        height: 48px;
-        background-color: #E4DFDF50;
-        border-radius: 4px;
-        &:hover {
-            background-color: #E4DFDF70;
+        div.app-btn {
+            display: inline-block;
+            width: 100%;
+            height: 48px;
+            background-color: #E4DFDF50;
+            border-radius: 4px;
+            &:hover {
+                background-color: #E4DFDF70;
+            }
         }
     }
 
-    div#who-btn>span.line-1, div.app-btn>span.line-1 {
+    span.line-1 {
         display: block;
         margin-top: 8px;
         text-align: center;
         font-family: sans-serif;
     }
-    div#who-btn>span.line-2, div.app-btn>span.line-2 {
+    span.line-2 {
         display: block;
         text-align: center;
         color: #9F9F9F;
@@ -70,7 +70,7 @@ div#apps {
         font-family: sans-serif;
     }
 
-    div#who-btn>span.line-1 {
+    div.not-app-btn>span.line-1 {
         padding-top: 8px; // I don't know why
     }
 }
@@ -133,7 +133,7 @@ div#modal-mask {
     width: 100%;
     height: 100%;
     background-color: rgba(0, 0, 0, 0.4);
-    padding-top: 200px;
+    padding-top: 256px;
 
     div#modal-content {
         width: 300px;

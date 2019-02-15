@@ -33,12 +33,23 @@ const ui = {
     'date': document.querySelector('span#date')! as HTMLSpanElement,
     'who-btn': document.querySelector('div#who-btn')! as HTMLButtonElement,
     'who-btn-line-2': document.querySelector('div#who-btn>span.line-2')! as HTMLSpanElement,
+    'where-btn-line-2': document.querySelector('div#where-btn>span.line-2')! as HTMLSpanElement,
     'modal-mask': document.querySelector('div#modal-mask')! as HTMLDivElement,
     'modal-username': document.querySelector('input#username')! as HTMLInputElement,
     'modal-password': document.querySelector('input#password')! as HTMLInputElement,
     'modal-cancel': document.querySelector('button#cancel')! as HTMLButtonElement,
     'modal-login': document.querySelector('button#login')! as HTMLButtonElement,
 }
+
+ui['date'].innerText = moment().format('Y-M-D');
+ui['where-btn-line-2'].innerText = 'geolocation service not available';
+navigator.geolocation.getCurrentPosition(({ coords }) => {
+    ui['where-btn-line-2'].innerText =
+        `${+coords.latitude.toFixed(6)}N, ${+coords.longitude.toFixed(6)}E, accuracy ${Math.round(coords.accuracy)}m`;
+}, ({ message }) => {
+    ui['where-btn-line-2'].innerText = 'geolocation service error';
+    console.log('geolocation error: ' + message);
+}, { enableHighAccuracy: true });
 
 ui['who-btn'].onclick = function(): void {
     ui['modal-username'].value = '';
@@ -57,7 +68,7 @@ async function handleLogIn(): Promise<void> {
     const password = ui['modal-password'].value;
 
     if (username.length == 0 || password.length == 0) {
-        alert('username or password cannot be 0');
+        alert('user name or password cannot be empty');
         return;
     }
 
@@ -93,8 +104,6 @@ function render() {
     }
 
     ui['modal-mask'].style.display = modalVisible ? 'block' : 'none';
-
-    ui['date'].innerText = moment().format('Y-M-D');
 }
 
 let state: State;
