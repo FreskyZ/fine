@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import express from 'express';
+import * as express from 'express';
 import config from './config';
 import logger, { setupLogFileAPI } from './logger';
 import { setupAssets } from './asset';
@@ -39,7 +39,7 @@ const ssl_key_file = fs.readFileSync(config['ssl-key']);
 const ssl_cert_file = fs.readFileSync(config['ssl-cert']);
 const secureServer = https.createServer({ key: ssl_key_file, cert: ssl_cert_file }, app);
 logger.info('server', 'starting secure server on port 443');
-secureServer.listen(443);
+secureServer.listen(8001);
 
 // redirect to https if http
 const insecureServer = http.createServer((request, response) => {
@@ -47,7 +47,7 @@ const insecureServer = http.createServer((request, response) => {
     response.end();
 });
 logger.info('server', 'starting insecure server on port 80');
-insecureServer.listen(80);
+insecureServer.listen(8002);
 
 // print something on console so that journalctl can confirm normal init process finished
 console.log('server started, view /logs for more info');

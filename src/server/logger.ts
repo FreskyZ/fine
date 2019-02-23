@@ -1,8 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-import process from 'process';
-import express from 'express';
-import moment from 'moment';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as express from 'express';
+import * as moment from 'moment';
 
 type Level = 'info' | 'error';
 const levels: Level[] = ['info', 'error'];

@@ -1,4 +1,4 @@
-import mysql from 'mysql';
+import * as mysql from 'mysql';
 import config from '../config';
 
 const connectionPool = mysql.createPool(config['mysql-connect']);

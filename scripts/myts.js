@@ -90,6 +90,6 @@ const config =  {
     outDir: './custom_build',
 };
 
-compile(['src/server/index.ts'], config);
-// watch(files, config);
+// compile(['src/server/index.ts'], config);
+watch(['src/server/index.ts'], config);
 

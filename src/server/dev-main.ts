@@ -1,4 +1,3 @@
-import process from 'process';
 import DataContext from './data/context';
 
 async function main(): Promise<void> {

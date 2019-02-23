@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "a personal website for fun",
   "scripts": {
+    "build": "node scripts/build.js",
     "build-client": "./build-client",
     "build-client-logs": "tsc --project tsconfig/client.logs.json",
     "build-client-index": "tsc --project tsconfig/client.index.json && lessc src/client/index.less asset/static/index.css",

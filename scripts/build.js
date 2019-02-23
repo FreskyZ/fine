@@ -66,8 +66,56 @@ const typescriptServerConfig = {
     outDir: './custom_build',
 };
 
+const formatHost = {
+    getCanonicalFileName: x => x,
+    getCurrentDirectory: () => projectDirectory,
+    getNewLine: () => '\n',
+};
+
+const nodeStandardModules = ['crypto', 'fs', 'http', 'https', 'path'];
+const webpackServerConfig = {
+    mode: 'development',
+    entry: './custom_build/index.js',
+    target: 'node',
+    output: {
+        path: path.join(projectDirectory, 'build'),
+        filename: 'server.js',
+    },
+    externals: Object.keys(nodePackage.dependencies).concat(nodeStandardModules)
+        .reduce((x, e) => { x[e] = 'commonjs ' + e; return x; }, {}),
+};
+function webpackHandler(err, stats) {
+    if (err) {
+        console.log('webpack error: ');
+        console.log(err);
+        return;
+    }
+
+    const statData = stats.toJson();
+    if (stats.hasErrors()) {
+        console.log('errors: ', statData.errors);
+        return;
+    }
+    if (stats.hasWarnings()) {
+        console.log('warnings: ', statData.warnings.join('\n'));
+    }
+
+    const { version, hash, time, builtAt, assets, chunks, modules } = statData;
+    console.log({ version, hash, time, builtAt });
+
+    for (const asset of assets) {
+        console.log(`asset ${asset.name} size ${asset.size}`);
+    }
+    for (const chunk of chunks) {
+        console.log(`chunk#${chunk.id}: ${chunk.names.join(', ')}`);
+    }
+    for (const module of modules) {
+        console.log(`module#${module.id}: '${module.name}', size ${module.size}`);
+    }
+}
+
 function buildServer(options) {
-     
+ 
     // NOTE: according to source code, createProgramOptions.options is used instead of CompilerHost.options
     const host = ts.createCompilerHost({});
    
@@ -86,58 +134,28 @@ function buildServer(options) {
 
     const emitResult = program.emit();
     console.log('emit ' + (emitResult.emitSkipped ? 'failed' : 'success'));
-    for (const { file, start, messageText } of ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics)) {
-        if (file) {
-            const { line, character } = file.getLineAndCharacterOfPosition(start);
-            process.stdout.write(`${file.fileName} (${line + 1},${character + 1}): `);
-        }
-        console.log(ts.flattenDiagnosticMessageText(messageText, '\n'));
-    }
+    ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).map(d => ts.formatDiagnostic(d, formatHost));
 
-    webpack({
-        mode: 'development',
-        entry: './custom_build/index.js',
-        target: 'node',
-        output: {
-            path: path.join(projectDirectory, 'build'),
-            filename: 'server.js',
-        },
-        externals: Object.keys(nodePackage.dependencies)
-            .reduce((x, e) => { x[e] = 'commonjs ' + e; return x; }, {}),
-    }, (err, stats) => {
-        if (err) {
-            console.log('webpack error: ');
-            console.log(err);
-            return;
-        }
+    webpack(webpackServerConfig, webpackHandler);
+}
+function watchServer(options) {
 
-        const statData = stats.toJson();
-        if (stats.hasErrors()) {
-            console.log('errors: ', statData.errors);
-            return;
-        }
-        if (stats.hasWarnings()) {
-            console.log('warnings: ', statData.warnings.join('\n'));
-        }
+    const diagnosticReporter = d => process.stdout.write(ts.formatDiagnostic(d, formatHost));
+    const host = ts.createWatchCompilerHost(
+        ['src/server/index.ts'], typescriptServerConfig, ts.sys, 
+        ts.createEmitAndSemanticDiagnosticsBuilderProgram, diagnosticReporter, diagnosticReporter);
 
-        const { version, hash, time, builtAt, assets, chunks, modules } = statData;
-        console.log({ version, hash, time, builtAt });
-
-        for (const asset of assets) {
-            console.log(`asset ${asset.name} size ${asset.size}`);
-        }
-        for (const chunk of chunks) {
-            console.log(`chunk#${chunk.id}: ${chunk.names.join(', ')}`);
-        }
-        for (const module of modules) {
-            console.log(`module#${module.id}: '${module.name}', size ${module.size}`);
-        }
-    });
+    ts.createWatchProgram(host);
+    webpack(webpackServerConfig).watch({ aggregateTimeout: 1000 }, webpackHandler);
 }
 
 const { targetName, targetType, targetOptions } = checkProcessArguments();
 
 if (targetName == 'server') {
-    buildServer(targetOptions);
+    if (targetOptions.watch) {
+        watchServer(targetOptions);
+    } else {
+        buildServer(targetOptions);
+    }
 }
 
