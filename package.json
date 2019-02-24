@@ -3,11 +3,9 @@
   "version": "0.1.0",
   "description": "a personal website for fun",
   "scripts": {
-    "build": "node scripts/build.js",
     "build-client": "./build-client",
     "build-client-logs": "tsc --project tsconfig/client.logs.json",
     "build-client-index": "tsc --project tsconfig/client.index.json && lessc src/client/index.less asset/static/index.css",
-    "build-server": "tsc --project tsconfig/server.json",
     "start-server": "tsc --project tsconfig/server.json && nodejs build/server/index.js",
     "dev-main": "tsc --project tsconfig/server.json && node build/server/dev-main.js",
     "stop-server": "pkill --signal SIGINT nodejs || true"
@@ -36,6 +34,8 @@
     "awesome-typescript-loader": "^5.2.1",
     "chalk": "^2.4.2",
     "csstype": "^2.6.2",
+    "filesize": "^4.1.2",
+    "memory-fs": "^0.4.1",
     "minimist": "^1.2.0",
     "react": "^16.7.0",
     "react-dom": "^16.7.0",

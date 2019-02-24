@@ -9,7 +9,7 @@ const levels: Level[] = ['info', 'error'];
 type CachePolicy = 'lazy' | 'eager';
 const policies = { 'info': 'lazy' as CachePolicy, 'error': 'eager' as CachePolicy };
 
-const timedFlushInterval = 30_000; // 600_000; // 10 minutes
+const timedFlushInterval = 600_000; // 10 minutes
 
 const rootDirectory = process.cwd();
 const logsDirectory = path.join(rootDirectory, 'logs');

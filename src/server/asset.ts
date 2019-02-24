@@ -5,7 +5,7 @@ import * as moment from 'moment';
 import logger from './logger';
 
 // temp, should be in logger
-const formatLogTime = (time: number) => moment(time).format('Y-M-D HH:mm:ss.sss Z');
+const formatLogTime = (time: number) => moment(time).format('Y-M-D HH:mm:ss.SSS Z');
 
 const rootDirectory = process.cwd();
 const assetDirectory = path.join(rootDirectory, 'asset');
