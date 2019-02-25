@@ -28,32 +28,32 @@ function defaultStatHandler(err, stats) {
     }
 
     const { version, hash, time, assets, chunks, modules } = statData;
-    reporter.writeWithHeader(`bundle finsihed in ${chalk.yellow(time.toString() + 'ms')}, hash ${chalk.yellow(hash)}`);
+    reporter.writeWithHeader(chalk`{cyan bundled} in {yellow ${time.toString()}ms}, hash {yellow ${hash}}`);
 
     for (let assetIndex = 0; assetIndex < assets.length; ++assetIndex) {
         const asset = assets[assetIndex];
-        console.log(chalk`{gray asset#}${assetIndex} {yellow ${asset.name}} {gray size} {yellow ${filesize(asset.size)}}`);
-
-        for (const chunkId of asset.chunks) {
-            const chunk = chunks.find(c => c.id == chunkId);
-            console.log(chalk`  {gray chunk#}${chunkId} ` 
-                + chalk`{yellow ${chunk.names.join(',')}} {gray size} {yellow ${filesize(chunk.size)}}`);
-
-            let externalModuleCount = 0;
-            for (let moduleIndex = 0; moduleIndex < chunk.modules.length; ++moduleIndex) {
-                const module = chunk.modules[moduleIndex];
-                if (!module.name.startsWith('external')) {
-                    console.log(chalk`    {gray #${moduleIndex}} ` 
-                        + chalk`${module.name} {gray size ${filesize(module.size)}}`);
-                } else {
-                    externalModuleCount += 1;
-                }
-            }
-            console.log(chalk`    {gray + ${externalModuleCount} external modules}`);
-        }
+        console.log(chalk`{gray asset#}${assetIndex} {yellow ${asset.name}}` 
+            + chalk` {gray size} {yellow ${filesize(asset.size)}} {gray chunks} [${asset.chunks.join(', ')}]`);
     }
 
-    reporter.writeWithHeader('end of bundle stat');
+    for (const chunk of chunks) {
+        console.log(chalk`{gray chunk#}${chunk.id} ` 
+            + chalk`{yellow ${chunk.names.join(',')}} {gray size} {yellow ${filesize(chunk.size)}}`);
+
+        let externalModules = [];
+        for (let moduleIndex = 0; moduleIndex < chunk.modules.length; ++moduleIndex) {
+            const module = chunk.modules[moduleIndex];
+            if (!module.name.startsWith('external')) {
+                console.log(chalk`  {gray #${moduleIndex}} ` 
+                    + chalk`${module.name} {gray size ${filesize(module.size)}}`);
+            } else {
+                externalModules.push(module.name.slice(10, -1)); // pattern is 'external ".+"'
+            }
+        }
+        console.log(chalk`  {gray +} ${externalModules.length} {gray external modules} ${externalModules.join(', ')}`);
+    }
+
+    reporter.writeWithHeader(chalk`end of {cyan bundle stat}`);
 }
 
 module.exports = class WebpackRunner {
@@ -62,7 +62,7 @@ module.exports = class WebpackRunner {
     }
     
     run({ inputFileSystem }) {
-        reporter.writeWithHeader('bundling');
+        reporter.writeWithHeader(chalk.cyan('bundling'));
         this.compiler.inputFileSystem = inputFileSystem;
         this.compiler.run(defaultStatHandler);
     }

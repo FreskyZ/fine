@@ -21,6 +21,9 @@ const typescriptBaseConfig = {
     strictBindCallApply: true,
     strictNullChecks: true,
     strictPropertyInitialization: true,
+    removeComments: true,
+    sourceMap: true,
+    inlineSources: true,
 };
 
 module.exports = {
@@ -36,6 +39,7 @@ module.exports = {
         mode: 'development',
         entry: '/dummy-build/index.js',
         target: 'node',
+        devtool: 'source-map',
         output: {
             path: path.join(projectDirectory, 'build'),
             filename: 'server.js',

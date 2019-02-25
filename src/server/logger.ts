@@ -3,6 +3,10 @@ import * as path from 'path';
 import * as express from 'express';
 import * as moment from 'moment';
 
+export function logger_dummy(callback: () => void): void {
+    callback();
+}
+
 type Level = 'info' | 'error';
 const levels: Level[] = ['info', 'error'];
 

@@ -39,7 +39,8 @@ function getDiagnosticsSummary(diagnostics) {
 // type: normal | watch-status-change 
 function printDiagnostic({ category, code, messageText, file, start }, type = 'normal') {
     const { name: categoryName, color: categoryColor } = diagnosticCategories[category];
-    const displayCode = chalk[categoryColor](`TS${code} `);
+    const displayCode = type == 'watch-status-change' && (code == 6031 || code == 6032) 
+        ? chalk`{inverse TS${code}} ` : chalk[categoryColor](`TS${code} `);
     const displayMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
     
     let fileAndPosition = '';
@@ -49,10 +50,11 @@ function printDiagnostic({ category, code, messageText, file, start }, type = 'n
         fileAndPosition = chalk.yellow(`${fileName}:${line + 1}:${column + 1} `);
     }
 
+    const result = displayCode + fileAndPosition + displayMessage;
     if (type == 'normal') {
-        reporter.write(displayCode + fileAndPosition + displayMessage);
+        reporter.write(result);
     } else if (type == 'watch-status-change') {
-        reporter.writeWithHeader(displayCode + fileAndPosition + displayMessage);
+        reporter.writeWithHeader(result);
     }
 }
 
@@ -63,11 +65,48 @@ module.exports = class TypeScriptCompiler extends EventEmitter {
         this.mode = null; // null | run | watch, run/watch can only be called once
         this.rootNames = buildConfig[`tsc:${configName}:roots`];
         this.compilerOptions = buildConfig[`tsc:${configName}:options`];
+
+        // emit file report
+        this.emittingFiles = false;
+        this.emittedFiles = []; // { name, size, mapSize }
     }
 
+    _markStartEmitting() {
+        this.emittingFiles = true;
+    }
+    _markStopEmitting() {
+        this.emittingFiles = false;
+        const emittedFiles = this.emittedFiles.slice();
+        this.emittedFiles = [];
+
+        for (const { name, size, mapSize } of emittedFiles) {
+            reporter.write(chalk`  emit {yellow ${name}} ` 
+                + chalk`{gray size} ${filesize(size)} {gray -.js.map size} ${filesize(mapSize)}`);
+        }
+    }
     _hookOutput(host, outputFileSystem) {
         host.writeFile = (fileName, content, _writeBOM, onError, sourceFiles) => {
-            reporter.write(chalk`  emit {yellow ${fileName}} {gray size} ${filesize(content.length)}`);
+            
+            if (this.emittingFiles) {
+                const isJs = path.extname(fileName) == '.js';
+                const jsName = isJs ? fileName : path.join(path.dirname(fileName), path.basename(fileName, '.map'));
+                const maybeEntry = this.emittedFiles.find(f => f.name == jsName);
+                if (maybeEntry != null) {
+                    if (isJs) {
+                        maybeEntry.size = content.length;
+                    } else {
+                        maybeEntry.size = content.length;
+                    }
+                } else {
+                    if (isJs) {
+                        this.emittedFiles.push({ name: jsName, size: content.length, mapSize: 0 });
+                    } else {
+                        this.emittedFiles.push({ name: jsName, size: 0, mapSize: content.length });
+                    }
+                }   
+            } else {
+                reporter.write(chalk`  emit {yellow ${fileName}} {gray size} ${filesize(content.length)}`);
+            }
 
             try {
                 outputFileSystem.mkdirpSync(path.dirname(fileName));
@@ -103,13 +142,16 @@ module.exports = class TypeScriptCompiler extends EventEmitter {
 
         const program = ts.createProgram({ rootNames: this.rootNames, options: this.compilerOptions, host });
 
-        reporter.writeWithHeader('transpiling');
+        reporter.writeWithHeader(chalk`{cyan transpiling}`);
+
+        this._markStartEmitting();
         const { diagnostics } = program.emit();
+        this._markStopEmitting();
+
         const { success, message: summary } = getDiagnosticsSummary(diagnostics);
-        reporter.writeWithHeader('transpiled with ' + summary);
+        reporter.writeWithHeader(chalk`{cyan transpiled} with ${summary}`);
         diagnostics.map(d => printDiagnostic(d, 'normal'));
-        if (diagnostics.length > 0) reporter.writeWithHeader('end of transpile diagnostics');
-        
+        if (diagnostics.length > 0) reporter.writeWithHeader(chalk`{cyan end of transpile diagnostics}`);
         return success;
     }
 
@@ -120,8 +162,14 @@ module.exports = class TypeScriptCompiler extends EventEmitter {
         const host = ts.createWatchCompilerHost(this.rootNames, this.compilerOptions, ts.sys, 
             ts.createEmitAndSemanticDiagnosticsBuilderProgram, d => printDiagnostic(d, 'normal'), d => {
                 printDiagnostic(d, 'watch-status-change');
-                if (d.code == 6194 && typeof d.messageText == 'string' && d.messageText.startsWith('Found 0')) {
-                    this.emit('after-watch-recompile');
+                if (d.code == 6031 || d.code == 6032) {
+                    this._markStartEmitting();
+                }
+                if (d.code == 6194) {
+                    this._markStopEmitting();
+                    if (typeof d.messageText == 'string' && d.messageText.startsWith('Found 0')) {
+                        this.emit('after-watch-recompile');
+                    }
                 }
             });
         this._hookOutput(host, outputFileSystem);
