@@ -1,22 +1,42 @@
+///<reference path="../types/stacktrace-js.d.ts"/>
+
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
 import express from 'express';
+import * as SourceMap from 'source-map';
+import * as StackTrace from 'stacktrace-js';
 import config from './config';
 import logger, { setupLogFileAPI, logger_dummy } from './logger';
 import { setupAssets } from './asset';
 import { setup as setupAuthAPI } from './auth';
 import SehuController from './api/sehu';
 
+Error.stackTraceLimit = 100;
+const runtimeExecutableFullPath = process.argv[1];
+const stackFrameFilter = (f: StackTrace.StackFrame): boolean =>
+    f.fileName == runtimeExecutableFullPath && f.lineNumber !== undefined && f.columnNumber !== undefined;
+
 process.on('uncaughtException', err => {
-    console.log(err.stack);
-    process.exit(1);
+    Promise.all([
+        StackTrace.fromError(err, { filter: stackFrameFilter }),
+        new SourceMap.SourceMapConsumer(fs.readFileSync(runtimeExecutableFullPath + '.map').toString())
+    ]).then(([frames, sourceMap]) => {
+        for (const { lineNumber: generatedLine, columnNumber: generatedColumn } of frames) {
+            const { source: originalFileName, line: originalLine, column: originalColumn}
+                = sourceMap.originalPositionFor({ line: generatedLine!, column: generatedColumn! });
+            console.log(`   generated ${generatedLine}:${generatedColumn} `
+                + `from original ${originalFileName}:${originalLine}:${originalColumn}`);
+       }
+        process.exit(1);
+    });
 });
+
 
 function index_dummy(): void {
     logger_dummy(() => {
-        throw new Error('unknown exception');
+        console.log('hello, bye'); throw new Error('unknown exception');
     });
 }
 index_dummy();
