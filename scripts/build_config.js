@@ -23,7 +23,6 @@ const typescriptBaseConfig = {
     strictPropertyInitialization: true,
     removeComments: true,
     sourceMap: true,
-    inlineSources: true,
 };
 
 module.exports = {
@@ -41,11 +40,15 @@ module.exports = {
         target: 'node',
         devtool: 'source-map',
         output: {
-            path: path.join(projectDirectory, 'build'),
+            path: '/dummy-build',
             filename: 'server.js',
         },
         externals: Object.keys(nodePackage.dependencies)
             .reduce((x, e) => { x[e] = 'commonjs ' + e; return x; }, {}),
+    },
+    'source-map-merger:server': {
+        input: '/dummy-build/server.js.map',
+        output: '/dummy-build/server.js.map.2',
     },
 };
 

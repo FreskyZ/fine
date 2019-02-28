@@ -40,7 +40,7 @@ function getDiagnosticsSummary(diagnostics) {
 function printDiagnostic({ category, code, messageText, file, start }, type = 'normal') {
     const { name: categoryName, color: categoryColor } = diagnosticCategories[category];
     const displayCode = type == 'watch-status-change' && (code == 6031 || code == 6032) 
-        ? chalk`{inverse TS${code}} ` : chalk[categoryColor](`TS${code} `);
+        ? chalk`{inverse TS${code}} ` : chalk[categoryColor](`  TS${code} `);
     const displayMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
     
     let fileAndPosition = '';

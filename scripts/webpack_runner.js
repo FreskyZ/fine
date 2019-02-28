@@ -1,3 +1,4 @@
+const EventEmitter = require('events');
 const chalk = require('chalk');
 const filesize = require('filesize');
 const webpack = require('webpack');
@@ -6,8 +7,9 @@ const Reporter = require('./reporter');
 
 const reporter = new Reporter('webpack');
 
-module.exports = class WebpackRunner {
+module.exports = class WebpackRunner extends EventEmitter {
     constructor({ configName }) {
+        super();
         this.lastHash = null;
         this.compiler = webpack(buildConfig[`webpack:${configName}`]);
     }
@@ -15,6 +17,7 @@ module.exports = class WebpackRunner {
     defaultStatHandler(err, stats) {
         if (err) {
             reporter.writeWithHeader(`error: ${err}`);
+            this.emit('bundle-error');
             return;
         }
 
@@ -24,6 +27,7 @@ module.exports = class WebpackRunner {
             for (const error of statData.errors) {
                 console.error(error);
             }
+            this.emit('bundle-error');
             return;
         }
         if (stats.hasWarnings()) {
@@ -64,11 +68,16 @@ module.exports = class WebpackRunner {
             this.lastHash = hash;
             reporter.writeWithHeader(chalk`end of {cyan bundle stat}`);
         }
+
+        this.emit('bundle-success', statData);
     }
  
-    run({ inputFileSystem }) {
+    run({ fileSystem }) {
         reporter.writeWithHeader(chalk.cyan('bundling'));
-        this.compiler.inputFileSystem = inputFileSystem;
+        
+        this.compiler.inputFileSystem = fileSystem;
+        this.compiler.outputFileSystem = fileSystem;
+
         this.compiler.run(this.defaultStatHandler.bind(this));
     }
 };
