@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "description": "a personal website for fun",
   "scripts": {
-    "build-server": "tsc src/server/index.ts --lib esnext --moduleResolution node --module commonjs -target ESNEXT --sourceMap --outDir build && mv build/index.js build/server.js",
-    "start-server": "nodejs build/server.js",
-    "stop-server": "pkill --signal SIGINT nodejs || true"
   },
   "repository": {
     "type": "git",

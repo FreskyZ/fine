@@ -1,4 +1,0 @@
-Contact: mailto: FreskyZ@outlook.com
-Preferred-Languages: en, zh-CN
-Canonical: https://www.freskyz.com/security.txt
-

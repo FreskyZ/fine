@@ -1,0 +1,103 @@
+html {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: monospace;
+    margin: 0;
+    padding: 10px;
+    transition: opacity 0.5s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+canvas {
+    border: 1px solid lightgray;
+}
+canvas#top-layer {
+    position: relative;
+    top: -402px;
+}
+canvas#test-layer {
+    position: relative;
+    top: -804px;
+    left: 610px;
+}
+
+div#main-container {
+    position: relative;
+    top: -700px;
+
+    padding: 10px;
+    border-radius: 10px;
+    background-color: #00000008;
+    border: 2px solid lightgray;
+    display: grid;
+    grid-template-rows: repeat(22, 16px);
+    grid-template-columns: repeat(54, 7px);
+}
+
+button {
+    font: inherit;
+    margin: 0;
+    padding: 0;
+}
+
+.invisible {
+    display: none;
+    opacity: 0;
+}
+
+span.cell {
+    color: #444;
+    transition: background-color 1s;
+}
+span.cell.faint {
+    opacity: .5;
+}
+span.cell.slider {
+    background-color: rgb(0, 183, 255);
+    color: white;
+    transition: none;
+}
+span.cell.interactive {
+    cursor: pointer;
+    color: #009;
+}
+span.cell.beacon-disabled {
+    color: white;
+    background-color: black;
+}
+span.cell.beacon-inactive {
+    background-color: yellow;
+}
+span.cell.beacon-active {
+    background-color: rgb(255, 208, 0);
+}
+span.cell.beacon-level-finished {
+    background-color: orange;
+}
+
+#powers-container {
+    transition: opacity 2s;
+}
+
+.trophy {
+    display: inline-block;
+    margin: 0;
+}
+#tropy-money {
+    margin-bottom: -1em;
+}
+#trophy-case {
+    display: inline-block;
+}

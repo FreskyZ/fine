@@ -48,7 +48,7 @@ app.use((request, response, next) => {
 
 // 404 by the way
 app.use((_, response) => {
-    response.status(404).end();
+    response.redirect('/x');
 });
 
 const certificate = fs.readFileSync('<SSL_CERT>', 'utf-8');
