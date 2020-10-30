@@ -7,7 +7,7 @@ const projectDirectory = process.cwd();
 const typescriptBaseConfig = {
     module: ts.ModuleKind.CommonJS,
     allowSyntheticDefaultImports: true,
-    target: ts.ScriptTarget.ES2017,
+    target: ts.ScriptTarget.ES2018,
     noEmitOnError: true,
     noErrorTruncation: true,
     noFallthroughCaseInSwitch: true,

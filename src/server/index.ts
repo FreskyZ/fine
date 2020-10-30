@@ -33,7 +33,6 @@ process.on('uncaughtException', err => {
     });
 });
 
-
 function index_dummy(): void {
     logger_dummy(() => {
         console.log('hello, bye'); throw new Error('unknown exception');
