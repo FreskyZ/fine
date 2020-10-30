@@ -1,13 +1,35 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const fs = require("fs");
-const path = require("path");
-const chalk_1 = require("chalk");
-const filesize = require("filesize");
-const moment = require("moment");
-const webpack = require("webpack");
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const chalk_1 = __importDefault(require("chalk"));
+const filesize = __importStar(require("filesize"));
+const moment = __importStar(require("moment"));
+const webpack = __importStar(require("webpack"));
 // webpack loads it by name, but if not import here, tsc will ignore that file
-const typescript_loader = require("./typescript-loader");
+const typescript_loader = __importStar(require("./typescript-loader"));
 function __use(_) { }
 __use(typescript_loader);
 const projectDirectory = process.cwd();

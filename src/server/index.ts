@@ -1,97 +1,63 @@
-///<reference path="../types/stacktrace-js.d.ts"/>
-
 import * as fs from 'fs';
-import * as path from 'path';
-import * as http from 'http';
 import * as https from 'https';
-import express from 'express';
-import * as SourceMap from 'source-map';
-import * as StackTrace from 'stacktrace-js';
-import config from './config';
-import logger, { setupLogFileAPI, logger_dummy } from './logger';
-import { setupAssets } from './asset';
-import { setup as setupAuthAPI } from './auth';
-import SehuController from './api/sehu';
+import * as express from 'express';
 
-Error.stackTraceLimit = 100;
-const runtimeExecutableFullPath = process.argv[1];
-const stackFrameFilter = (f: StackTrace.StackFrame): boolean =>
-    f.fileName == runtimeExecutableFullPath && f.lineNumber !== undefined && f.columnNumber !== undefined;
+const app = express();
 
-process.on('uncaughtException', err => {
-    Promise.all([
-        StackTrace.fromError(err, { filter: stackFrameFilter }),
-        new SourceMap.SourceMapConsumer(fs.readFileSync(runtimeExecutableFullPath + '.map').toString())
-    ]).then(([frames, sourceMap]) => {
-        for (const { lineNumber: generatedLine, columnNumber: generatedColumn } of frames) {
-            const { source: originalFileName, line: originalLine, column: originalColumn}
-                = sourceMap.originalPositionFor({ line: generatedLine!, column: generatedColumn! });
-            console.log(`   generated ${generatedLine}:${generatedColumn} `
-                + `from original ${originalFileName}:${originalLine}:${originalColumn}`);
-       }
-        process.exit(1);
-    });
-});
-
-function index_dummy(): void {
-    logger_dummy(() => {
-        console.log('hello, bye'); throw new Error('unknown exception');
-    });
-}
-index_dummy();
-
-let app = express();
-
-setupAuthAPI(app);
-setupLogFileAPI(app);
-const assets = setupAssets(app, [
-    { route: '/', mapper: (name: string) =>
-        name == 'index.html' ? '' : name.endsWith('.html') ? path.basename(name, '.html') : name },
-    { route: '/app', mapper: 'remove-ext' },
-    { route: '/static', mapper: 'default' },
-]);
-
-// api
-app.use('/api/sehu', SehuController);
-
-// default to 404
-app.use((request, response, _next) => {
-    if (request.accepts('html')) {
-        logger.error('request', `${request.method} ${request.url}: route not exist, redirect to /404`);
-        response.redirect('/404');
+// index
+app.get('/', (request, response, next) => {
+    if (request.subdomains.length == 0 || (request.subdomains.length == 1 && request.subdomains[0] == 'www')) {
+        response.send('temp server for cert');
     } else {
-        logger.error('request', `${request.method} ${request.url}: route not exist, return 404`);
-        response.status(404).end();
+        next();
     }
 });
 
-// start servers
-const ssl_key_file = fs.readFileSync(config['ssl-key']);
-const ssl_cert_file = fs.readFileSync(config['ssl-cert']);
-const secureServer = https.createServer({ key: ssl_key_file, cert: ssl_cert_file }, app);
-logger.info('server', ' starting secure server on port 443');
-secureServer.listen(8001);
+// well known
+app.use('/.well-known', express.static('./asset/.well-known'));
 
-// redirect to https if http
-const insecureServer = http.createServer((request, response) => {
-    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url });
-    response.end();
+// subdomains
+const staticController = express.Router();
+staticController.get('/', (_, response) => {
+    response.send('static controller');
 });
-logger.info('server', 'starting insecure server on port 80');
-insecureServer.listen(8002);
 
-// print something on console so that journalctl can confirm normal init process finished
-console.log('server started, view /logs for more info');
+const driveController = express.Router();
+driveController.get('/', (_, response) => {
+    response.send('drive controller');
+});
 
-// close servers
+const costController = express.Router();
+costController.get('/', (_, response) => {
+    response.send('cost controller');
+});
+
+app.use((request, response, next) => {
+    console.log('request.subdomains:', request.subdomains);
+    if (request.subdomains.length == 1) {
+        if (request.subdomains[0] == 'static') {
+            staticController(request, response, next);
+        } else if (request.subdomains[0] == 'drive') {
+            driveController(request, response, next);
+        } else if (request.subdomains[0] == 'cost') {
+            costController(request, response, next);
+        }
+    }
+    next();
+});
+
+// 404 by the way
+app.use((_, response) => {
+    response.status(404).end();
+});
+
+const certificate = fs.readFileSync('<SSL_CERT>', 'utf-8');
+const privateKey = fs.readFileSync('<SSL_KEY>', 'utf-8');
+const server = https.createServer({ cert: certificate, key: privateKey }, app);
+server.listen(443, () => console.log('secure server started at 443'));
+
 process.on('SIGINT', () => {
-    logger.info('server', 'received SIGINT, start finalize');
-
-    logger.info('server', 'closing servers');
-    secureServer.close();
-    insecureServer.close();
-
-    logger.info('server', 'closing watchers');
-    assets.map(a => a.stopWatch());
+    console.log('server', 'received SIGINT, stop');
+    server.close();
+    process.exit();
 });
-
