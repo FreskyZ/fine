@@ -1,13 +1,15 @@
-import * as fs from 'fs';
-import * as https from 'https';
-import * as express from 'express';
+import fs from 'fs';
+import http from 'http';
+import https from 'https';
+import express from 'express';
+import config from './config.js';
 
 const app = express();
 
 // index
 app.get('/', (request, response, next) => {
     if (request.subdomains.length == 0 || (request.subdomains.length == 1 && request.subdomains[0] == 'www')) {
-        response.send('temp server for cert');
+        response.send('home page');
     } else {
         next();
     }
@@ -33,7 +35,6 @@ costController.get('/', (_, response) => {
 });
 
 app.use((request, response, next) => {
-    console.log('request.subdomains:', request.subdomains);
     if (request.subdomains.length == 1) {
         if (request.subdomains[0] == 'static') {
             staticController(request, response, next);
@@ -48,16 +49,26 @@ app.use((request, response, next) => {
 
 // 404 by the way
 app.use((_, response) => {
-    response.redirect('/x');
+    response.status(404).end();
 });
 
-const certificate = fs.readFileSync('<SSL_CERT>', 'utf-8');
-const privateKey = fs.readFileSync('<SSL_KEY>', 'utf-8');
-const server = https.createServer({ cert: certificate, key: privateKey }, app);
+const privateKey = fs.readFileSync(config["ssl-key"], 'utf-8');
+const certificate = fs.readFileSync(config["ssl-cert"], 'utf-8');
+const server = https.createServer({ key: privateKey, cert: certificate }, app);
 server.listen(443, () => console.log('secure server started at 443'));
+
+const insecureServer = http.createServer((request, response) => {
+    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url });
+    response.end();
+});
+insecureServer.listen(80, () => console.log('insecure server started at 80'));
 
 process.on('SIGINT', () => {
     console.log('server', 'received SIGINT, stop');
-    server.close();
-    process.exit();
+    Promise.all([
+        new Promise(resolve => server.close(() => resolve())),
+        new Promise(resolve => insecureServer.close(() => resolve())),
+    ]).then(() => {
+        process.exit();
+    });
 });

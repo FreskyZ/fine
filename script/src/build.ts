@@ -1,121 +1,117 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import chalk from 'chalk';
-import * as filesize from 'filesize';
-import * as moment from 'moment';
-import * as webpack from 'webpack';
+import path from 'path';
+import filesize from 'filesize';
+import ts from 'typescript';
+import webpack from 'webpack';
+import * as webpackt from './webpack-additional';
 
-// webpack loads it by name, but if not import here, tsc will ignore that file
-import * as typescript_loader from './typescript-loader';
-
-function __use(_: any) {}
-__use(typescript_loader);
-
-const projectDirectory = process.cwd();
-const nodePackageContent = fs.readFileSync(path.join(projectDirectory, 'package.json'));
-const nodePackage = JSON.parse(nodePackageContent.toString()) as { dependencies: string[] };
-
-declare module 'chalk' {
-    type PlaceholderType = string | number;
-    interface Chalk {
-        (text: TemplateStringsArray, ...placeholders: PlaceholderType[]): string;
-    }
-}
-class Reporter {
-    public constructor(public cat: string) {
-    }
-
-    public write(message: string) {
-        console.log(message);
-    }
-    public writeWithHeader(message: string) {
-        console.log(chalk`[{gray ${this.cat}@${moment().format('HH:mm:ss')}]} ${message}`);
-    }
+const rootDirectory = '<ROOTDIR>';
+const basicOptions: ts.CompilerOptions = {
+    lib: ['lib.es2020.d.ts'],
+    target: ts.ScriptTarget.ES2020,
+    module: ts.ModuleKind.ES2020,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    allowSyntheticDefaultImports: true,
+    noEmitOnError: true,
+    noImplicitAny: true,
 };
-const reporter = new Reporter('webpack');
 
-function webpackHandler(err: Error, stats: webpack.Stats) {
-    if (err) {
-        reporter.writeWithHeader(`error: ${err}`);
-        // this.emit('bundle-error');
-        return;
-    }
+function tsc(entry: string, options: ts.CompilerOptions) {
+    const program = ts.createProgram([entry], options);
+    const emitResult = program.emit();
 
-    const statData = stats.toJson();
-    if (stats.hasErrors()) {
-        reporter.writeWithHeader(`${statData.errors.length} bundle errors`);
-        for (const error of statData.errors) {
-            console.error(error);
-        }
-        // this.emit('bundle-error');
-        return;
-    }
-    if (stats.hasWarnings()) {
-        reporter.writeWithHeader(`${statData.warnings.length} bundle warnings`);
-        for (const warning of statData.warnings) {
-            console.log(warning);
+    for (const diagnostic of ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics)) {
+        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+        if (diagnostic.file) {
+            const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+            console.log(`[E${diagnostic.code}] ${diagnostic.file.fileName} at ${line + 1}:${character + 1}: ${message}`);
+        } else {
+            console.log(`[E${diagnostic.code}] ${message}`);
         }
     }
-
-    let lastHash = '';
-    const { version, hash, time, assets, chunks, modules } = statData;
-    reporter.writeWithHeader(chalk`{cyan bundled} in {yellow ${time.toString()}ms}, `
-        + chalk`hash {yellow ${hash}}{green ${hash == lastHash ? ' same as last' : ''}}`);
-
-    if (hash != lastHash) {
-        for (let assetIndex = 0; assetIndex < assets.length; ++assetIndex) {
-            const asset = assets[assetIndex];
-            console.log(chalk`{gray asset#}${assetIndex} {yellow ${asset.name}}`
-                + chalk` {gray size} {yellow ${filesize(asset.size)}} {gray chunks} [${asset.chunks.join(', ')}]`);
-        }
-
-        for (const chunk of chunks) {
-            console.log(chalk`{gray chunk#}${chunk.id} `
-                + chalk`{yellow ${chunk.names.join(',')}} {gray size} {yellow ${filesize(chunk.size)}}`);
-
-            let externalModules = [];
-            for (let moduleIndex = 0; moduleIndex < chunk.modules.length; ++moduleIndex) {
-                const module = chunk.modules[moduleIndex];
-                if (!module.name.startsWith('external')) {
-                    console.log(chalk`  {gray #${moduleIndex}} `
-                        + chalk`${module.name} {gray size ${filesize(module.size)}}`);
-                } else {
-                    externalModules.push(module.name.slice(10, -1)); // pattern is 'external ".+"'
-                }
-            }
-            console.log(chalk`  {gray +} ${externalModules.length} {gray external modules} ${externalModules.join(', ')}`);
-        }
-
-        // this.lastHash = hash;
-        reporter.writeWithHeader(chalk`end of {cyan bundle stat}`);
-    }
-
-    // this.emit('bundle-success', statData);
+    return emitResult;
 }
 
-webpack({
-    mode: 'development',
-    entry: './src/server/index.ts',
-    target: 'node',
-    devtool: 'source-map',
-    module: {
-        rules: [{
-            test: /\.ts$/,
-            use: [{
-                loader: path.join(__dirname, 'typescript-loader'),
-                options: {
-                    compilerOptions: {
-                        outDir: './build/server',
-                    },
-                },
-            }],
-        }],
-    },
-    output: {
-        path: path.join(projectDirectory, 'build'),
-        filename: 'server2.js',
-    },
-    externals: Object.keys(nodePackage.dependencies)
-        .reduce((x, e) => { x[e] = 'commonjs ' + e; return x; }, {} as webpack.ExternalsObjectElement),
-}, webpackHandler);
+function main(commandLine: string[]) {
+    if (commandLine.length == 1 && commandLine.includes('self')) {
+        // "build-bootstrap": "tsc script/src/build.ts --outDir script --lib ES2020 --target ES2020 --module ES2020 --moduleResolution node --allowSyntheticDefaultImports true",
+        const result = tsc(path.join(rootDirectory, 'script/src/build.ts'), {
+            ...basicOptions,
+            types: ["node"],
+            outDir: path.join(rootDirectory, 'script'),
+        });
+        if (result.emitSkipped) {
+            console.log('build self completed with error.');
+        } else {
+            console.log('build self completed successfully.');
+        }
+    } else if (commandLine.length <= 2 && commandLine.includes('server-core')) { // .includes implifies length > 0
 
+        // tsc
+        const result = tsc(path.join(rootDirectory, 'src/server-core/index.ts'), {
+            ...basicOptions,
+            outDir: path.join(rootDirectory, 'build/server-core'),
+        });
+        if (result.emitSkipped) {
+            console.log('[tsc] completed with error');
+            return;
+        } else {
+            console.log('[build] src/server-core/index.js => build/server-core/index.js completed');
+        }
+
+        // webpack
+        const compiler = webpack({
+            mode: 'development',
+            entry: path.join(rootDirectory, 'build/server-core/index.js'),
+            output: {
+                filename: 'server.js',
+                path: path.join(rootDirectory, 'dist/home'),
+            },
+            externals: ['express', 'fs', 'http', 'https'],
+            optimization: {
+                minimize: false,
+            },
+            devtool: 'cheap-source-map',
+        });
+        compiler.run((error, stat) => {
+            if (error) {
+                console.log('[webpack] error: ' + error.message);
+                return;
+            }
+
+            const statData = stat.toJson() as webpackt.ToJsonOutput;
+            console.log(`[webpack] ${statData.time}ms ${statData.hash}`);
+            for (const error of statData.errors) {
+                console.error(`[webpack] error: ${error.message}`);
+            }
+            for (const warning of statData.warnings) {
+                console.error(`[webpack] warning: ${warning}`);
+            }
+            for (let assetIndex = 0; assetIndex < statData.assets.length; ++assetIndex) {
+                const asset = statData.assets[assetIndex];
+                console.log(`asset#${assetIndex} ${asset.name} size ${filesize(asset.size)} chunks [${asset.chunks.join(', ')}]`);
+            }
+            for (const chunk of statData.chunks) {
+                console.log(`chunk#${chunk.id} ${chunk.names.join(',')} size ${filesize(chunk.size)}`);
+                let webpackRuntimeCount = 0;
+                let externalModules = [];
+                for (let moduleIndex = 0; moduleIndex < chunk.modules.length; ++moduleIndex) {
+                    const module = chunk.modules[moduleIndex];
+                    if (module.name.startsWith('webpack')) {
+                        webpackRuntimeCount += 1;
+                    } else if (module.name.startsWith('external')) {
+                        externalModules.push(module.name.slice(10, -1)); // pattern is 'external ".+"'
+                    } else {
+                        console.log(`  #${moduleIndex} ${module.name} size ${filesize(module.size)}`);
+                    }
+                }
+                console.log(`  + ${webpackRuntimeCount} webpack runtime modules`);
+                console.log(`  + ${externalModules.length} external modules [${externalModules.join(', ')}]`);
+            }
+            console.log('[build] build/server-core/index.js => dist/home/server.js completed');
+        });
+    } else {
+        console.log('unknown command line, abort');
+    }
+}
+
+main(process.argv.slice(2));
