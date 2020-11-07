@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as express from 'express';
-import { SourceMapConsumer } from 'source-map'
+import { SourceMapConsumer } from 'source-map';
 import config from './config.js';
 import { templ } from './auth.js';
 
@@ -54,12 +54,12 @@ app.use((request, response, next) => {
     next();
 });
 
-const regex1 = /^(?<name>[\w\.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
+const regex1 = /^(?<name>[\w.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
 const regex2 = /^(?<file>.+):(?<line>\d+):(?<column>\d+)$/;
 let sourceMap: SourceMapConsumer; 
 new SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.2.map', 'utf-8'))).then(sm => sourceMap = sm, ex => console.log(`parse source map failed: ${ex}`));
 
-app.use((error: { message: string, stack: string }, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+app.use((error: { message: string, stack: string }, _request: express.Request, response: express.Response) => {
     console.log(`request handler error: ${error.message}`);
     const rawFrames = error.stack.split('\n').slice(1); // first row is error
     for (const rawFrame of rawFrames) {
@@ -100,8 +100,8 @@ app.use((_, response) => {
     response.status(404).end();
 });
 
-const privateKey = fs.readFileSync(config["ssl-key"], 'utf-8');
-const certificate = fs.readFileSync(config["ssl-cert"], 'utf-8');
+const privateKey = fs.readFileSync(config['ssl-key'], 'utf-8');
+const certificate = fs.readFileSync(config['ssl-cert'], 'utf-8');
 const server = https.createServer({ key: privateKey, cert: certificate }, app);
 server.listen(443, () => console.log('secure server started at 443'));
 

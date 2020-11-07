@@ -4,7 +4,8 @@ import * as ts from './run-typescript';
 import * as wp from './run-webpack';
 import * as sm from './run-source-map';
 
-export default async function run(_watch: boolean) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export default async function run(_watch: boolean): Promise<void> {
     console.log('[bud] building server-core');
 
     if (!ts.compile('src/server-core/index.ts', {

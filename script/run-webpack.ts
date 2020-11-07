@@ -4,7 +4,7 @@ import * as filesize from 'filesize';
 import * as webpack from 'webpack';
 import { WebpackPlainStat } from './types';
 
-export async function run(options: webpack.Configuration) {
+export async function run(options: webpack.Configuration): Promise<WebpackPlainStat> {
     // wpb: webpack bundler
     console.log(`[wpb] bundling ${options.entry}`);
 
@@ -18,7 +18,7 @@ export async function run(options: webpack.Configuration) {
         
             // stat contains some properties (maybe recursively) with class types (have methods)
             // to json flattens them to to-json-able value, so the type is called Plain
-            const stats = statObject!.toJson() as WebpackPlainStat;
+            const stats = statObject?.toJson() as WebpackPlainStat;
             console.log(chalk`[wpb] bundled in {yellow ${stats.time}ms}, hash {yellow ${stats.hash}}`);
 
             for (const error of stats.errors) {
@@ -37,7 +37,7 @@ export async function run(options: webpack.Configuration) {
             for (const chunk of stats.chunks) {
                 console.log(chalk`  {gray chunk#}${chunk.id} {yellow ${chunk.names.join(',')}} {gray size} {yellow ${filesize(chunk.size)}}`);
 
-                let externalModules = [];
+                const externalModules = [];
                 for (let moduleIndex = 0; moduleIndex < chunk.modules.length; ++moduleIndex) {
                     const module = chunk.modules[moduleIndex];
                     if (!module.name.startsWith('external')) {

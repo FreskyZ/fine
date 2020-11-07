@@ -1,5 +1,6 @@
 {
     "javascript.format.semicolons": "insert",
     "typescript.format.semicolons": "insert",
-    "javascript.preferences.quoteStyle": "single"
+    "javascript.preferences.quoteStyle": "single",
+    "javascript.validate.enable": false
 }

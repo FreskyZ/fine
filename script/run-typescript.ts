@@ -55,7 +55,7 @@ function printDiagnostic(
 
     let fileAndPosition = '';
     if (file) {
-        const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start!);
+        const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
         fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
     }
 
@@ -66,7 +66,7 @@ function printDiagnostic(
     console.log(displayCode + fileAndPosition + flattenedMessage);
 }
 
-export function compile(entry: string, additionalOptions: Partial<ts.CompilerOptions>) {
+export function compile(entry: string, additionalOptions: Partial<ts.CompilerOptions>): boolean {
     // tsc: typescript compiler
     console.log(`[tsc] transpiling ${entry}`);
 
@@ -76,7 +76,7 @@ export function compile(entry: string, additionalOptions: Partial<ts.CompilerOpt
     console.log(chalk`[tsc] transpile completed with ${summary}`);
     diagnostics.map(d => printDiagnostic('normal', d));
     if (diagnostics.length > 0) {
-        console.log(`[tsc] end of transpile diagnostics`);
+        console.log('[tsc] end of transpile diagnostics');
     }
     
     return success;
