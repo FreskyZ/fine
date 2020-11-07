@@ -1,8 +1,10 @@
-import fs from 'fs';
-import http from 'http';
-import https from 'https';
-import express from 'express';
+import * as fs from 'fs';
+import * as http from 'http';
+import * as https from 'https';
+import * as express from 'express';
+import { SourceMapConsumer } from 'source-map'
 import config from './config.js';
+import { templ } from './auth.js';
 
 const app = express();
 
@@ -13,6 +15,11 @@ app.get('/', (request, response, next) => {
     } else {
         next();
     }
+});
+
+app.get('/make-error', (_, response) => {
+    templ();
+    response.send('unreachable');
 });
 
 // well known
@@ -47,6 +54,47 @@ app.use((request, response, next) => {
     next();
 });
 
+const regex1 = /^(?<name>[\w\.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
+const regex2 = /^(?<file>.+):(?<line>\d+):(?<column>\d+)$/;
+let sourceMap: SourceMapConsumer; 
+new SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.2.map', 'utf-8'))).then(sm => sourceMap = sm, ex => console.log(`parse source map failed: ${ex}`));
+
+app.use((error: { message: string, stack: string }, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    console.log(`request handler error: ${error.message}`);
+    const rawFrames = error.stack.split('\n').slice(1); // first row is error
+    for (const rawFrame of rawFrames) {
+        const frame = rawFrame.trim().slice(3); // trim 'at '
+
+        const match1 = regex1.exec(frame);
+        if (match1) {
+            const structured = ['name', 'asName', 'file', 'line', 'column'].map(n => `${n}: ${match1.groups[n]}`).join(', ');
+            console.log(`structured {${structured}}`);
+            if (sourceMap && match1.groups['line'] && match1.groups['column']) {
+                const { line, column, source } = sourceMap.originalPositionFor({ line: parseInt(match1.groups['line']), column: parseInt(match1.groups['column']) });
+                if (line != null && column != null) {
+                    console.log(`   original: ${source}:${line}:${column}`);
+                }
+            }
+        } else {
+            const match2 = regex2.exec(frame);
+            if (match2) {
+                const structured = ['file', 'line', 'column'].map(n => `${n}: ${match2.groups[n]}`).join(', ');
+                console.log(`structured {${structured}}`);
+                if (sourceMap && match2.groups['line'] && match2.groups['column']) {
+                    const { line, column, source } = sourceMap.originalPositionFor({ line: parseInt(match2.groups['line']), column: parseInt(match2.groups['column']) });
+                    if (line != null && column != null) {
+                        console.log(`   original: ${source}:${line}:${column}`);
+                    }
+                }
+            } else {
+                console.log(`frame (unknown structure) ${frame}`);
+            }
+        }
+    }
+
+    response.status(500).end();
+});
+
 // 404 by the way
 app.use((_, response) => {
     response.status(404).end();
@@ -63,12 +111,13 @@ const insecureServer = http.createServer((request, response) => {
 });
 insecureServer.listen(80, () => console.log('insecure server started at 80'));
 
+
 process.on('SIGINT', () => {
     console.log('server', 'received SIGINT, stop');
     Promise.all([
         new Promise(resolve => server.close(() => resolve())),
         new Promise(resolve => insecureServer.close(() => resolve())),
-    ]).then(() => {
+    ]).finally(() => {
         process.exit();
     });
 });

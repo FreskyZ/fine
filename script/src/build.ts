@@ -1,19 +1,23 @@
-import path from 'path';
-import filesize from 'filesize';
-import ts from 'typescript';
-import webpack from 'webpack';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as filesize from 'filesize';
+import * as ts from 'typescript';
+import * as webpack from 'webpack';
 import * as webpackt from './webpack-additional';
+import * as sm from 'source-map';
+import { fsync } from 'fs/promises';
 
 const rootDirectory = '<ROOTDIR>';
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.es2020.d.ts'],
     target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ES2020,
+    module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    allowSyntheticDefaultImports: true,
     noEmitOnError: true,
     noImplicitAny: true,
 };
+
+const nodePackage = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
 
 function tsc(entry: string, options: ts.CompilerOptions) {
     const program = ts.createProgram([entry], options);
@@ -29,6 +33,49 @@ function tsc(entry: string, options: ts.CompilerOptions) {
         }
     }
     return emitResult;
+}
+
+async function smc() {
+    console.log('merging');
+
+    const generator = new sm.SourceMapGenerator({ file: 'server.js.2', sourceRoot: '' });
+    const consumer1s: { [key: string]: sm.BasicSourceMapConsumer } = {};
+
+    const consumer2 = await new sm.SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.map', 'utf-8')));
+    consumer2.computeColumnSpans();
+    const consumer2Mappings: sm.MappingItem[] = [];
+    consumer2.eachMapping(m => consumer2Mappings.push(m));
+
+    for (const { generatedLine, generatedColumn, source, originalLine, originalColumn } of consumer2Mappings) {
+        if (source == null || originalLine == null || originalColumn == null) continue;
+
+        if (!source.startsWith('webpack://fps/build/')) continue;
+        const actualSource = source.slice(14); // remove 'webpack://fps/'
+
+        const sourceFileMapFileName = actualSource + '.map';
+        if (!fs.existsSync(sourceFileMapFileName)) continue;
+
+        if (!(sourceFileMapFileName in consumer1s)) {
+            consumer1s[sourceFileMapFileName] = await new sm.SourceMapConsumer(JSON.parse(fs.readFileSync(sourceFileMapFileName, 'utf-8')));
+        }
+
+        const consumer1 = consumer1s[sourceFileMapFileName];
+        let { line: actualOriginalLine, column: actualOriginalColumn } = consumer1.originalPositionFor({ line: originalLine, column: originalColumn });
+        if (actualOriginalLine == null || actualOriginalColumn == null) {
+            const { line: actualOriginalLine2, column: actualOriginalColumn2 } = consumer1.originalPositionFor({ line: originalLine, column: originalColumn, bias: sm.SourceMapConsumer.LEAST_UPPER_BOUND });
+            if (actualOriginalLine == null || actualOriginalColumn == null) continue;
+            [actualOriginalLine, actualOriginalColumn] = [actualOriginalLine2, actualOriginalColumn2];
+        }
+
+        generator.addMapping({ 
+            source: 'src' + actualSource.slice(5, -2) + 'ts',
+            original: { line: actualOriginalLine, column: actualOriginalColumn },
+            generated: { line: generatedLine, column: generatedColumn },
+        });
+    }
+
+    fs.writeFileSync('dist/home/server.js.2.map', generator.toString());
+    console.log('merged source map generated');
 }
 
 function main(commandLine: string[]) {
@@ -49,6 +96,7 @@ function main(commandLine: string[]) {
         // tsc
         const result = tsc(path.join(rootDirectory, 'src/server-core/index.ts'), {
             ...basicOptions,
+            sourceMap: true,
             outDir: path.join(rootDirectory, 'build/server-core'),
         });
         if (result.emitSkipped) {
@@ -66,11 +114,9 @@ function main(commandLine: string[]) {
                 filename: 'server.js',
                 path: path.join(rootDirectory, 'dist/home'),
             },
-            externals: ['express', 'fs', 'http', 'https'],
-            optimization: {
-                minimize: false,
-            },
-            devtool: 'cheap-source-map',
+            target: 'node',
+            externals: Object.keys(nodePackage['dependencies']).reduce((acc, p) => ({ ...acc, [p]: `commonjs ${p}` }), {}),
+            devtool: 'hidden-nosources-source-map',
         });
         compiler.run((error, stat) => {
             if (error) {
@@ -109,6 +155,8 @@ function main(commandLine: string[]) {
             }
             console.log('[build] build/server-core/index.js => dist/home/server.js completed');
         });
+    } else if (commandLine.length == 1 && commandLine[0] == 'smc') { // source map merger test
+        smc();
     } else {
         console.log('unknown command line, abort');
     }
