@@ -100,10 +100,10 @@ interface FnModules {
     warnings: number;
 }
 
-export interface ToJsonOutput {
+export interface WebpackPlainStat {
     _showErrors: boolean;
     _showWarnings: boolean;
-    assets?: Array<{
+    assets: Array<{
         chunks: Array<number | string>;
         chunkNames: string[];
         emitted: boolean;
@@ -113,8 +113,8 @@ export interface ToJsonOutput {
     }>;
     assetsByChunkName?: Record<string, string | string[]>;
     builtAt?: number;
-    children?: Array<ToJsonOutput & { name?: string }>;
-    chunks?: Array<{
+    children?: Array<WebpackPlainStat & { name?: string }>;
+    chunks: Array<{
         children: number[];
         childrenByOrder: Record<string, number[]>;
         entry: boolean;
@@ -123,7 +123,7 @@ export interface ToJsonOutput {
         hash?: string;
         id: number | string;
         initial: boolean;
-        modules?: FnModules[];
+        modules: FnModules[];
         names: string[];
         origins?: Array<{
             moduleId?: string | number;

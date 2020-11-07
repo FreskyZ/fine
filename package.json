@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "a personal website for fun",
   "scripts": {
-    "build": "node script/build.js",
+    "build": "node script/bin/build.js",
     "start": "node dist/home/server.js",
     "stop": "pkill --signal SIGINT node || true"
   },
