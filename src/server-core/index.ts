@@ -111,7 +111,6 @@ const insecureServer = http.createServer((request, response) => {
 });
 insecureServer.listen(80, () => console.log('insecure server started at 80'));
 
-
 process.on('SIGINT', () => {
     console.log('server', 'received SIGINT, stop');
     Promise.all([

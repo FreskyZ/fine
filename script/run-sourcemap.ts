@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as sm from 'source-map';
 
-export async function merge(file: string) {
+export async function merge(file: string): Promise<void> {
     // smm: source map merger
     console.log('[smm] source map merging');
 
@@ -36,6 +36,7 @@ export async function merge(file: string) {
 
         generator.addMapping({ 
             source: 'src' + actualSource.slice(5, -2) + 'ts',
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             original: { line: actualOriginalLine!, column: actualOriginalColumn! },
             generated: { line: generatedLine, column: generatedColumn },
         });

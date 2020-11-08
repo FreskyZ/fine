@@ -4,6 +4,7 @@
   "description": "a personal website for fun",
   "scripts": {
     "build": "node script/bin/build.js",
+    "watch": "node script/bin/build.js --watch",
     "start": "node dist/home/server.js",
     "stop": "pkill --signal SIGINT node || true"
   },

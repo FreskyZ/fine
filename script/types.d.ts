@@ -64,7 +64,7 @@ interface Reason {
     loc: string;
 }
 
-interface FnModules {
+export interface WebpackStatModule {
     assets?: string[];
     built: boolean;
     cacheable: boolean;
@@ -86,7 +86,7 @@ interface FnModules {
         name: string;
         profile: any; // TODO
     }>;
-    modules: FnModules[];
+    modules: WebpackStatModule[];
     name: string;
     optimizationBailout?: string;
     optional: boolean;
@@ -100,7 +100,7 @@ interface FnModules {
     warnings: number;
 }
 
-export interface WebpackPlainStat {
+export interface WebpackStat {
     _showErrors: boolean;
     _showWarnings: boolean;
     assets: Array<{
@@ -113,7 +113,7 @@ export interface WebpackPlainStat {
     }>;
     assetsByChunkName?: Record<string, string | string[]>;
     builtAt?: number;
-    children?: Array<WebpackPlainStat & { name?: string }>;
+    children?: Array<WebpackStat & { name?: string }>;
     chunks: Array<{
         children: number[];
         childrenByOrder: Record<string, number[]>;
@@ -123,7 +123,7 @@ export interface WebpackPlainStat {
         hash?: string;
         id: number | string;
         initial: boolean;
-        modules: FnModules[];
+        modules: WebpackStatModule[];
         names: string[];
         origins?: Array<{
             moduleId?: string | number;
@@ -147,7 +147,7 @@ export interface WebpackPlainStat {
     filteredAssets?: number;
     filteredModules?: boolean;
     hash?: string;
-    modules?: FnModules[];
+    modules?: WebpackStatModule[];
     namedChunkGroups?: Record<string, ChunkGroup>;
     needAdditionalPass?: boolean;
     outputPath?: string;

@@ -51,7 +51,7 @@ function printDiagnostic(
 
     const categoryColor = diagnosticCategoryColors[category];
     const displayCode = type == 'watch-status-change'
-        && (code == 6031 || code == 6032) ? chalk`{inverse TS${code}} ` : categoryColor(`  TS${code} `);
+        && (code == 6031 || code == 6032 || code == 6194) ? chalk`[tsc] ` : categoryColor(`  TS${code} `);
 
     let fileAndPosition = '';
     if (file) {
@@ -66,7 +66,10 @@ function printDiagnostic(
     console.log(displayCode + fileAndPosition + flattenedMessage);
 }
 
-export function compile(entry: string, additionalOptions: Partial<ts.CompilerOptions>): boolean {
+// TODO: change back to not async because run-webpack is changing
+
+// although not needed, make this async to look like run-webpack and run-source-map
+export function compile(entry: string, additionalOptions: Partial<ts.CompilerOptions>) {
     // tsc: typescript compiler
     console.log(`[tsc] transpiling ${entry}`);
 
@@ -80,4 +83,17 @@ export function compile(entry: string, additionalOptions: Partial<ts.CompilerOpt
     }
     
     return success;
+}
+
+export function watch(entry: string, additionalOptions: Partial<ts.CompilerOptions>): void {
+    console.log(`[tsc] transpiling watching ${entry}`);
+
+    ts.createWatchProgram(ts.createWatchCompilerHost(
+        [entry],
+        { ...basicOptions, ...additionalOptions },
+        ts.sys,
+        ts.createEmitAndSemanticDiagnosticsBuilderProgram,
+        diagnostic => printDiagnostic('normal', diagnostic),
+        diagnostic => printDiagnostic('watch-status-change', diagnostic),
+    ));
 }
