@@ -18,15 +18,16 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
         console.error(`warning: ${warning}`);
     }
 
-    for (let assetIndex = 0; assetIndex < stats.assets.length; ++assetIndex) {
-        const asset = stats.assets[assetIndex];
-        console.log(chalk`  {gray asset#}${assetIndex} {yellow ${asset.name}}` 
-            + chalk` {gray size} {yellow ${filesize(asset.size)}} {gray chunks} [${asset.chunks.join(', ')}]`);
-    }
 
     const modules = stats.chunks.reduce<WebpackStatModule[]>((acc, chunk) => { acc.push(...chunk.modules); return acc; }, []);
 
     if (previousModules == null) {
+        for (let assetIndex = 0; assetIndex < stats.assets.length; ++assetIndex) {
+            const asset = stats.assets[assetIndex];
+            console.log(chalk`  {gray asset#}${assetIndex} {yellow ${asset.name}}` 
+                + chalk` {gray size} {yellow ${filesize(asset.size)}} {gray chunks} [${asset.chunks.join(', ')}]`);
+        }
+
         for (const chunk of stats.chunks) {
             console.log(chalk`  {gray chunk#}${chunk.id} {yellow ${chunk.names.join(',')}} {gray size} {yellow ${filesize(chunk.size)}}`);
 
@@ -42,10 +43,20 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
             console.log(chalk`    {gray +} ${externalModules.length} {gray external modules} ${externalModules.join(', ')}`);
         }
     } else {
-        for (const newModule of modules.filter(n => !previousModules.some(p => p.name === n.name))) {
-            console.log(chalk`  + ${newModule.name} {gray size ${filesize(newModule.size)}}`);
+        const addedModules = modules.filter(n => !previousModules.some(p => p.name === n.name));
+        const removedModules = previousModules.filter(p => !modules.some(n => n.name === p.name));
+
+        for (let assetIndex = 0; assetIndex < stats.assets.length; ++assetIndex) {
+            const asset = stats.assets[assetIndex];
+            console.log(chalk`  {gray asset#}${assetIndex} {yellow ${asset.name}}` 
+                + chalk` {gray size} {yellow ${filesize(asset.size)}} {gray chunks} [${asset.chunks.join(', ')}]`
+                + (assetIndex == stats.assets.length - 1 && addedModules.length == 0 && removedModules.length == 0 ? chalk`{gray [no module list change]}` : ''));
         }
-        for (const removedModule of previousModules.filter(p => !modules.some(n => n.name === p.name))) {
+
+        for (const addedModule of addedModules) {
+            console.log(chalk`  + ${addedModule.name} {gray size ${filesize(addedModule.size)}}`);
+        }
+        for (const removedModule of removedModules) {
             console.log(chalk`  - {gray removed ${removedModule.name}}`);
         }
     }

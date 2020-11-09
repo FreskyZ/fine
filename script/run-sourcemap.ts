@@ -1,9 +1,12 @@
 import * as fs from 'fs';
 import * as sm from 'source-map';
 
-export async function merge(file: string): Promise<void> {
-    // smm: source map merger
-    console.log('[smm] source map merging');
+// watch does not log output
+export async function merge(file: string, watch: boolean): Promise<void> {
+    if (!watch) {
+        // smm: source map merger
+        console.log('[smm] source map merging');
+    }
 
     const generator = new sm.SourceMapGenerator({ file: 'server.js', sourceRoot: '' });
     const consumer1s: { [key: string]: sm.BasicSourceMapConsumer } = {};
@@ -43,5 +46,7 @@ export async function merge(file: string): Promise<void> {
     }
 
     fs.writeFileSync(file, generator.toString());
-    console.log('[smm] source map merged');
+    if (!watch) {
+        console.log('[smm] source map merged');
+    }
 }

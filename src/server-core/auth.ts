@@ -1,4 +1,4 @@
 
 export function templ() {
-    throw { message: 'some message', stack: new Error().stack };
+    throw new Error('some thing happened');
 }

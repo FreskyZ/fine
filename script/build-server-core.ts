@@ -20,7 +20,9 @@ const webpackConfiguration: wp.Configuration = {
         path: path.join(projectDirectory, 'dist/home'),
     },
     target: 'node',
-    externals: Object.keys(nodePackage['dependencies']).reduce((acc, p) => ({ ...acc, [p]: `commonjs ${p}` }), {}),
+    externals: Object.keys(nodePackage['dependencies'])
+        .concat(['dayjs/plugin/utc'])
+        .reduce((acc, p) => ({ ...acc, [p]: `commonjs ${p}` }), {}),
     devtool: 'hidden-nosources-source-map',
 };
 
@@ -38,14 +40,14 @@ export default async function run(watch: boolean): Promise<void> {
         rwp.run(webpackConfiguration, () => {
             console.log('[bud] build server-core failed at bundling');
         }, () => {
-            rsm.merge(sourcemapEntry).then(() => {
+            rsm.merge(sourcemapEntry, false).then(() => {
                 console.log('[bud] build server-core completed successfully');
             }); // fail is not expected and let it terminate process
         });
     } else {
         rts.watch(typescriptEntry, typescriptOptions);
         rwp.watch(webpackConfiguration, () => {
-            rsm.merge(sourcemapEntry); // nothing special happen for success, and fail is not expected and let it terminate process
+            rsm.merge(sourcemapEntry, true); // nothing special happen for success, and fail is not expected and let it terminate process
         });
     }
 }

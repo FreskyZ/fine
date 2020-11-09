@@ -1,25 +1,40 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as express from 'express';
-import * as moment from 'moment';
+import * as dayjs from 'dayjs';
+
+// logging
+// usage
+// ```
+// import * as log from './logger'
+// log.info('request', { path: '/', by: 'some user' });
+// log.error('request error', { message: 'message', stack: [{ location, name }] })
+// ```
+// internal
+// normal contents are cached until certain amount of entries added
+// eager contents (errors) are flushed immediately
 
 type Level = 'info' | 'error';
 const levels: Level[] = ['info', 'error'];
 
 type CachePolicy = 'lazy' | 'eager';
-const policies = { 'info': 'lazy' as CachePolicy, 'error': 'eager' as CachePolicy };
+const policies: { [key in Level]: CachePolicy } = { 'info': 'lazy', 'error': 'eager' };
 
-const timedFlushInterval = 600_000; // 10 minutes
+interface Entry {
+    t: string, // time, dayjs.toJson ISO8601 format
+    c: any,    // content is any to-json-able object
+}
 
-const rootDirectory = process.cwd();
-const logsDirectory = path.join(rootDirectory, 'logs');
-const formatFileName = (time: moment.Moment, level: Level) => `${time.format('Y-MM-DD')}-${level}.log`;
-const formatFilePath = (time: moment.Moment, level: Level) => path.join(logsDirectory, formatFileName(time, level));
+const lazyFlushCount = 42;         // arbitray not too small and not big value
+const lazyFlushInterval = 600_000; // 10 minutes to flush normal
+const cleanupInterval = 3600_000;  // 1 hour to cleanup outdated logs
+const logReserveDays = 7;          // reserve log for 1 week
 
-interface LogElement { time: string, cat: string, message: string }
+const logsDirectory = path.join(process.cwd(), 'logs');
+function getLogFileName(date: dayjs.Dayjs, level: Level) {
+    return path.join(logsDirectory, `${date.format('YY-MM-DD')}-${level}.log`);
+}
 
-function loadPreviousLogsOrInitialize(fileName: string): LogElement[] {
-
+function loadOrInitializeEntries(fileName: string): Entry[] {
     if (fs.existsSync(fileName)) {
         const content = fs.readFileSync(fileName).toString();
         try {
@@ -34,74 +49,67 @@ function loadPreviousLogsOrInitialize(fileName: string): LogElement[] {
     return [];
 }
 
-interface State { cacheDate: moment.Moment, elements: LogElement[], notFlushedCount: number }
-const states = new Map<Level, State>(levels.map((level): [Level, State] => {
-    const cacheDate = moment().utc();
-    const elements = loadPreviousLogsOrInitialize(formatFilePath(cacheDate, level));
-    return [level, { cacheDate, elements, notFlushedCount: 0 } as State];
-}));
+type State = { [key in Level]: { 
+    date: dayjs.Dayjs,
+    filename: string, 
+    entries: Entry[],
+    notFlushedCount: number,
+} }
+const state = levels.reduce<Partial<State>>((s, level) => {
+    const date = dayjs.utc();
+    const filename = getLogFileName(date, level);
+    const entries = loadOrInitializeEntries(filename); 
+    s[level] = { date, filename, entries, notFlushedCount: 0 };
+    return s;
+}, {}) as State;
 
-function flushLevel(level: Level): void {
-    const state = states.get(level)!;
+function flush(level: Level): void {
+    const { date, filename, entries } = state[level];
 
-    state.notFlushedCount = 0;
-    fs.writeFileSync(formatFilePath(state.cacheDate, level), JSON.stringify(state.elements));
+    state[level].notFlushedCount = 0;
+    fs.writeFileSync(filename, JSON.stringify(entries));
 
     // every level does their switch log file on their own;
-    if (!state.cacheDate.isSame(moment().utc(), 'day')) {
+    if (!date.isSame(dayjs.utc(), 'day')) {
         // only update chaceDate is enough, because other fields flushed just now
-        state.cacheDate = moment();
+        state[level].date = dayjs.utc();
     }
 }
+function write(level: Level, content: any) {
+    const { entries, notFlushedCount } = state[level];
 
-function write(level: Level, cat: string, message: string): void {
-    const state = states.get(level)!;
-
-    state.elements.push({ time: moment().toJSON(), cat, message });
+    entries.push({ t: dayjs.utc().toJSON(), c: content });
 
     if (policies[level] == 'lazy') {
-        if (state.notFlushedCount == 42) {
-            flushLevel(level);
+        if (notFlushedCount == lazyFlushCount) {
+            flush(level);
         } else {
-            state.notFlushedCount += 1;
+            state[level].notFlushedCount += 1;
         }
     } else {
-        flushLevel(level);
+        flush(level);
     }
 }
 
-// this currently only for chain invoking
-class Logger {
-    constructor() {}
-    public info(cat: string, message: string): Logger {
-        write('info', cat, message);
-        return this;
-    }
-    public error(cat: string, message: string): Logger {
-        write('error', cat, message);
-        return this;
-    }
+export function info(content: any) { write('info', content); }
+export function error(content: any) { write('error', content); }
+
+function flushAll() {
+    levels.map(level => flush(level));
 }
+setInterval(flushAll, lazyFlushInterval).unref(); // use unref unless it will block process exit
 
-const flushAll = () => levels.map(level => flushLevel(level));
-setInterval(flushAll, timedFlushInterval).unref(); // call flush every 10 minutes, unref to disable block exit
-process.on('exit', _code => flushAll());
-
-const logger = new Logger();
-export default logger;
-
-// get log file api
-export function setupLogFileAPI(app: express.Application): void {
-    app.get('/logs/:filename', (request, response) => {
-        const fileName = request.params.filename as string;
-        const filePath = path.join(logsDirectory, fileName);
-
-        if (fs.existsSync(filePath)) {
-            response.sendFile(filePath);
-        } else {
-            // send empty file
-            response.status(200).header('Content-Type', 'text/plain').send('[]');
+function cleanup() {
+    for (const filename of fs.readdirSync(logsDirectory)) {
+        const date = dayjs(path.basename(filename).slice(0, 8), 'YY-MM-DD');
+        if (date.isValid() && date.add(logReserveDays, 'day').isBefore(dayjs.utc(), 'day')) {
+            fs.unlinkSync(filename);
         }
-    });
+    }
 }
+setInterval(cleanup, cleanupInterval).unref();
 
+process.on('exit', () => {
+    flushAll();
+    cleanup();
+});

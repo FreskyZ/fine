@@ -6,6 +6,12 @@ import { SourceMapConsumer } from 'source-map';
 import config from './config.js';
 import { templ } from './auth.js';
 
+import * as dayjs from 'dayjs';
+import * as utc from 'dayjs/plugin/utc';
+dayjs.extend(utc);
+
+import * as log from './logger'; // because this module used dayjs.utc in global scope
+
 const app = express();
 
 // index
@@ -54,12 +60,10 @@ app.use((request, response, next) => {
     next();
 });
 
-const regex1 = /^(?<name>[\w.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
-const regex2 = /^(?<file>.+):(?<line>\d+):(?<column>\d+)$/;
 let sourceMap: SourceMapConsumer; 
-new SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.2.map', 'utf-8'))).then(sm => sourceMap = sm, ex => console.log(`parse source map failed: ${ex}`));
+new SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.map', 'utf-8'))).then(sm => sourceMap = sm, ex => console.log(`parse source map failed: ${ex}`));
 
-app.use((error: { message: string, stack: string }, _request: express.Request, response: express.Response) => {
+app.use(async (error: { message: string, stack: string }, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     console.log(`request handler error: ${error.message}`);
     const rawFrames = error.stack.split('\n').slice(1); // first row is error
     for (const rawFrame of rawFrames) {
@@ -120,3 +124,5 @@ process.on('SIGINT', () => {
         process.exit();
     });
 });
+
+log.info('initialization finished');

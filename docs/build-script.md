@@ -1,8 +1,9 @@
 # Build Script
 
-2 entries `script/build.js` and `script/admin.js`, and use maybe like
+2 entries `script/bin/build.js` and `script/bin/admin.js`, and use maybe like
 
 ```bash
+$ npm run build self
 $ npm run build server-core
 $ npm run build home-page
 $ npm run build cost-server
