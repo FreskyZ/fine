@@ -1,4 +1,4 @@
 
 export function templ() {
-    throw new Error('some thing happened');
+    ({} as unknown as { wtf: () => void }).wtf();
 }

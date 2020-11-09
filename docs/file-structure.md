@@ -9,6 +9,7 @@ the website itself, dist means it can be copied to elsewhere to run, tracked by 
 ### dist/home
 contains home page `GET domain.com` and server entry `nodejs dist/home/server.js`,
 change to server entry requires server restart, change to home page `index.html` requires admin script.
+also include 404.html and 518.html because they are accessde by 'GET /404' instead of 'GET /404.html'
 
 ### dist/public
 contains not very interesting things at `/*`, like `robots.txt` and `sitemap.xml`,

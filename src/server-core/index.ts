@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as express from 'express';
-import { SourceMapConsumer } from 'source-map';
 import config from './config.js';
 import { templ } from './auth.js';
 
@@ -11,6 +10,10 @@ import * as utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 import * as log from './logger'; // because this module used dayjs.utc in global scope
+import { handleRequestHandlerError, handleUnhandledRejection, handleUncaughtException } from './error';
+
+process.on('uncaughtException', handleUncaughtException);
+process.on('unhandledRejection', handleUnhandledRejection);
 
 const app = express();
 
@@ -60,44 +63,7 @@ app.use((request, response, next) => {
     next();
 });
 
-let sourceMap: SourceMapConsumer; 
-new SourceMapConsumer(JSON.parse(fs.readFileSync('dist/home/server.js.map', 'utf-8'))).then(sm => sourceMap = sm, ex => console.log(`parse source map failed: ${ex}`));
-
-app.use(async (error: { message: string, stack: string }, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-    console.log(`request handler error: ${error.message}`);
-    const rawFrames = error.stack.split('\n').slice(1); // first row is error
-    for (const rawFrame of rawFrames) {
-        const frame = rawFrame.trim().slice(3); // trim 'at '
-
-        const match1 = regex1.exec(frame);
-        if (match1) {
-            const structured = ['name', 'asName', 'file', 'line', 'column'].map(n => `${n}: ${match1.groups[n]}`).join(', ');
-            console.log(`structured {${structured}}`);
-            if (sourceMap && match1.groups['line'] && match1.groups['column']) {
-                const { line, column, source } = sourceMap.originalPositionFor({ line: parseInt(match1.groups['line']), column: parseInt(match1.groups['column']) });
-                if (line != null && column != null) {
-                    console.log(`   original: ${source}:${line}:${column}`);
-                }
-            }
-        } else {
-            const match2 = regex2.exec(frame);
-            if (match2) {
-                const structured = ['file', 'line', 'column'].map(n => `${n}: ${match2.groups[n]}`).join(', ');
-                console.log(`structured {${structured}}`);
-                if (sourceMap && match2.groups['line'] && match2.groups['column']) {
-                    const { line, column, source } = sourceMap.originalPositionFor({ line: parseInt(match2.groups['line']), column: parseInt(match2.groups['column']) });
-                    if (line != null && column != null) {
-                        console.log(`   original: ${source}:${line}:${column}`);
-                    }
-                }
-            } else {
-                console.log(`frame (unknown structure) ${frame}`);
-            }
-        }
-    }
-
-    response.status(500).end();
-});
+app.use(handleRequestHandlerError);
 
 // 404 by the way
 app.use((_, response) => {
@@ -107,22 +73,18 @@ app.use((_, response) => {
 const privateKey = fs.readFileSync(config['ssl-key'], 'utf-8');
 const certificate = fs.readFileSync(config['ssl-cert'], 'utf-8');
 const server = https.createServer({ key: privateKey, cert: certificate }, app);
-server.listen(443, () => console.log('secure server started at 443'));
+server.listen(443, () => console.log('https server started at :443'));
 
 const insecureServer = http.createServer((request, response) => {
-    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url });
-    response.end();
+    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
 });
-insecureServer.listen(80, () => console.log('insecure server started at 80'));
+insecureServer.listen(80, () => console.log('http server started at 800'));
 
 process.on('SIGINT', () => {
     console.log('server', 'received SIGINT, stop');
-    Promise.all([
-        new Promise(resolve => server.close(() => resolve())),
-        new Promise(resolve => insecureServer.close(() => resolve())),
-    ]).finally(() => {
-        process.exit();
-    });
+    server.close(() => console.log('https server closed'));
+    insecureServer.close(() => console.log('http server closed'));
+    process.exit();
 });
 
 log.info('initialization finished');

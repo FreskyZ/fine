@@ -1,3 +1,4 @@
+import { exec, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as ts from 'typescript';
 import * as wp from 'webpack';
@@ -45,9 +46,29 @@ export default async function run(watch: boolean): Promise<void> {
             }); // fail is not expected and let it terminate process
         });
     } else {
+        let childProcess: ChildProcess = null;
+
         rts.watch(typescriptEntry, typescriptOptions);
         rwp.watch(webpackConfiguration, () => {
-            rsm.merge(sourcemapEntry, true); // nothing special happen for success, and fail is not expected and let it terminate process
+            rsm.merge(sourcemapEntry, true).then(() => {
+                if (childProcess != null) {
+                    childProcess.kill('SIGINT');
+                    childProcess = null;
+                }
+
+                // TODO change to spawn and display stdout
+                childProcess = exec('node dist/home/server.js', { 
+                    cwd: process.cwd(),
+                    shell: '/usr/bin/zsh',
+                    killSignal: 'SIGINT',
+                }, (error) => {
+                    if (error) {
+                        console.log('[bud] failed to start server process: ', error);
+                    } else {
+                        console.log('[bud] server process restarted');
+                    }
+                });
+            });
         });
     }
 }
