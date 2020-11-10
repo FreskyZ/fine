@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node script/bin/build.js",
     "watch": "node script/bin/build.js --watch",
+    "admin": "node script/bin/admin.js",
     "start": "node dist/home/server.js",
     "stop": "pkill --signal SIGINT node || true"
   },

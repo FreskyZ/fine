@@ -4,21 +4,18 @@ import * as https from 'https';
 import * as path from 'path';
 import * as net from 'net';
 import * as express from 'express';
-
 import * as dayjs from 'dayjs';
 import * as utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
+// because my js files may use dayjs.utc in global scope
 import config from './config.js';
-import * as log from './logger'; // because this module used dayjs.utc in global scope
-import { handleRequestHandlerError, handleUnhandledRejection, handleUncaughtException } from './error';
-
-process.on('uncaughtException', handleUncaughtException);
-process.on('unhandledRejection', handleUnhandledRejection);
+import * as log from './logger'; 
+import { requestErrorHandler } from './error';
+import { indexHandler, staticHandler } from './static-files';
 
 const app = express();
 const rootDirectory = process.cwd();
-const distDirectory = path.join(rootDirectory, 'dist');
 const publicDirectory = path.join(rootDirectory, 'dist/public');
 
 // GET /404 and GET /518
@@ -32,61 +29,8 @@ app.get('/518', (_request, response) => {
     response.contentType('html').send(html518).end();
 });
 
-// GET /
-// different subdomains gets different file, reload-able cached html content
-type IndexFiles = { [subdomain: string]: { filepath: string, content: string | null } }
-const indexFiles: IndexFiles = (() => {
-    const indexFiles: IndexFiles = {}; // this amazingly works
-    // 2 home page properties (domain.com and www.domain.com) share same value to prevent duplicate fs read
-    const homePageEntry = { filepath: path.join(distDirectory, 'home/index.html'), content: null as string };
-    for (const subdomain of ['www', 'undefined']) { // 'undefined' create by `${subdomain[0]}` when subdomain list is empty
-        indexFiles[subdomain] = homePageEntry;
-    }
-    for (const name of ['cost', 'drive']) {
-        indexFiles[name] = { filepath: path.join(distDirectory, `${name}/index.html`), content: null };
-    }
-    return indexFiles;
-})();
-app.get('/', (request, response, next) => {
-    const key = `${request.subdomains[0]}`;
-    if (key in indexFiles) {
-        if (indexFiles[key].content === null) {
-            indexFiles[key].content = fs.readFileSync(indexFiles[key].filepath, 'utf-8');
-        }
-        response.contentType('html').send(indexFiles[key].content).end();
-    } else {
-        next(); // this currently will not happen and if happen will goto 404
-    }
-});
-
-// GET static.domain.com/xxx
-// reload-able cached js/json/css content
-// amazingly <script> tag and <link rel="stylesheet"> tag defaults to ignore cross origin check
-type StaticFiles = { [filename: string]: { filepath: string, contentType: string, content: string | null } }
-const staticFiles: StaticFiles = (() => {
-    const staticFiles: StaticFiles = {};
-    staticFiles['index.js'] = { filepath: path.join(distDirectory, 'home/client.js'), contentType: 'js', content: null }; // only home page index js does not have source map
-    staticFiles['index.css'] = { filepath: path.join(distDirectory, 'home/index.css'), contentType: 'css', content: null };
-    for (const name of ['cost', 'drive']) {
-        staticFiles[`${name}.js`] = { filepath: path.join(distDirectory, `${name}/client.js`), contentType: 'js', content: null };
-        staticFiles[`${name}.js.map`] = { filepath: path.join(distDirectory, `${name}/client.js.map`), contentType: 'json', content: null };
-        staticFiles[`${name}.css`] = { filepath: path.join(distDirectory, `${name}/index.css`), contentType: 'css', content: null };
-    }
-    return staticFiles;
-})();
-app.get('/:filename', (request, response, next) => {
-    if (request.subdomains[0] !== 'static') { // also correct for subdomains array is empty
-        next();
-    } else if (!(request.params['filename'] in staticFiles)) {
-        response.sendStatus(404).end(); // unknown static file is status 404 instead of 404 html page
-    } else {
-        const entry = staticFiles[request.params['filename']];
-        if (entry.content === null) {
-            entry.content = fs.readFileSync(entry.filepath, 'utf-8');
-        }
-        response.contentType(entry.contentType).send(entry.content).end();
-    }
-});
+app.get('/', indexHandler);
+app.get('/:filename', staticHandler);
 
 // public
 // every time check file existence and read file and send file
@@ -96,6 +40,7 @@ app.get(/\/.+/, (request, response, next) => {
     if (fs.existsSync(filepath)) {
         response.sendFile(filepath, next);
     } else {
+        log.info({ type: '404', request: `${request.method} ${request.hostname}${request.url}` });
         response.redirect(301, '/404');
     }
 });
@@ -105,16 +50,17 @@ app.get(/\/.+/, (request, response, next) => {
 // final request handler redirect to 404
 // // this seems will not happen while unknown static file already returned status 404 
 // //    and unknwon public file already redirect to 404 and app front end will captures all url change
-app.use((_, response) => {
+app.use((request, response) => {
     if (!response.headersSent) {
+        log.info({ type: '404', request: `${request.method} ${request.hostname}${request.url}` });
         response.redirect(301, '/404');
     }
 });
 
 // final error handler
-app.use(handleRequestHandlerError);
+app.use(requestErrorHandler);
 
-// start and close servers
+// servers create, start, close
 const httpServer = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
     response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
 });

@@ -120,7 +120,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
     return frames;
 }
 
-export async function handleRequestHandlerError(error: any, request: express.Request, response: express.Response, _next: express.NextFunction): Promise<void> {
+export async function requestErrorHandler(error: any, request: express.Request, response: express.Response, _next: express.NextFunction): Promise<void> {
     const requestSummary =  `${request.method} ${request.headers.host}${request.url}`;
     const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
     if ('stack' in error) {
@@ -136,7 +136,7 @@ export async function handleRequestHandlerError(error: any, request: express.Req
     response.status(500).end();
 }
 
-export async function handleUncaughtException(error: Error) {
+process.on('uncaughtException', async function handleUncaughtException(error: Error) {
     try {
         if (error.stack) {
             const stack = await parseStack(error.stack);
@@ -151,9 +151,9 @@ export async function handleUncaughtException(error: Error) {
         console.log(error);
         process.exit(101);
     }
-}
+});
 
-export async function handleUnhandledRejection(reason: any) {
+process.on('unhandledRejection', async function handleUnhandledRejection(reason: any) {
     try {
         const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : 'error';
         if ('stack' in reason) {
@@ -169,4 +169,4 @@ export async function handleUnhandledRejection(reason: any) {
         console.log(reason);
         process.exit(102);
     }
-}
+});
