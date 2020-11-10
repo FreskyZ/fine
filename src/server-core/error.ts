@@ -46,6 +46,7 @@ function printStackFrame(frames: StackFrame[]) {
     for (const frame of frames) {
         if (frame.raw) {
             console.log('  at ' + frame.raw);
+            continue;
         }
         
         let result = '  at';

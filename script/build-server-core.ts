@@ -1,4 +1,4 @@
-import { exec, ChildProcess } from 'child_process';
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as path from 'path';
 import * as ts from 'typescript';
 import * as wp from 'webpack';
@@ -29,46 +29,64 @@ const webpackConfiguration: wp.Configuration = {
 
 const sourcemapEntry = 'dist/home/server.js.map';
 
-export default async function run(watch: boolean): Promise<void> {
-    console.log(`[bud] building${watch ? ' watching' : ''} server-core`);
+function buildOnce() {
+    console.log(`[bud] building server-core`);
 
-    if (!watch) {
-        if (!rts.compile(typescriptEntry, typescriptOptions)) {
-            console.log('[bud] build server-core failed at transpiling');
-            return;
-        }
+    if (!rts.compile(typescriptEntry, typescriptOptions)) {
+        console.log('[bud] build server-core failed at transpiling');
+        return;
+    }
 
-        rwp.run(webpackConfiguration, () => {
-            console.log('[bud] build server-core failed at bundling');
-        }, () => {
-            rsm.merge(sourcemapEntry, false).then(() => {
-                console.log('[bud] build server-core completed successfully');
-            }); // fail is not expected and let it terminate process
-        });
+    rwp.run(webpackConfiguration, () => {
+        console.log('[bud] build server-core failed at bundling');
+    }, () => {
+        rsm.merge(sourcemapEntry, false).then(() => {
+            console.log('[bud] build server-core completed successfully');
+        }); // fail is not expected and let it terminate process
+    });
+}
+
+// only watch server-core require restart server process
+function startOrRestartServer(serverProcess: ChildProcessWithoutNullStreams): ChildProcessWithoutNullStreams {
+    function start() {
+        // mds: my dev server
+        console.log('[mds] starting server process');
+        serverProcess = spawn('node', ['dist/home/server.js']);
+
+        serverProcess.on('error', error => console.log(`[mds] server process error ${error.message}`));
+        serverProcess.on('exit', code => console.log(`[mds] server process exited with code ${code}`));
+        serverProcess.stdout.on('data', (data: Buffer) => process.stdout.write(data));
+        serverProcess.stderr.on('data', (data: Buffer) => process.stderr.write(data));
+    }
+
+    if (serverProcess != null && !serverProcess.killed) {
+        serverProcess.once('exit', start);
+        serverProcess.kill('SIGINT');
     } else {
-        let childProcess: ChildProcess = null;
+        start();
+    }
 
-        rts.watch(typescriptEntry, typescriptOptions);
-        rwp.watch(webpackConfiguration, () => {
-            rsm.merge(sourcemapEntry, true).then(() => {
-                if (childProcess != null) {
-                    childProcess.kill('SIGINT');
-                    childProcess = null;
-                }
+    return serverProcess;
+}
 
-                // TODO change to spawn and display stdout
-                childProcess = exec('node dist/home/server.js', { 
-                    cwd: process.cwd(),
-                    shell: '/usr/bin/zsh',
-                    killSignal: 'SIGINT',
-                }, (error) => {
-                    if (error) {
-                        console.log('[bud] failed to start server process: ', error);
-                    } else {
-                        console.log('[bud] server process restarted');
-                    }
-                });
-            });
-        });
+function buildWatch() {
+    console.log(`[bud] building watching server-core`);
+
+    let serverProcess: ChildProcessWithoutNullStreams = null;
+    process.on('exit', () => serverProcess.kill('SIGINT')); // make sure
+
+    rts.watch(typescriptEntry, typescriptOptions);
+    rwp.watch(webpackConfiguration, () => {
+        rsm.merge(sourcemapEntry, true).then(() => {
+            serverProcess = startOrRestartServer(serverProcess);
+        }); // fail is not expected and let it terminate process
+    });
+}
+
+export default async function run(watch: boolean): Promise<void> {
+    if (watch) {
+        buildWatch();
+    } else {
+        buildOnce();
     }
 }

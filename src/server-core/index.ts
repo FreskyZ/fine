@@ -2,13 +2,13 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as express from 'express';
-import config from './config.js';
-import { templ } from './auth.js';
 
 import * as dayjs from 'dayjs';
 import * as utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
+import config from './config.js';
+import { templ } from './auth.js';
 import * as log from './logger'; // because this module used dayjs.utc in global scope
 import { handleRequestHandlerError, handleUnhandledRejection, handleUncaughtException } from './error';
 
@@ -20,7 +20,7 @@ const app = express();
 // index
 app.get('/', (request, response, next) => {
     if (request.subdomains.length == 0 || (request.subdomains.length == 1 && request.subdomains[0] == 'www')) {
-        response.send('home page');
+        response.send('home page?');
     } else {
         next();
     }
@@ -70,21 +70,35 @@ app.use((_, response) => {
     response.status(404).end();
 });
 
-const privateKey = fs.readFileSync(config['ssl-key'], 'utf-8');
-const certificate = fs.readFileSync(config['ssl-cert'], 'utf-8');
-const server = https.createServer({ key: privateKey, cert: certificate }, app);
-server.listen(443, () => console.log('https server started at :443'));
-
-const insecureServer = http.createServer((request, response) => {
+const httpServer = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
     response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
 });
-insecureServer.listen(80, () => console.log('http server started at 800'));
+const httpsServer = https.createServer({ 
+    key: fs.readFileSync(config['ssl-key'], 'utf-8'), 
+    cert: fs.readFileSync(config['ssl-cert'], 'utf-8') 
+}, app);
 
 process.on('SIGINT', () => {
-    console.log('server', 'received SIGINT, stop');
-    server.close(() => console.log('https server closed'));
-    insecureServer.close(() => console.log('http server closed'));
-    process.exit();
+    Promise.all([
+        new Promise((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve())),
+        new Promise((resolve, reject) => httpsServer.close(error => error ? reject(error) : resolve())),
+    ]).then(() => {
+        console.log('http server and https server closed');
+        process.exit(0);
+    }).catch((error) => {
+        console.log('failed to close some server', error);
+        process.exit(1);
+    });
+});
+
+Promise.all([
+    new Promise(resolve => httpServer.listen(80, resolve)),
+    new Promise(resolve => httpsServer.listen(443, resolve)),
+]).then(() => {
+    console.log('http server and http server started');
+}).catch(error => {
+    console.error('failed to start some server', error);
+    process.exit(1);
 });
 
 log.info('initialization finished');
