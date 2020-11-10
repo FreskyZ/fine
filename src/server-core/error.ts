@@ -149,7 +149,7 @@ export async function handleUncaughtException(error: Error) {
         }
     } catch {
         console.log(error);
-        process.exit();
+        process.exit(101);
     }
 }
 
@@ -167,6 +167,6 @@ export async function handleUnhandledRejection(reason: any) {
         }
     } catch {
         console.log(reason);
-        process.exit();
+        process.exit(102);
     }
 }

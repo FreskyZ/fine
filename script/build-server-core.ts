@@ -47,38 +47,38 @@ function buildOnce() {
 }
 
 // only watch server-core require restart server process
-function startOrRestartServer(serverProcess: ChildProcessWithoutNullStreams): ChildProcessWithoutNullStreams {
+let serverProcess: ChildProcessWithoutNullStreams = null;
+function startOrRestartServer() {
     function start() {
         // mds: my dev server
         console.log('[mds] starting server process');
         serverProcess = spawn('node', ['dist/home/server.js']);
-
+        
+        serverProcess.stdout.pipe(process.stdout);
+        serverProcess.stderr.pipe(process.stderr);
         serverProcess.on('error', error => console.log(`[mds] server process error ${error.message}`));
         serverProcess.on('exit', code => console.log(`[mds] server process exited with code ${code}`));
-        serverProcess.stdout.on('data', (data: Buffer) => process.stdout.write(data));
-        serverProcess.stderr.on('data', (data: Buffer) => process.stderr.write(data));
     }
 
-    if (serverProcess != null && !serverProcess.killed) {
+    if (serverProcess != null) {
+        console.log(`[mds] killing previous server process ${serverProcess.pid}`);
         serverProcess.once('exit', start);
         serverProcess.kill('SIGINT');
+        serverProcess = null; // do not send duplicate SIGINT
     } else {
         start();
     }
-
-    return serverProcess;
 }
 
 function buildWatch() {
     console.log(`[bud] building watching server-core`);
 
-    let serverProcess: ChildProcessWithoutNullStreams = null;
-    process.on('exit', () => serverProcess.kill('SIGINT')); // make sure
+    process.on('exit', () => serverProcess.kill()); // make sure
 
     rts.watch(typescriptEntry, typescriptOptions);
     rwp.watch(webpackConfiguration, () => {
         rsm.merge(sourcemapEntry, true).then(() => {
-            serverProcess = startOrRestartServer(serverProcess);
+            startOrRestartServer();
         }); // fail is not expected and let it terminate process
     });
 }
