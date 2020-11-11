@@ -59,13 +59,15 @@ socketServer.on('error', error => {
     console.log(`admin: server error: ${error.message}`);
 });
 
+if (fs.existsSync('/tmp/fps.socket')) {
+    fs.unlinkSync('/tmp/fps.socket');
+}
+
 const socketConnections: net.Socket[] = [];
 socketServer.on('connection', connection => {
-    console.log(`admin: connection setup`);
     socketConnections.push(connection);
     
     connection.on('close', () => {
-        console.log(`admin: connection closed`);
         socketConnections.splice(socketConnections.indexOf(connection), 1);
     });
     connection.on('error', error => {

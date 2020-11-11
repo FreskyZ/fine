@@ -72,6 +72,14 @@ export function handleStaticFiles(request: express.Request, response: express.Re
     }
 }
 
-export function handleReload(param: AdminReloadParameter) {
-    console.log(`reload ${JSON.stringify(param)}`);
+export function handleReload({ type, name }: AdminReloadParameter) {
+    if (type == 'index') {
+        if (name in indexFiles) {
+            indexFiles[name].content = null;
+        }
+    } else if (type == 'static') {
+        if (name in staticFiles) {
+            staticFiles[name].content = null;
+        }
+    }
 }

@@ -17,7 +17,6 @@ async function initialize(): Promise<void> {
         connection.on('close', () => {
             console.log('[adm] connection closed');
             connection = null;
-            process.exit(0);
         });
     })
 }
