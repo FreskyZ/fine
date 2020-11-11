@@ -75,7 +75,13 @@ socketServer.on('connection', connection => {
     });
     connection.on('data', data => {
         connection.write('ACK');
-        const message = JSON.parse(data.toString('utf-8')) as AdminSocketPayload;
+        const payload = data.toString('utf-8');
+        let message = { type: null } as AdminSocketPayload;
+        try {
+            message = JSON.parse(payload);
+        } catch {
+            log.error('failed to parse admin socket payload as json, raw: ' + payload);
+        }
         if (message.type == 'shutdown') {
             admin.emit('shutdown');
         } else if (message.type == 'reload') {

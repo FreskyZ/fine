@@ -1,7 +1,6 @@
 import * as ts from 'typescript';
 import * as rts from './run-typescript';
 
-
 const selfEntry = 'script/build.ts';
 const adminEntry = 'script/admin.ts';
 const typescriptOptions: ts.CompilerOptions = {
@@ -29,7 +28,7 @@ function runAdmin() {
     }
 }
 
-export default function run(type: 'self' | 'admin') {
+export default function build(type: 'self' | 'admin') {
     switch (type) {
         case 'self': { runSelf(); break; }
         case 'admin': { runAdmin(); break; }

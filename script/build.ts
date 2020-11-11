@@ -1,5 +1,6 @@
 import { default as runSelf } from './build-self';
 import { default as runServerCore } from './build-server-core';
+import { default as runHomePage } from './build-home-page';
 
 const commandLine = process.argv.slice(2);
 
@@ -9,6 +10,10 @@ if (commandLine.length == 1 && (commandLine[0] == 'self' || commandLine[0] == 'a
     runServerCore(false);
 } else if (commandLine.length == 2 && commandLine.includes('server-core') && commandLine.includes('--watch')) {
     runServerCore(true);
+} else if (commandLine.length == 1 && commandLine[0] == 'home-page') {
+    runHomePage(false);
+} else if (commandLine.length == 2 && commandLine.includes('home-page') && commandLine.includes('--watch')) {
+    runHomePage(true);
 } else {
     console.log('unknown command line, abort');
 }

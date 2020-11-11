@@ -149,6 +149,7 @@ process.on('uncaughtException', async function handleUncaughtException(error: Er
         }
     } catch {
         console.log(error);
+    } finally {
         process.exit(101);
     }
 });
@@ -167,6 +168,7 @@ process.on('unhandledRejection', async function handleUnhandledRejection(reason:
         }
     } catch {
         console.log(reason);
+    } finally {
         process.exit(102);
     }
 });

@@ -5,17 +5,16 @@ let connection: net.Socket = null;
 async function initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
         connection = net.createConnection('/tmp/fps.socket');
+        connection.unref();
 
         connection.on('error', error => {
             console.log(`[adm] connection error: ${error.message}`);
             reject(); // and unhandled rejection will terminate process
         });
         connection.on('connect', () => {
-            console.log('[adm] connection setup');
             resolve();
         });
         connection.on('close', () => {
-            console.log('[adm] connection closed');
             connection = null;
         });
     })

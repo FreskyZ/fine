@@ -156,3 +156,55 @@ export interface WebpackStat {
     version?: string;
     warnings: string[];
 }
+
+// https://github.com/sass/node-sass#usage
+interface SassError {
+    message: string,
+    line: number,
+    column: number,
+    status: number,
+    file: string,
+}
+
+interface SassStats {
+    entry: string,
+    start: number,
+    end: number,
+    duration: number,
+    includedFiles: number,
+}
+
+interface SassResult {
+    css: Buffer,
+    map: Buffer,
+    stats: SassStats,
+}
+
+interface SassImporterFunction {
+    (url: string, prev: string, done: (file: string, contents: string) => void): void,
+}
+
+export interface SassOptions {
+    file?: string,
+    data?: string,
+    importer?: SassImporterFunction | SassImporterFunction[],
+    functions?: any,
+    includePaths?: string[],
+    indentedSyntax?: boolean,
+    indentType?: 'space' | 'tab',
+    indentWidth?: number,
+    linefeed?: 'lf' | 'cr' | 'crlf' | 'lfcr',
+    omitSourceMapUrl?: boolean,
+    outFile?: string,
+    outputStyle?: 'nested' | 'expanded' | 'compact' | 'compressed',
+    precision?: number,
+    sourceComments?: boolean,
+    sourceMap?: boolean | string,
+    sourceMapContents?: boolean,
+    sourceMapEmbed?: boolean,
+    sourceMapRoot?: string,
+}
+
+export interface SassRenderFunction {
+    (opts: SassOptions, callback: (error: SassError, result: SassResult) => void): void,
+}

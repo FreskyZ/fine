@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as express from 'express';
 import { AdminReloadParameter } from '../shared/types/admin';
+import * as log from './logger';
 
 const distDirectory = path.join(process.cwd(), 'dist');
 
@@ -73,6 +74,7 @@ export function handleStaticFiles(request: express.Request, response: express.Re
 }
 
 export function handleReload({ type, name }: AdminReloadParameter) {
+    log.info({ type: 'reload-static', value: { type, name }});
     if (type == 'index') {
         if (name in indexFiles) {
             indexFiles[name].content = null;

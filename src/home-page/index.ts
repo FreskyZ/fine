@@ -41,7 +41,7 @@ const ui = {
     'modal-login': document.querySelector('button#login')! as HTMLButtonElement,
 }
 
-ui['date'].innerText = moment().format('Y-M-D');
+ui['date'].innerText = moment().format('YY-M-D');
 ui['where-btn-line-2'].innerText = 'geolocation service not available';
 navigator.geolocation.getCurrentPosition(({ coords }) => {
     ui['where-btn-line-2'].innerText =
@@ -91,7 +91,6 @@ ui['modal-username'].onkeypress = ui['modal-password'].onkeypress = async functi
         await handleLogIn();
     }
 }
-
 
 function render() {
     const { modalVisible, credential } = state;

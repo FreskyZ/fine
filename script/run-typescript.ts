@@ -73,7 +73,12 @@ export function compile(entry: string, additionalOptions: Partial<ts.CompilerOpt
     // tsc: typescript compiler
     console.log(`[tsc] transpiling ${entry}`);
 
-    const program = ts.createProgram([entry], { ...basicOptions, ...additionalOptions });
+    const options = { 
+        ...basicOptions, 
+        ...additionalOptions, 
+        lib: 'lib' in additionalOptions ? [...basicOptions.lib, ...additionalOptions.lib] : basicOptions.lib,
+    };
+    const program = ts.createProgram([entry], options);
     const { diagnostics } = program.emit();
     const { success, message: summary } = summaryDiagnostics(diagnostics);
     console.log(chalk`[tsc] transpile completed with ${summary}`);
