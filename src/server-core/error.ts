@@ -120,7 +120,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
     return frames;
 }
 
-export async function requestErrorHandler(error: any, request: express.Request, response: express.Response, _next: express.NextFunction): Promise<void> {
+export async function handleRequestError(error: any, request: express.Request, response: express.Response, _next: express.NextFunction): Promise<void> {
     const requestSummary =  `${request.method} ${request.headers.host}${request.url}`;
     const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
     if ('stack' in error) {

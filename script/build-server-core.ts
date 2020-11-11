@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import * as wp from 'webpack';
 import { projectDirectory, nodePackage } from './common';
+import { sendAdminMessage } from './admin-base';
 import * as rts from './run-typescript';
 import * as rwp from './run-webpack';
 import * as rsm from './run-sourcemap';
@@ -57,14 +58,13 @@ function startOrRestartServer() {
         serverProcess.stdout.pipe(process.stdout);
         serverProcess.stderr.pipe(process.stderr);
         serverProcess.on('error', error => console.log(`[mds] server process error ${error.message}`));
-        serverProcess.on('exit', code => console.log(`[mds] server process exited with code ${code}`));
+        serverProcess.on('exit', code => { console.log(`[mds] server process exited with code ${code}`); serverProcess = null; });
     }
 
     if (serverProcess != null) {
-        console.log(`[mds] killing previous server process ${serverProcess.pid}`);
+        console.log(`[mds] shutdown previous server process ${serverProcess.pid}`);
         serverProcess.once('exit', start);
-        serverProcess.kill('SIGINT');
-        serverProcess = null; // do not send duplicate SIGINT
+        sendAdminMessage({ type: 'shutdown' });
     } else {
         start();
     }

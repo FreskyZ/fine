@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dayjs from 'dayjs';
+import * as utc from 'dayjs/plugin/utc';
 
 // logging
 // usage
@@ -12,6 +13,9 @@ import * as dayjs from 'dayjs';
 // internal
 // normal contents are cached until certain amount of entries added
 // eager contents (errors) are flushed immediately
+
+// because initialize require utc, while index do not use dayjs, so put it here
+dayjs.extend(utc);
 
 type Level = 'info' | 'error';
 const levels: Level[] = ['info', 'error'];

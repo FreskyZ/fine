@@ -1,8 +1,20 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as express from 'express';
+import { AdminReloadParameter } from '../shared/types/admin';
 
 const distDirectory = path.join(process.cwd(), 'dist');
+
+// GET /404 and GET /518
+// return non-reload-able static stand alone html text
+const html404 = fs.readFileSync(path.join(distDirectory, 'home/404.html'), 'utf-8');
+const html518 = fs.readFileSync(path.join(distDirectory, 'home/518.html'), 'utf-8');
+export function handle404(_request: express.Request, response: express.Response) {
+    response.contentType('html').send(html404).end();
+}
+export function handle518(_request: express.Request, response: express.Response) {
+    response.contentType('html').send(html518).end();
+}
 
 // GET /
 // different subdomains gets different file, reload-able cached html content
@@ -19,7 +31,7 @@ const indexFiles: IndexFiles = (() => {
     }
     return indexFiles;
 })();
-export function indexHandler(request: express.Request, response: express.Response, next: express.NextFunction) {
+export function handleIndexPage(request: express.Request, response: express.Response, next: express.NextFunction) {
     const key = `${request.subdomains[0]}`;
     if (key in indexFiles) {
         if (indexFiles[key].content === null) {
@@ -46,7 +58,7 @@ const staticFiles: StaticFiles = (() => {
     }
     return staticFiles;
 })();
-export function staticHandler(request: express.Request, response: express.Response, next: express.NextFunction) {
+export function handleStaticFiles(request: express.Request, response: express.Response, next: express.NextFunction) {
     if (request.subdomains[0] !== 'static') { // also correct for subdomains array is empty
         next();
     } else if (!(request.params['filename'] in staticFiles)) {
@@ -58,4 +70,8 @@ export function staticHandler(request: express.Request, response: express.Respon
         }
         response.contentType(entry.contentType).send(entry.content).end();
     }
+}
+
+export function handleReload(param: AdminReloadParameter) {
+    console.log(`reload ${JSON.stringify(param)}`);
 }

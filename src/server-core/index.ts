@@ -1,42 +1,30 @@
+import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
 import * as net from 'net';
 import * as express from 'express';
-import * as dayjs from 'dayjs';
-import * as utc from 'dayjs/plugin/utc';
-dayjs.extend(utc);
-
-// because my js files may use dayjs.utc in global scope
-import config from './config.js';
-import * as log from './logger'; 
-import { requestErrorHandler } from './error';
-import { indexHandler, staticHandler } from './static-files';
+import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
+import * as log from './logger';
+import { config } from './config';
+import { handleRequestError } from './error';
+import { handle404, handle518, handleIndexPage, handleStaticFiles, handleReload } from './static-files';
 
 const app = express();
-const rootDirectory = process.cwd();
-const publicDirectory = path.join(rootDirectory, 'dist/public');
+const admin: AdminEventEmitter = new EventEmitter();
 
-// GET /404 and GET /518
-// return non-reload-able static stand alone html text
-const html404 = fs.readFileSync(path.join(rootDirectory, 'dist/home/404.html'), 'utf-8');
-const html518 = fs.readFileSync(path.join(rootDirectory, 'dist/home/518.html'), 'utf-8');
-app.get('/404', (_request, response) => {
-    response.contentType('html').send(html404).end();
-});
-app.get('/518', (_request, response) => {
-    response.contentType('html').send(html518).end();
-});
+app.get('/404', handle404); // 404
+app.get('/518', handle518); // teapot
+app.get('/', handleIndexPage); // index pages
+app.get('/:filename', handleStaticFiles); // static files
+admin.on('reload', handleReload); // reload index pages or static files
 
-app.get('/', indexHandler);
-app.get('/:filename', staticHandler);
-
-// public
+// public files
 // every time check file existence and read file and send file
 // apply for all 'GET /xxx' and 'GET /xxx/yyy' except for 'static.domain.com'
 app.get(/\/.+/, (request, response, next) => {
-    const filepath = path.join(publicDirectory, request.path);
+    const filepath = path.join(process.cwd(), 'dist/public', request.path);
     if (fs.existsSync(filepath)) {
         response.sendFile(filepath, next);
     } else {
@@ -58,65 +46,128 @@ app.use((request, response) => {
 });
 
 // final error handler
-app.use(requestErrorHandler);
+app.use(handleRequestError);
 
-// servers create, start, close
-const httpServer = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+// redirect to secure server from insecure server
+function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
     response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
-});
-const httpsServer = https.createServer({ 
-    key: fs.readFileSync(config['ssl-key'], 'utf-8'), 
-    cert: fs.readFileSync(config['ssl-cert'], 'utf-8') 
-}, app);
+}
 
-const connections: { [key: string]: net.Socket } = {};
-httpServer.on('connection', socket => {
-    const key = `http:${socket.remoteAddress}:${socket.remotePort}`;
-    connections[key] = socket;
-    socket.on('close', () => delete connections[key]);
-});
-httpsServer.on('connection', socket => {
-    const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
-    connections[key] = socket;
-    socket.on('close', () => delete connections[key]);
+// admin server
+const socketServer = net.createServer();
+socketServer.on('error', error => {
+    console.log(`admin: server error: ${error.message}`);
 });
 
-process.on('SIGINT', () => {
-    for (const key in connections) {
-        connections[key].destroy(); // force destroy connections to allow server close
-    }
-    Promise.all([
-        new Promise((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve())),
-        new Promise((resolve, reject) => httpsServer.close(error => error ? reject(error) : resolve())),
-    ]).then(() => {
-        console.log('http server and https server closed');
-        process.exit(0);
-    }).catch((error) => {
-        console.log('failed to close some server', error);
-        process.exit(202);
+const socketConnections: net.Socket[] = [];
+socketServer.on('connection', connection => {
+    console.log(`admin: connection setup`);
+    socketConnections.push(connection);
+    
+    connection.on('close', () => {
+        console.log(`admin: connection closed`);
+        socketConnections.splice(socketConnections.indexOf(connection), 1);
+    });
+    connection.on('error', error => {
+        console.log(`admin: connection error: ${error.message}`);
+    });
+    connection.on('data', data => {
+        connection.write('ACK');
+        const message = JSON.parse(data.toString('utf-8')) as AdminSocketPayload;
+        if (message.type == 'shutdown') {
+            admin.emit('shutdown');
+        } else if (message.type == 'reload') {
+            admin.emit('reload', message.parameter);
+        }
     });
 });
 
+// servers create, start, close
+const httpServer = http.createServer(handleInsecureRequest);
+const httpsServer = https.createServer({ 
+    key: fs.readFileSync(config['ssl-key'], 'utf-8'), 
+    cert: fs.readFileSync(config['ssl-cert'], 'utf-8'),
+}, app);
+
+const httpConnections: { [key: string]: net.Socket } = {};
+httpServer.on('connection', socket => {
+    const key = `http:${socket.remoteAddress}:${socket.remotePort}`;
+    httpConnections[key] = socket;
+    socket.on('close', () => delete httpConnections[key]);
+});
+httpsServer.on('connection', socket => {
+    const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
+    httpConnections[key] = socket;
+    socket.on('close', () => delete httpConnections[key]);
+});
+
+// wait all server started to print only one line
 Promise.all([
+    new Promise((resolve, reject) => {
+        socketServer.once('error', () => reject());
+        socketServer.listen('/tmp/fps.socket', resolve);
+    }),
     new Promise((resolve, reject) => { 
-        httpServer.once('error', error => { 
-            console.log(`http server error: ${error.message}`); 
-            reject(); 
-        }); 
+        httpServer.once('error', error => { console.log(`http server error: ${error.message}`); reject(); }); 
         httpServer.listen(80, resolve); 
     }),
     new Promise((resolve, reject) => {
-        httpsServer.once('error', error => {
-            console.log(`https server error: ${error.message}`);
-            reject();
-        });
+        httpsServer.once('error', error => { console.log(`https server error: ${error.message}`); reject(); });
         httpsServer.listen(443, resolve);
     }),
 ]).then(() => {
-    console.log('http server and http server started');
+    console.log('socket server, http server and https server started');
 }).catch(() => {
     console.error('failed to start some server');
     process.exit(201);
 });
 
-log.info('initialization finished');
+let shuttingdown = false;
+function shutdown() {
+    if (shuttingdown) return; shuttingdown = true; // prevent reentry
+
+    // destroy connections
+    for (const socket of socketConnections) {
+        socket.destroy();
+    }
+    for (const key in httpConnections) {
+        httpConnections[key].destroy();
+    }
+
+    // wait all server close
+    Promise.all([
+        new Promise((resolve, reject) => socketServer.close(error => {
+            if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); } 
+            else { resolve(); }
+        })),
+        new Promise((resolve, reject) => httpServer.close(error => { 
+            if (error) { console.log(`failed to close http server: ${error.message}`); reject(); } 
+            else { resolve(); }
+        })),
+        new Promise((resolve, reject) => httpsServer.close(error => {
+            if (error) { console.log(`failed to close https server: ${error.message}`); reject(error); }
+            else { resolve(); } 
+        })),
+    ]).then(() => {
+        console.log('socket server, http server and https server closed');
+        process.exit(0);
+    }).catch(() => {
+        console.log('failed to close some server');
+        process.exit(202);
+    });
+}
+
+process.on('SIGINT', shutdown);
+admin.on('shutdown', shutdown);
+
+log.info('initialization finished?');
+
+// TODO NEXT
+// review other change and commit basic admin script
+// formalize admin script
+// consider admin script to start and stop server and add to watch server-core
+// typescript separation build for apps and config, config.ts actually can just rename to config.js to use
+//    webpack separation build is simply external
+// demo api and api authentication
+//    expected to log in at home page and store a refresh token cookie for only <app>.freskyz.com/refresh_token
+//    and if call api returned 501 use refresh token to get token and store access token in indexeddb
