@@ -11,6 +11,8 @@
     ```
    certificate name, certificate file and expire time is displayed,
    use privkey.pem as key, cert.pem as certificate and chain.pem as ca
+4. use `certbot certonly --certname domain.com --webroot -w WEBROOT -d domain.com,sub.domain.com,sub2.domain.com...` to add new domains,
+   don't forget to make them return 200 in server routing
 
 ### BACKUP
 

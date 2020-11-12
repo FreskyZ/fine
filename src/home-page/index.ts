@@ -30,32 +30,11 @@ async function initialize(): Promise<State> {
 }
 
 const ui = {
-    'date': document.querySelector('span#date')! as HTMLSpanElement,
-    'who-btn': document.querySelector('div#who-btn')! as HTMLButtonElement,
-    'who-btn-line-2': document.querySelector('div#who-btn>span.line-2')! as HTMLSpanElement,
-    'where-btn-line-2': document.querySelector('div#where-btn>span.line-2')! as HTMLSpanElement,
     'modal-mask': document.querySelector('div#modal-mask')! as HTMLDivElement,
     'modal-username': document.querySelector('input#username')! as HTMLInputElement,
     'modal-password': document.querySelector('input#password')! as HTMLInputElement,
     'modal-cancel': document.querySelector('button#cancel')! as HTMLButtonElement,
     'modal-login': document.querySelector('button#login')! as HTMLButtonElement,
-}
-
-ui['date'].innerText = moment().format('YY-M-D');
-ui['where-btn-line-2'].innerText = 'geolocation service not available';
-navigator.geolocation.getCurrentPosition(({ coords }) => {
-    ui['where-btn-line-2'].innerText =
-        `${+coords.latitude.toFixed(6)}N, ${+coords.longitude.toFixed(6)}E, accuracy ${Math.round(coords.accuracy)}m`;
-}, ({ message }) => {
-    ui['where-btn-line-2'].innerText = 'geolocation service error';
-    console.log('geolocation error: ' + message);
-}, { enableHighAccuracy: true });
-
-ui['who-btn'].onclick = function(): void {
-    ui['modal-username'].value = '';
-    ui['modal-password'].value = '';
-    state.modalVisible = true;
-    render();
 }
 
 ui['modal-cancel'].onclick = function(): void {
@@ -93,14 +72,14 @@ ui['modal-username'].onkeypress = ui['modal-password'].onkeypress = async functi
 }
 
 function render() {
-    const { modalVisible, credential } = state;
+    const { modalVisible } = state;
 
-    if (credential != null) {
-        ui['who-btn-line-2'].innerText = 'logged in as ' + credential.name;
-    } else {
-        ui['who-btn'].style.cursor = 'pointer';
-        ui['who-btn-line-2'].innerText = 'login';
-    }
+    // if (credential != null) {
+    //     ui['who-btn-line-2'].innerText = 'logged in as ' + credential.name;
+    // } else {
+    //     ui['who-btn'].style.cursor = 'pointer';
+    //     ui['who-btn-line-2'].innerText = 'login';
+    // }
 
     ui['modal-mask'].style.display = modalVisible ? 'block' : 'none';
 }

@@ -171,9 +171,6 @@ admin.on('shutdown', shutdown);
 log.info('initialization finished?');
 
 // TODO NEXT
-// review other change and commit basic admin script
-// formalize admin script
-// consider admin script to start and stop server and add to watch server-core
 // typescript separation build for apps and config, config.ts actually can just rename to config.js to use
 //    webpack separation build is simply external
 // demo api and api authentication

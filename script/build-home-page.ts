@@ -20,14 +20,14 @@ async function transpileSass(): Promise<void> {
     console.log(`[css] transpiling ${sassOptions.file}`);
 
     return new Promise((resolve, reject) => {
-        sass.render(sassOptions, (error, { stats, css }) => {
+        sass.render(sassOptions, (error, result) => {
             if (error) {
                 console.log(`[css] error at ${sassOptions.file}:${error.line}:${error.column}: ${error.message}`);
                 reject();
                 return;
             }
-            fs.writeFileSync('dist/home/index.css', css);
-            console.log(`[css] transpiled completed successfully in ${stats.duration}ms`);
+            fs.writeFileSync('dist/home/index.css', result.css);
+            console.log(`[css] transpiled completed successfully in ${result.stats.duration}ms`);
             resolve();
         });
     });
@@ -64,8 +64,8 @@ async function buildOnce() {
         sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }),
     ]).then(() => {
         console.log('[bud] build home-page completed succesfully');
-    }).catch(error => {
-        console.log('[bud] reload build result error: ' + error);
+    }).catch(() => {
+        console.log('[bud] reload build result have some error');
     }).finally(() => {
         process.exit(0);
     });
@@ -84,11 +84,13 @@ function buildWatch() {
         sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.js' } });
     });
 
+    let operationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
     fs.watchFile('src/home-page/index.html', { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
-        console.log(`[cpy] copy and reload index.html`);
+        operationIndex += 1;
+        console.log(`[cpy] copy and reload index.html #${operationIndex}`);
         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
         sendAdminMessage({ type: 'reload', parameter: { type: 'index', name: 'www' } });
     });
@@ -109,6 +111,7 @@ function buildWatch() {
         fs.unwatchFile('build/home-page/index.js');
         fs.unwatchFile('src/home-page/index.html');
         fs.unwatchFile('src/home-page/index.sass');
+        process.exit(0);
     });
 }
 
