@@ -4,6 +4,8 @@ import * as filesize from 'filesize';
 import * as webpack from 'webpack';
 import { WebpackStat, WebpackStatModule } from './types';
 
+export type Configuration = webpack.Configuration;
+
 /** 
  * @param previousModuleList null for direct run, null for first watch, previous return value for normal watch; show complete list for null, show diff for have value
  * @returns source file name list 

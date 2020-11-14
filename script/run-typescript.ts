@@ -1,6 +1,8 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
 
+export type CompilerOptions = ts.CompilerOptions;
+
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.es2020.d.ts'],
     target: ts.ScriptTarget.ES2020,
@@ -69,7 +71,7 @@ function printDiagnostic(
 // TODO: change back to not async because run-webpack is changing
 
 // although not needed, make this async to look like run-webpack and run-source-map
-export function compile(entry: string, additionalOptions: Partial<ts.CompilerOptions>) {
+export function compile(entry: string | string[], additionalOptions: Partial<ts.CompilerOptions>) {
     // tsc: typescript compiler
     console.log(`[tsc] transpiling ${entry}`);
 
@@ -78,7 +80,7 @@ export function compile(entry: string, additionalOptions: Partial<ts.CompilerOpt
         ...additionalOptions, 
         lib: 'lib' in additionalOptions ? [...basicOptions.lib, ...additionalOptions.lib] : basicOptions.lib,
     };
-    const program = ts.createProgram([entry], options);
+    const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options);
     const { diagnostics } = program.emit();
     const { success, message: summary } = summaryDiagnostics(diagnostics);
     console.log(chalk`[tsc] transpile completed with ${summary}`);

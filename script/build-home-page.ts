@@ -1,6 +1,5 @@
 import * as fs from 'fs';
-import * as ts from 'typescript';
-import * as rts from './run-typescript';
+import * as ts from './run-typescript';
 import * as sass from 'node-sass';
 import { sendAdminMessage } from './admin-base';
 
@@ -38,7 +37,7 @@ async function buildOnce() {
     // although these 3 things can be done in parallel, sequential them to prevent output mess
 
     // js
-    if (!rts.compile(typescriptEntry, typescriptOptions)) {
+    if (!ts.compile(typescriptEntry, typescriptOptions)) {
         console.log('[bud] build home-page failed at transpiling script');
         return;
     }
@@ -74,7 +73,7 @@ async function buildOnce() {
 function buildWatch() {
     console.log('[bud] building watching home-page');
 
-    rts.watch(typescriptEntry, typescriptOptions);
+    ts.watch(typescriptEntry, typescriptOptions);
     fs.watchFile('build/home-page/index.js', { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;

@@ -1,12 +1,10 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as path from 'path';
-import * as ts from 'typescript';
-import * as wp from 'webpack';
 import { projectDirectory, nodePackage } from './common';
 import { sendAdminMessage } from './admin-base';
-import * as rts from './run-typescript';
-import * as rwp from './run-webpack';
-import * as rsm from './run-sourcemap';
+import * as ts from './run-typescript';
+import * as wp from './run-webpack';
+import * as sm from './run-sourcemap';
 
 const typescriptEntry = 'src/server-core/index.ts';
 const typescriptOptions: ts.CompilerOptions = {
@@ -33,15 +31,15 @@ const sourcemapEntry = 'dist/home/server.js.map';
 function buildOnce() {
     console.log(`[bud] building server-core`);
 
-    if (!rts.compile(typescriptEntry, typescriptOptions)) {
+    if (!ts.compile(typescriptEntry, typescriptOptions)) {
         console.log('[bud] build server-core failed at transpiling');
         return;
     }
 
-    rwp.run(webpackConfiguration, () => {
+    wp.run(webpackConfiguration, () => {
         console.log('[bud] build server-core failed at bundling');
     }, () => {
-        rsm.merge(sourcemapEntry, false).then(() => {
+        sm.merge(sourcemapEntry, false).then(() => {
             console.log('[bud] build server-core completed successfully');
         }); // fail is not expected and let it terminate process
     });
@@ -75,9 +73,9 @@ function buildWatch() {
 
     process.on('exit', () => serverProcess.kill()); // make sure
 
-    rts.watch(typescriptEntry, typescriptOptions);
-    rwp.watch(webpackConfiguration, () => {
-        rsm.merge(sourcemapEntry, true).then(() => {
+    ts.watch(typescriptEntry, typescriptOptions);
+    wp.watch(webpackConfiguration, () => {
+        sm.merge(sourcemapEntry, true).then(() => {
             startOrRestartServer();
         }); // fail is not expected and let it terminate process
     });
