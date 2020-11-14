@@ -1,11 +1,14 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
 
-interface CompilerHooks {
+export const ModuleKind = ts.ModuleKind;
+export const ModuleResolutionKind = ts.ModuleResolutionKind;
+export type CompilerOptions = ts.CompilerOptions & {
     readFileHook?: (fileName: string, originalReadFile: (filename: string) => string) => string,
-    writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => string,
-}
-export type CompilerOptions = ts.CompilerOptions & CompilerHooks;
+    writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => void,
+    watchReadFileHook?: (path: string, encoding: string, originalReadFile: (path: string, encoding?: string) => string) => string,
+    watchWriteFileHook?: (path: string, data: string, writeBOM: boolean, originalWriteFile: (path: string, data: string, writeBOM?: boolean) => void) => void,
+};
 
 // NOTE for "chunk-split-like" feature
 // server-core, shared and apps and designed to be separately built and hot reloaded
@@ -114,7 +117,7 @@ export function compile(entry: string | string[], additionalOptions: CompilerOpt
         ...basicOptions, 
         ...additionalOptions, 
         lib: 'lib' in additionalOptions ? [...basicOptions.lib, ...additionalOptions.lib] : basicOptions.lib,
-    } as unknown as ts.CompilerOptions; // typescript says writeFileHook and readFileHook is not compatible with the definition
+    } as unknown as ts.CompilerOptions; // typescript says writeFileHook and readFileHook is not compatible with the definition because the index property, ignore it
 
     const host = createCompilerHost(options);
     const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options, host);
@@ -129,12 +132,21 @@ export function compile(entry: string | string[], additionalOptions: CompilerOpt
     return success;
 }
 
-export function watch(entry: string, additionalOptions: Partial<ts.CompilerOptions>): void {
+export function watch(entry: string, additionalOptions: CompilerOptions): void {
     console.log(`[tsc] transpiling watching ${entry}`);
+
+    if (additionalOptions.watchReadFileHook) {
+        const originalReadFile = ts.sys.readFile;
+        ts.sys.readFile = (path, encoding) => additionalOptions.watchReadFileHook(path, encoding, originalReadFile);
+    }
+    if (additionalOptions.watchWriteFileHook) {
+        const originalWriteFile = ts.sys.writeFile;
+        ts.sys.writeFile = (path, data, writeBOM) => additionalOptions.watchWriteFileHook(path, data, writeBOM, originalWriteFile);
+    }
 
     ts.createWatchProgram(ts.createWatchCompilerHost(
         [entry],
-        { ...basicOptions, ...additionalOptions },
+        { ...basicOptions, ...additionalOptions }, 
         ts.sys,
         ts.createEmitAndSemanticDiagnosticsBuilderProgram,
         printDiagnostic,

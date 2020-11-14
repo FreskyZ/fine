@@ -1,92 +1,51 @@
+// import type * as dayjs from 'dayjs';
+import { UserCredential } from '../shared/types/auth';
 
-interface Moment {
-    format(f: string): string;
-}
-interface MomentModule {
-    (): Moment;
-}
-declare var moment: MomentModule;
-
-interface UserCredential {
-    id: string;
-    loginId: string;
-    name: string;
-}
-interface State {
-    modalVisible: boolean,
-    credential: UserCredential | null, // has credential means logged in
+const ue = { // ui elements
+    'signin': document.querySelector('span#signin-or-username')! as HTMLSpanElement,
+    'app-container': document.querySelector('div#app-container')! as HTMLDivElement,
+    'login-container': document.querySelector('div#login-container')! as HTMLDivElement,
+    'input-username': document.querySelector('input#username')! as HTMLInputElement,
+    'input-password': document.querySelector('input#password')! as HTMLInputElement,
+    'login-btn': document.querySelector('button#login-btn') as HTMLButtonElement,
 }
 
-async function getUserInfo(): Promise<UserCredential> {
-    const response = await fetch('/user-info', { headers: { 'Authorization': localStorage['token'] } });
-    const body = await response.json();
-    return body as UserCredential;
-}
-async function initialize(): Promise<State> {
-    return {
-        modalVisible: false,
-        credential: localStorage['token'] ? await getUserInfo() : null, // has credential means logged in
-    };
-}
+let tab: 'app' | 'login' = 'app';
+let user: UserCredential = null;
 
-const ui = {
-    'modal-mask': document.querySelector('div#modal-mask')! as HTMLDivElement,
-    'modal-username': document.querySelector('input#username')! as HTMLInputElement,
-    'modal-password': document.querySelector('input#password')! as HTMLInputElement,
-    'modal-cancel': document.querySelector('button#cancel')! as HTMLButtonElement,
-    'modal-login': document.querySelector('button#login')! as HTMLButtonElement,
-}
-
-ui['modal-cancel'].onclick = function(): void {
-    state.modalVisible = false;
+ue['signin'].onclick = function handleLogin() {
+    tab = tab == 'app' ? 'login' : 'app';
     render();
 }
-
-async function handleLogIn(): Promise<void> {
-    const username = ui['modal-username'].value;
-    const password = ui['modal-password'].value;
+ue['login-btn'].onclick = async function handleLoginSubmit() {
+    const username = ue['input-username'].value;
+    const password = ue['input-password'].value;
 
     if (username.length == 0 || password.length == 0) {
         alert('user name or password cannot be empty');
         return;
     }
 
-    const response = await fetch('/token', { method: 'POST', body: JSON.stringify({ username, password }) });
-    const body = await response.json();
-    const token = (body as { token: string }).token;
-
-    localStorage['token'] = token;
-
-    ui['modal-username'].value = '';
-    ui['modal-password'].value = '';
-    state.modalVisible = false;
-    state.credential = await getUserInfo();
+    tab = 'app';
     render();
 }
-ui['modal-login'].onclick = async () => await handleLogIn();
-ui['modal-username'].onkeypress = ui['modal-password'].onkeypress = async function(e) {
-    if (e.keyCode == 13) {
+ue['input-password'].onkeypress = ue['input-username'].onkeypress = function handleInputChange(e: KeyboardEvent) {
+    if (e.code == 'Enter') {
         e.preventDefault();
-        await handleLogIn();
+        ue['login-btn'].onclick(null);
     }
 }
 
 function render() {
-    const { modalVisible } = state;
+    ue['signin'].innerText = tab == 'login' ? 'cancel' : user?.name ?? 'sign in';
 
-    // if (credential != null) {
-    //     ui['who-btn-line-2'].innerText = 'logged in as ' + credential.name;
-    // } else {
-    //     ui['who-btn'].style.cursor = 'pointer';
-    //     ui['who-btn-line-2'].innerText = 'login';
-    // }
-
-    ui['modal-mask'].style.display = modalVisible ? 'block' : 'none';
+    ue['app-container'].style.height = tab == 'app' ? '144px' : '0';
+    ue['login-container'].style.height = tab == 'login' ? '178px' : '0';
 }
+render(); // initial render
 
-let state: State;
-initialize().then(s => {
-    state = s;
+async function initialize(): Promise<void> {
+    await fetch('https://api.domain.com/user-credential');
     render();
-});
-
+}
+initialize(); // async component did mount

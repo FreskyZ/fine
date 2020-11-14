@@ -6,16 +6,17 @@
     <meta name="ROBOTS" content="INDEX">
     <link rel="icon" type='image/x-icon' href="/favicon.ico">
     <link rel="stylesheet" type="text/css" href="https://static.domain.com/index.css">
-    <script type="text/javascript" src="https://momentjs.com/downloads/moment.js"></script>
+    <script type="text/javascript" src="https://unpkg.com/dayjs@1.9.4/dayjs.min.js"></script>
   </head>
   <body>
 
     <div id="header">
       <span id="title">fps</span>
       <span id="title-explain">Nianqinren's first personal website</span>
+      <span id="signin-or-username"></span>
     </div>
 
-    <div id="apps">
+    <div id="app-container">
       <a class="app-btn" href='https://cost.domain.com'>
         <span class="left">COST</span>
         <span class="right">"where is my money?"</span>
@@ -25,9 +26,15 @@
         <span class="right">"where is the file?"</span>
       </a>
       <a class="app-btn" href='#'>
-        <span class="left">ARKT</span>
-        <span class="right">TODO TODO TODO</span>
+        <span class="left">AKT</span>
+        <span class="right">"doctor, it is not rest time~"</span>
       </a>
+    </div>
+
+    <div id="login-container">
+      <input type="text" id="username" required placeholder="User name" />
+      <input type="password" id="password" required placeholder="Password" />
+      <button id="login-btn">LOGIN</button>
     </div>
     
     <div id="footer">
@@ -39,18 +46,7 @@
       <span class="link-wrapper"><a href='https://github.com/FreskyZ' target="_blank">GitHub@FreskyZ</a></span>
       <span class="link-wrapper"><a href="http://www.miitbeian.gov.cn" target=="_blank">浙ICP备 19005835号</a></span>
     </div>
-    
-    <div id="modal-mask">
-      <div id="modal-content">
-        <div id="title">Log In</div>
-        <label>User Name</label>
-        <input type="text" id="username"/>
-        <label>Password</label>
-        <input type="password" id="password"/>
-        <button id="login">LOGIN</button>
-        <button id="cancel">CANCEL</button>
-      </div>
-    </div>
+
     <script type="text/javascript" src="https://static.domain.com/index.js"></script>
   </body>
 </html>

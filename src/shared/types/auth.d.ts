@@ -4,7 +4,7 @@ export interface UserClaim {
     password: string,
 }
 
-export interface DUser {
+export interface User {
     Id: number,
     Name: string,
     AuthenticatorToken: string,
@@ -12,4 +12,9 @@ export interface DUser {
     AccessTokenDate: string,
     RefreshToken: string,
     RefreshTokenTime: string,
+}
+
+export interface UserCredential {
+    id: number;
+    name: string;
 }

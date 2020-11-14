@@ -3,7 +3,7 @@ import * as bodyParser from 'body-parser';
 import * as express from 'express';
 import { authenticator } from 'otplib';
 import { handleRequestError } from './error';
-import type { UserClaim, DUser } from '../shared/types/auth';
+import type { UserClaim, User } from '../shared/types/auth';
 import { DatabaseConnection } from '../shared/database';
 import { APIError } from '../shared/error';
 
@@ -27,7 +27,7 @@ controller.post('/login', async (request, response, next) => {
         return next(new APIError('unknonw user or incorrect password'));
     }
 
-    const user = value[0] as Partial<DUser>;
+    const user = value[0] as Partial<User>;
     if (!authenticator.check(claim.password, user.AuthenticatorToken)) {
         return next(new APIError('unknown user or incorrect password'));
     }
@@ -39,6 +39,12 @@ controller.post('/login', async (request, response, next) => {
     response.status(200).end();
 });
 
+controller.get('/user-credential', (_request, response) => {
+    response.setHeader('Access-Control-Allow-Origin', 'https://domain.com');
+    response.setHeader('Vary', 'Origin');
+    response.status(401).end();
+});
+
 controller.use((error: any, request: express.Request, response: express.Response, _next: express.NextFunction) => {
     handleRequestError(error, request);
     if (error instanceof APIError) { // return error message for known error
@@ -48,5 +54,4 @@ controller.use((error: any, request: express.Request, response: express.Response
     }
 });
 
-const controller2 = express.Router(); // disable because not fully implemented
-export { controller2 as controller };
+export { controller };

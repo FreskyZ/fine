@@ -14,12 +14,24 @@ div#header
         font-size: 12px
         margin-left: 12px
 
-div#apps
+    span#signin-or-username
+        font-size: 12px
+        float: right
+        padding-top: 4px
+        padding-left: 8px // make touchable area larger
+        color: #2F2F2FAF
+        cursor: pointer
+
+div#app-container
     margin-top: 12px
+    height: 144px
+    overflow: hidden
+    transition: height ease 0.25s
 
     a.app-btn
         display: block
         width: 100%
+        box-sizing: border-box // or else the width will be 100% + 12px padding
         height: 36px
         border-radius: 4px
         padding: 0 12px
@@ -39,6 +51,31 @@ div#apps
         float: right
         font-size: 12px
         color: #9F9F9F
+
+div#login-container
+    width: 200px
+    margin: auto
+    height: 0
+    overflow: hidden
+    transition: height ease 0.25s
+    
+    input
+        display: block
+        width: 100%
+        height: 28px
+        border-width: 0px 0px 1px 0px
+    input#username
+        margin-top: 36px
+    input#password
+        margin-top: 12px
+
+    button
+        display: block
+        margin: 20px auto
+        width: 100px
+        height: 28px
+        border-radius: 4px
+        border-width: 1px
 
 div#footer
     position: absolute
@@ -71,41 +108,3 @@ div#footer
     a
         text-decoration: none
 
-div#modal-mask
-    display: none
-    position: fixed
-    left: 0px
-    top: 0px
-    width: 100%
-    height: 100%
-    background-color: rgba(0, 0, 0, 0.4)
-    padding-top: 256px
-
-    div#modal-content
-        width: 300px
-        margin: 5px auto
-        background-color: #FEFEFE
-        border-radius: 4px
-        border: 1px solid gray
-        padding: 20px
-        height: 188px
-
-        label
-            font-size: 14px
-            display: block
-            margin-top: 16px
-
-        input
-            display: block
-            width: 95%
-            height: 24px
-            background-color: #FEFEFE
-            border-width: 0px 0px 1px 0px
-            border-color: lightgray
-
-        button
-            width: 100px
-            margin-top: 20px
-            height: 28px
-            margin-right: 5%
-            float: right

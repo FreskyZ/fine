@@ -4,14 +4,38 @@ import * as sass from 'node-sass';
 import * as admin from './admin-base';
 
 const typescriptEntry = 'src/home-page/index.ts';
-const typescriptOptions: ts.CompilerOptions = {
+const typescriptOptions = {
     types: ['node'],
     outDir: 'build/home-page',
     lib: ['lib.dom.d.ts'],
-};
+    writeFileHook: (fileName, data, writeBOM, onError, sourceFiles, originalWriteFile) => {
+        if (fileName != 'build/home-page/index.js') {
+            return originalWriteFile(fileName, data, writeBOM, onError, sourceFiles); // // will this happen?
+        }
+        redirectWriteFileAndRemoveHeadingLines(data);
+    },
+    watchWriteFileHook: (fileName, data, writeBOM, originalWriteFile) => {
+        if (fileName != 'build/home-page/index.js') {
+            return originalWriteFile(fileName, data, writeBOM);
+        }
+        redirectWriteFileAndRemoveHeadingLines(data);
+        console.log('[bud] reload index.js');
+        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } }).catch(() => { /* ignore */});
+    },
+} as ts.CompilerOptions;
+
 const sassOptions: sass.Options = {
     file: 'src/home-page/index.sass',
     outputStyle: 'compressed',
+}
+
+function redirectWriteFileAndRemoveHeadingLines(data: string) {
+    // typescript unexpectedly and maybe unconfigurably add not-used "use strict" 
+    // and cause-error "Object.defineProperty(exports, '__esModule')" to emitted file after "import type from 'shared'" added
+    // remove them and directly output to dist folder as write file hook feature is used
+    const line1End = data.indexOf('\n');
+    const line2End = data.indexOf('\n', line1End + 1);
+    fs.writeFileSync('dist/home/client.js', data.slice(line2End + 1));
 }
 
 // directly call sass only happens in home page while app front end uses formal webpack ts loader and sass loader
@@ -41,7 +65,6 @@ async function buildOnce() {
         console.log('[bud] build home-page failed at transpiling script');
         return;
     }
-    fs.copyFileSync('build/home-page/index.js', 'dist/home/client.js');
 
     // css
     try {
@@ -74,34 +97,28 @@ function buildWatch() {
     console.log('[bud] building watching home-page');
 
     ts.watch(typescriptEntry, typescriptOptions);
-    fs.watchFile('build/home-page/index.js', { persistent: false }, (currstat, prevstat) => {
-        if (currstat.mtime == prevstat.mtime) {
-            return;
-        }
-        console.log('[bud] copy and reload index.js');
-        fs.copyFileSync('build/home-page/index.js', 'dist/home/client.js');
-        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } });
-    });
 
-    let operationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
+    let htmlOperationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
     fs.watchFile('src/home-page/index.html', { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
-        operationIndex += 1;
-        console.log(`[cpy] copy and reload index.html #${operationIndex}`);
+        htmlOperationIndex += 1;
+        console.log(`[cpy] copy and reload index.html #${htmlOperationIndex}`);
         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } });
+        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } }).catch(() => { /* ignore */});
     });
     console.log('[bud] index.html fs watcher setup');
 
+    let cssOperationIndex = 0;
     fs.watchFile('src/home-page/index.sass', { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
         transpileSass().then(() => {
-            console.log(`[bud] reload index.css`);
-            admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } });
+            cssOperationIndex += 1;
+            console.log(`[bud] reload index.css #${cssOperationIndex}`);
+            admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }).catch(() => { /* ignore */});
         }).catch(() => { /* error already reported, ignore */});
     });
     console.log('[bud] index.sass fs watcher setup');
