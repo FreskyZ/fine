@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as ts from './run-typescript';
 import * as sass from 'node-sass';
-import { sendAdminMessage } from './admin-base';
+import * as admin from './admin-base';
 
 const typescriptEntry = 'src/home-page/index.ts';
 const typescriptOptions: ts.CompilerOptions = {
@@ -58,9 +58,9 @@ async function buildOnce() {
     // reload files
     console.log('[bud] reload build result');
     Promise.all([
-        sendAdminMessage({ type: 'reload', parameter: { type: 'index', name: 'www' } }),
-        sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.js' } }),
-        sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }),
+        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } }),
+        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } }),
+        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }),
     ]).then(() => {
         console.log('[bud] build home-page completed succesfully');
     }).catch(() => {
@@ -80,7 +80,7 @@ function buildWatch() {
         }
         console.log('[bud] copy and reload index.js');
         fs.copyFileSync('build/home-page/index.js', 'dist/home/client.js');
-        sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.js' } });
+        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } });
     });
 
     let operationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
@@ -91,7 +91,7 @@ function buildWatch() {
         operationIndex += 1;
         console.log(`[cpy] copy and reload index.html #${operationIndex}`);
         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-        sendAdminMessage({ type: 'reload', parameter: { type: 'index', name: 'www' } });
+        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } });
     });
     console.log('[bud] index.html fs watcher setup');
 
@@ -101,7 +101,7 @@ function buildWatch() {
         }
         transpileSass().then(() => {
             console.log(`[bud] reload index.css`);
-            sendAdminMessage({ type: 'reload', parameter: { type: 'static', name: 'index.css' } });
+            admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } });
         }).catch(() => { /* error already reported, ignore */});
     });
     console.log('[bud] index.sass fs watcher setup');

@@ -30,10 +30,10 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
     });
 }
 
-export async function sendAdminMessage(data: AdminSocketPayload): Promise<void> {
+export async function send(data: AdminSocketPayload): Promise<void> {
     // spin wait reentry
     if (contacting) {
-        setTimeout(sendAdminMessage, 1000, data);
+        setTimeout(send, 1000, data);
     } else {
         impl(data);
     }

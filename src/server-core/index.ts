@@ -10,6 +10,7 @@ import * as log from './logger';
 import { config } from './config';
 import { handleRequestError } from './error';
 import { handle404, handle518, handleIndexPage, handleStaticFiles, handleReload } from './static-files';
+import { controller as api } from './api';
 
 const app = express();
 const admin: AdminEventEmitter = new EventEmitter();
@@ -20,9 +21,19 @@ app.get('/', handleIndexPage); // index pages
 app.get('/:filename', handleStaticFiles); // static files
 admin.on('reload', handleReload); // reload index pages or static files
 
+// api
+// apply for all 'METHOD /xxx' 'METHOD /xxx/yyy/zzz', etc., only if 'api.domain.com'
+app.all(/\/.+/, (request, response, next) => {
+    if (request.subdomains[0] != 'api') {
+        next();
+    } else {
+        api(request, response, next);
+    }
+});
+
 // public files
 // every time check file existence and read file and send file
-// apply for all 'GET /xxx' and 'GET /xxx/yyy' except for 'static.domain.com'
+// apply for all 'GET /xxx' and 'GET /xxx/yyy' except for 'static.domain.com' and 'api.domain.com' captured before
 app.get(/\/.+/, (request, response, next) => {
     const filepath = path.join(process.cwd(), 'dist/public', request.path);
     if (fs.existsSync(filepath)) {
@@ -32,8 +43,6 @@ app.get(/\/.+/, (request, response, next) => {
         response.redirect(301, '/404');
     }
 });
-
-// TODO api controller
 
 // final request handler redirect to 404
 // // this seems will not happen while unknown static file already returned status 404 
@@ -46,7 +55,10 @@ app.use((request, response) => {
 });
 
 // final error handler
-app.use(handleRequestError);
+app.use((error: any, request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    handleRequestError(error, request);
+    response.status(500).end(); // app returns 500 for internal server error
+});
 
 // redirect to secure server from insecure server
 function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
@@ -168,7 +180,7 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 admin.on('shutdown', shutdown);
 
-log.info('initialization finished?');
+log.info('initialization finished');
 
 // TODO NEXT
 // typescript separation build for apps and config, config.ts actually can just rename to config.js to use

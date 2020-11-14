@@ -11,7 +11,7 @@ export type Configuration = webpack.Configuration;
  * @returns source file name list 
 */
 function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): WebpackStatModule[] {
-    console.log(chalk`[wpb] bundled {yellow ${stats.assets.length}} asset in {yellow ${stats.time}ms}, hash {yellow ${stats.hash}}`);
+    console.log(chalk`[{cyan wpb}] bundled {yellow ${stats.assets.length}} asset in {yellow ${stats.time}ms}, hash {yellow ${stats.hash}}`);
 
     for (const error of stats.errors) {
         console.error(`error: ${error.message}`);
@@ -42,7 +42,14 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
                     externalModules.push(module.name.slice(10, -1)); // pattern is 'external ".+"'
                 }
             }
-            console.log(chalk`    {gray +} ${externalModules.length} {gray external modules} ${externalModules.join(', ')}`);
+
+            for (let line = 0; line < Math.ceil(externalModules.length / 5); ++line) {
+                if (line == 0) {
+                    console.log(chalk`    {gray +} ${externalModules.length} {gray external modules} ${externalModules.filter((_, i) => Math.floor(i / 5) == 0).join(', ')}`);
+                } else {
+                    console.log(chalk`                        + ${externalModules.filter((_, i) => Math.floor(i / 5) == line).join(', ')}`);
+                }
+            }
         }
     } else {
         const addedModules = modules.filter(n => !previousModules.some(p => p.name === n.name));

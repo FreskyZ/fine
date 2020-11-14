@@ -1,7 +1,7 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as path from 'path';
 import { projectDirectory, nodePackage } from './common';
-import { sendAdminMessage } from './admin-base';
+import * as admin from './admin-base';
 import * as ts from './run-typescript';
 import * as wp from './run-webpack';
 import * as sm from './run-sourcemap';
@@ -9,7 +9,10 @@ import * as sm from './run-sourcemap';
 const typescriptEntry = 'src/server-core/index.ts';
 const typescriptOptions: ts.CompilerOptions = {
     sourceMap: true,
-    outDir: 'build/server-core',
+    // see run-typescript.ts,
+    // because server-core imported shared/xxx.ts
+    // so server-core result is in build/server-core and shared result is in build/shared
+    outDir: 'build',
 };
 
 const webpackConfiguration: wp.Configuration = {
@@ -62,7 +65,7 @@ function startOrRestartServer() {
     if (serverProcess != null) {
         console.log(`[mds] shutdown previous server process ${serverProcess.pid}`);
         serverProcess.once('exit', start);
-        sendAdminMessage({ type: 'shutdown' });
+        admin.send({ type: 'shutdown' });
     } else {
         start();
     }

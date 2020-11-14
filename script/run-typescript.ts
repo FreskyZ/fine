@@ -1,7 +1,33 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
 
-export type CompilerOptions = ts.CompilerOptions;
+interface CompilerHooks {
+    readFileHook?: (fileName: string, originalReadFile: (filename: string) => string) => string,
+    writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => string,
+}
+export type CompilerOptions = ts.CompilerOptions & CompilerHooks;
+
+// NOTE for "chunk-split-like" feature
+// server-core, shared and apps and designed to be separately built and hot reloaded
+// 1. shared types are simple because they are not considered in output (or emit stage)
+// 2. shared logics for server codes are kind of simple
+//    1. for server-core, set transpile output to 'build' instead of 'build/server-core' is enough, 
+//       server-core result is in 'build/server-core' and 'shared' result in 'build/shared',
+//       webpack will continue to work because it merges all files, shared is designed to be merged
+//    2. for app server and client, except set output directory to 'build', 
+//       a redirect from 'build/app' to 'build/app-server' or 'build/app-client' is needed in write file hook
+// 3. app-server is complex, it theoretically should use typescript project reference feature, *BUT*, 
+//    1. this feature is not publically available in compiler api (or node api)
+//       (actually the whole compiler api is not very public)
+//    2. investigate in source code is complex, also I currently did not find internal documents about this feature. 
+//    3. this feature will also add a ".tsBuildInfo" file in root directory, 
+//       which kind of do not meet my project's "no webpack config and tsconfig" requirement
+// 4. so, in consider of app-server's export is very simple (export { controller: express.Router })
+//    it is implemented by
+//    1. hook read file and change import statement in api.ts to same directory 'import { controller } from './app'
+//    2. hook read file and return dummy empty implementation for the dummy file
+//    3. hook write file and change back the dummy import statement
+//    4. externalize app-server in webpack config
 
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.es2020.d.ts'],
@@ -47,13 +73,9 @@ function summaryDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>): { succes
 
     return { success: errorCount == 0, message };
 }
-function printDiagnostic(
-    type: 'normal' | 'watch-status-change' = 'normal',
-    { category, code, messageText, file, start }: ts.Diagnostic): void {
-
+function printDiagnostic({ category, code, messageText, file, start }: ts.Diagnostic): void {
     const categoryColor = diagnosticCategoryColors[category];
-    const displayCode = type == 'watch-status-change'
-        && (code == 6031 || code == 6032 || code == 6194) ? chalk`[tsc] ` : categoryColor(`  TS${code} `);
+    const displayCode = code == 6031 || code == 6032 ? chalk`[{cyan tsc}] ` : categoryColor(`  TS${code} `);
 
     let fileAndPosition = '';
     if (file) {
@@ -68,10 +90,23 @@ function printDiagnostic(
     console.log(displayCode + fileAndPosition + flattenedMessage);
 }
 
-// TODO: change back to not async because run-webpack is changing
+function createCompilerHost(options: CompilerOptions) {
+    const host = ts.createCompilerHost(options);
+
+    if (options.readFileHook) {
+        const originalReadFile = host.readFile;
+        host.readFile = fileName => options.readFileHook(fileName, originalReadFile);
+    }
+    if (options.writeFileHook) {
+        const originalWriteFile = host.writeFile;
+        host.writeFile = (fileName, data, writeBOM, onError, sourceFiles) => options.writeFileHook(fileName, data, writeBOM, onError, sourceFiles, originalWriteFile);
+    }
+
+    return host;
+}
 
 // although not needed, make this async to look like run-webpack and run-source-map
-export function compile(entry: string | string[], additionalOptions: Partial<ts.CompilerOptions>) {
+export function compile(entry: string | string[], additionalOptions: CompilerOptions) {
     // tsc: typescript compiler
     console.log(`[tsc] transpiling ${entry}`);
 
@@ -79,12 +114,14 @@ export function compile(entry: string | string[], additionalOptions: Partial<ts.
         ...basicOptions, 
         ...additionalOptions, 
         lib: 'lib' in additionalOptions ? [...basicOptions.lib, ...additionalOptions.lib] : basicOptions.lib,
-    };
-    const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options);
+    } as unknown as ts.CompilerOptions; // typescript says writeFileHook and readFileHook is not compatible with the definition
+
+    const host = createCompilerHost(options);
+    const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options, host);
     const { diagnostics } = program.emit();
     const { success, message: summary } = summaryDiagnostics(diagnostics);
     console.log(chalk`[tsc] transpile completed with ${summary}`);
-    diagnostics.map(d => printDiagnostic('normal', d));
+    diagnostics.map(printDiagnostic);
     if (diagnostics.length > 0) {
         console.log('[tsc] end of transpile diagnostics');
     }
@@ -100,7 +137,7 @@ export function watch(entry: string, additionalOptions: Partial<ts.CompilerOptio
         { ...basicOptions, ...additionalOptions },
         ts.sys,
         ts.createEmitAndSemanticDiagnosticsBuilderProgram,
-        diagnostic => printDiagnostic('normal', diagnostic),
-        diagnostic => printDiagnostic('watch-status-change', diagnostic),
+        printDiagnostic,
+        printDiagnostic,
     ));
 }

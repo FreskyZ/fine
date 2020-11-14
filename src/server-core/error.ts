@@ -3,10 +3,9 @@ import * as express from 'express';
 import { SourceMapConsumer } from 'source-map';
 import * as log from './logger';
 
-// request and process unexpected error handlers
+// this module contains request and process unexpected error handlers
 
 const myJsFolder = '<DISTDIR>';
-
 // key is full path in stack
 const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
 // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
@@ -120,7 +119,8 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
     return frames;
 }
 
-export async function handleRequestError(error: any, request: express.Request, response: express.Response, _next: express.NextFunction): Promise<void> {
+export async function handleRequestError(error: any, request: express.Request) {
+
     const requestSummary =  `${request.method} ${request.headers.host}${request.url}`;
     const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
     if ('stack' in error) {
@@ -132,8 +132,6 @@ export async function handleRequestError(error: any, request: express.Request, r
         log.error({ type: 'request handler error', request: requestSummary, error: errorMessage });
         console.log(`${requestSummary}: ${errorMessage}`);
     }
-    
-    response.status(500).end();
 }
 
 process.on('uncaughtException', async function handleUncaughtException(error: Error) {
