@@ -186,5 +186,5 @@ log.info('initialization finished');
 // typescript separation build for apps and config, config.ts actually can just rename to config.js to use
 //    webpack separation build is simply external
 // demo api and api authentication
-//    expected to log in at home page and store a refresh token cookie for only <app>.freskyz.com/refresh_token
+//    expected to log in at home page and store a refresh token cookie for only <app>.domain.com/refresh_token
 //    and if call api returned 501 use refresh token to get token and store access token in indexeddb
