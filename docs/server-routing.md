@@ -18,15 +18,15 @@
 - no subdomain is `${method} /www/${path}` (www.domain.com and domain.com is not same origin, but here is convenient and reasonable to regard them same)
 
 GET /www/ => dist/home/index.html
-GET /www/404 => dist/home/404.html
-GET /www/418 => dist/home/418.html
-GET /www/:path => dist/public/:path or dist/home/:path except html and server.js
+GET /:app/ => dist/:app/index.html
+GET /any/404 => dist/public/not-found.html
+GET /any/418 => dist/public/teapot.html
+GET /www/:path => dist/public/:path except html or known dist/home/ files
+GET /:app/:path => dist/public/:path except html or known dist/home/ files
+
 POST /www/login => login
 POST /www/refresh-token => refresh access token
-GET /:app/ => dist/:app/index.html
-GET /:app/404 => dist/:app/404.html or dist/home/404.html
-GET /:app/418 => dist/home/418.html
-GET /:app/:path => dist/public/:path or dist/:app/:path except html and server.js
 GET /api/user-credential => get user credential
 METHOD /api/app/:function => app server api
+
 GET /share/:path => /api/save/share/:path (TBD)

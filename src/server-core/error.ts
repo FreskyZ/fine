@@ -1,16 +1,28 @@
 import * as fs from 'fs';
-import * as express from 'express';
+import * as koa from 'koa';
 import { SourceMapConsumer } from 'source-map';
-import * as log from './logger';
+import { config } from './config';
+import { logError } from './logger';
 
 // this module contains request and process unexpected error handlers
 
-const myJsFolder = '<DISTDIR>';
+interface StackFrame {
+    raw?: string,
+    name?: string,
+    asName?: string,
+    file?: string,
+    line?: number,
+    column?: number,
+    originalFile?: string,
+    originalLine?: number,
+    originalColumn?: number,
+}
+
 // key is full path in stack
 const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
 // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
 async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
-    if (!jsFileName.startsWith(myJsFolder)) {
+    if (!jsFileName.startsWith(config.root)) {
         return null;
     }
     const mapFileName = jsFileName + '.map';
@@ -27,18 +39,6 @@ async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
     }
 
     return sourcemaps[jsFileName];
-}
-
-interface StackFrame {
-    raw?: string,
-    name?: string,
-    asName?: string,
-    file?: string,
-    line?: number,
-    column?: number,
-    originalFile?: string,
-    originalLine?: number,
-    originalColumn?: number,
 }
 
 function printStackFrame(frames: StackFrame[]) {
@@ -119,30 +119,36 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
     return frames;
 }
 
-export async function handleRequestError(error: any, request: express.Request) {
-
-    const requestSummary =  `${request.method} ${request.headers.host}${request.url}`;
-    const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
-    if ('stack' in error) {
-        const stack = await parseStack(error.stack);
-        log.error({ type: 'request handler error', request: requestSummary, error: errorMessage, stack });
-        console.log(`${requestSummary}: ${errorMessage}: `);
-        printStackFrame(stack);
-    } else {
-        log.error({ type: 'request handler error', request: requestSummary, error: errorMessage });
-        console.log(`${requestSummary}: ${errorMessage}`);
+// catch all request exceptions and continue
+export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
+    try {
+        await next();
+    } catch (error) {
+        ctx.status = 500;
+        const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
+        const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
+        if ('stack' in error) {
+            const stack = await parseStack(error.stack);
+            logError({ type: 'request handler error', request: summary, error: errorMessage, stack });
+            console.log(`${summary}: ${errorMessage}: `);
+            printStackFrame(stack);
+        } else {
+            logError({ type: 'request handler error', request: summary, error: errorMessage });
+            console.log(`${summary}: ${errorMessage}`);
+        }
     }
 }
 
-process.on('uncaughtException', async function handleUncaughtException(error: Error) {
+// log and abort for all uncaught exceptions
+export async function handleProcessException(error: Error) {
     try {
         if (error.stack) {
             const stack = await parseStack(error.stack);
-            log.error({ type: 'uncaught exception', error: error.message, stack });
+            logError({ type: 'uncaught exception', error: error.message, stack });
             console.log(`uncaught exception: ${error.message}: `);
             printStackFrame(stack);
         } else {
-            log.error({ type: 'uncaught exception', error: error.message });
+            logError({ type: 'uncaught exception', error: error.message });
             console.log(`uncaught exception: ${error.message}`);
         }
     } catch {
@@ -150,18 +156,19 @@ process.on('uncaughtException', async function handleUncaughtException(error: Er
     } finally {
         process.exit(101);
     }
-});
+}
 
-process.on('unhandledRejection', async function handleUnhandledRejection(reason: any) {
+// log and abort for all unhandled rejections
+export async function handleProcessRejection(reason: any) {
     try {
         const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : 'error';
         if ('stack' in reason) {
             const stack = await parseStack(reason.stack);
-            log.error({ type: 'unhandled rejection', message, stack });
+            logError({ type: 'unhandled rejection', message, stack });
             console.log(`unhandled rejection: ${message}: `);
             printStackFrame(stack);
         } else {
-            log.error({ type: 'unhandled rejection', message });
+            logError({ type: 'unhandled rejection', message });
             console.log(`unhandled rejection: ${message}: `);
         }
     } catch {
@@ -169,4 +176,4 @@ process.on('unhandledRejection', async function handleUnhandledRejection(reason:
     } finally {
         process.exit(102);
     }
-});
+}

@@ -95,8 +95,8 @@ function write(level: Level, content: any) {
     }
 }
 
-export function info(content: any) { write('info', content); }
-export function error(content: any) { write('error', content); }
+export function logInfo(content: any) { write('info', content); }
+export function logError(content: any) { write('error', content); }
 
 function flushAll() {
     levels.map(level => flush(level));

@@ -1,10 +1,9 @@
 import * as net from 'net';
+import { Mutex } from 'async-mutex';
 import { AdminSocketPayload } from '../src/shared/types/admin';
 
-let contacting = false; // prevent reentry
 async function impl(payload: AdminSocketPayload): Promise<void> {
-    contacting = true;
-    const socket = net.createConnection('/tmp/fps.socket').unref();
+    const socket = net.createConnection('/tmp/fps.socket').ref();
 
     return new Promise((resolve, reject) => {
         const serialized = JSON.stringify(payload);
@@ -21,20 +20,17 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
         socket.once('data', data => {
             if (data.toString('utf-8') == 'ACK') {
                 console.log(`[adm] command ${serialized} acknowledged`);
-                socket.destroy();
-                resolve();
-                contacting = false;
+                setTimeout(() => {
+                    socket.destroy();
+                    resolve();
+                }, 0);
             }
         });
         socket.write(serialized);
     });
 }
 
-export async function send(data: AdminSocketPayload): Promise<void> {
-    // spin wait reentry
-    if (contacting) {
-        setTimeout(send, 1000, data);
-    } else {
-        impl(data);
-    }
+const mutex = new Mutex();
+export async function send(payload: AdminSocketPayload) {
+    await mutex.runExclusive(async () => await impl(payload));
 }

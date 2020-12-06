@@ -1,12 +1,14 @@
 import { randomBytes } from 'crypto';
 import * as bodyParser from 'body-parser';
 import * as dayjs from 'dayjs';
-import * as express from 'express';
+import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import { handleRequestError } from './error';
 import type { UserClaim, User, UserCredential } from '../shared/types/auth';
 import { DatabaseConnection } from '../shared/database';
-import { APIError } from '../shared/error';
+
+// see docs/authentication.md
+// handle /login, /refresh-token, api.domain.com/user-credentials and api.domain.com/app/xxx
 
 const allowedOrigins = [
     'https://domain.com',

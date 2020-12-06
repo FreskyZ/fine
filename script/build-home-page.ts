@@ -20,7 +20,7 @@ const typescriptOptions = {
         }
         redirectWriteFileAndRemoveHeadingLines(data);
         console.log('[bud] reload index.js');
-        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } }).catch(() => { /* ignore */});
+        admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } }).catch(() => { /* ignore */});
     },
 } as ts.CompilerOptions;
 
@@ -65,10 +65,12 @@ async function buildOnce() {
         console.log('[bud] build home-page failed at transpiling script');
         return;
     }
+    await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } });
 
     // css
     try {
         await transpileSass();
+        await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } });
     } catch {
         console.log('[bud] build home-page failed at transpiling stylesheet');
         return;
@@ -77,20 +79,9 @@ async function buildOnce() {
     // html
     console.log(`[cpy] copy index.html`);
     fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
+    await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } });
 
-    // reload files
-    console.log('[bud] reload build result');
-    Promise.all([
-        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } }),
-        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.js' } }),
-        admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }),
-    ]).then(() => {
-        console.log('[bud] build home-page completed succesfully');
-    }).catch(() => {
-        console.log('[bud] reload build result have some error');
-    }).finally(() => {
-        process.exit(0);
-    });
+    console.log('[bud] build home-page completed succesfully');   
 }
 
 function buildWatch() {
@@ -106,7 +97,7 @@ function buildWatch() {
         htmlOperationIndex += 1;
         console.log(`[cpy] copy and reload index.html #${htmlOperationIndex}`);
         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-        admin.send({ type: 'reload', parameter: { type: 'index', name: 'www' } }).catch(() => { /* ignore */});
+        admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } }).catch(() => { /* ignore */});
     });
     console.log('[bud] index.html fs watcher setup');
 
@@ -118,7 +109,7 @@ function buildWatch() {
         transpileSass().then(() => {
             cssOperationIndex += 1;
             console.log(`[bud] reload index.css #${cssOperationIndex}`);
-            admin.send({ type: 'reload', parameter: { type: 'static', name: 'index.css' } }).catch(() => { /* ignore */});
+            admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } }).catch(() => { /* ignore */});
         }).catch(() => { /* error already reported, ignore */});
     });
     console.log('[bud] index.sass fs watcher setup');

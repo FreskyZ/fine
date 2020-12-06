@@ -12,7 +12,9 @@ const typescriptOptions: ts.CompilerOptions = {
     // see run-typescript.ts,
     // because server-core imported shared/xxx.ts
     // so server-core result is in build/server-core and shared result is in build/shared
-    outDir: 'build',
+    // outDir: 'build',
+    // shared not used for now
+    outDir: 'build/server-core',
 };
 
 const webpackConfiguration: wp.Configuration = {

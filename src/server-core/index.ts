@@ -1,69 +1,27 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as http from 'http';
-import * as https from 'https';
-import * as path from 'path';
+import * as http2 from 'http2';
 import * as net from 'net';
-import * as express from 'express';
+import * as Koa from 'koa';
 import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
-import * as log from './logger';
 import { config } from './config';
-import { handleRequestError } from './error';
-import { handle404, handle518, handleIndexPage, handleStaticFiles, handleReload } from './static-files';
-import { controller as api } from './api';
+import { logInfo, logError } from './logger';
+import { handleRequestContent, handleAdminContentUpdate } from './content';
+import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
+// import { handleRequestAuthentication, handleApp } from './auth';
 
-const app = express();
+const app = new Koa();
 const admin: AdminEventEmitter = new EventEmitter();
 
-app.get('/404', handle404); // 404
-app.get('/518', handle518); // teapot
-app.get('/', handleIndexPage); // index pages
-app.get('/:filename', handleStaticFiles); // static files
-admin.on('reload', handleReload); // reload index pages or static files
+app.use(handleRequestError);
+// app.use(handleRequestAuthentication);
+app.use(handleRequestContent);
+// app.use(handleApp);
 
-// api
-// apply for all 'METHOD /xxx' 'METHOD /xxx/yyy/zzz', etc., only if 'api.domain.com'
-app.all(/\/.+/, (request, response, next) => {
-    if (request.subdomains[0] != 'api') {
-        next();
-    } else {
-        api(request, response, next);
-    }
-});
-
-// public files
-// every time check file existence and read file and send file
-// apply for all 'GET /xxx' and 'GET /xxx/yyy' except for 'static.domain.com' and 'api.domain.com' captured before
-app.get(/\/.+/, (request, response, next) => {
-    const filepath = path.join(process.cwd(), 'dist/public', request.path);
-    if (fs.existsSync(filepath)) {
-        response.sendFile(filepath, next);
-    } else {
-        log.info({ type: '404', request: `${request.method} ${request.hostname}${request.url}` });
-        response.redirect(301, '/404');
-    }
-});
-
-// final request handler redirect to 404
-// // this seems will not happen while unknown static file already returned status 404 
-// //    and unknwon public file already redirect to 404 and app front end will captures all url change
-app.use((request, response) => {
-    if (!response.headersSent) {
-        log.info({ type: '404', request: `${request.method} ${request.hostname}${request.url}` });
-        response.redirect(301, '/404');
-    }
-});
-
-// final error handler
-app.use((error: any, request: express.Request, response: express.Response, _next: express.NextFunction) => {
-    handleRequestError(error, request);
-    response.status(500).end(); // app returns 500 for internal server error
-});
-
-// redirect to secure server from insecure server
-function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
-    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
-}
+admin.on('content-update', handleAdminContentUpdate);
+process.on('uncaughtException', handleProcessException);
+process.on('unhandledRejection', handleProcessRejection);
 
 // admin server
 const socketServer = net.createServer();
@@ -86,28 +44,34 @@ socketServer.on('connection', connection => {
         console.log(`admin: connection error: ${error.message}`);
     });
     connection.on('data', data => {
-        connection.write('ACK');
         const payload = data.toString('utf-8');
         let message = { type: null } as AdminSocketPayload;
         try {
             message = JSON.parse(payload);
         } catch {
-            log.error('failed to parse admin socket payload as json, raw: ' + payload);
+            logError('failed to parse admin socket payload as json, raw: ' + payload);
         }
+        connection.write('ACK'); // ACK after data decoded
+
         if (message.type == 'shutdown') {
             admin.emit('shutdown');
-        } else if (message.type == 'reload') {
-            admin.emit('reload', message.parameter);
+        } else if (message.type == 'content-update') {
+            admin.emit('content-update', message.parameter);
         }
     });
 });
 
+// redirect to secure server from insecure server
+function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
+    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
+}
+
 // servers create, start, close
 const httpServer = http.createServer(handleInsecureRequest);
-const httpsServer = https.createServer({ 
+const http2Server = http2.createSecureServer({ 
     key: fs.readFileSync(config['ssl-key'], 'utf-8'), 
     cert: fs.readFileSync(config['ssl-cert'], 'utf-8'),
-}, app);
+}, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};
 httpServer.on('connection', socket => {
@@ -115,7 +79,7 @@ httpServer.on('connection', socket => {
     httpConnections[key] = socket;
     socket.on('close', () => delete httpConnections[key]);
 });
-httpsServer.on('connection', socket => {
+http2Server.on('connection', socket => {
     const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
     httpConnections[key] = socket;
     socket.on('close', () => delete httpConnections[key]);
@@ -132,11 +96,11 @@ Promise.all([
         httpServer.listen(80, resolve); 
     }),
     new Promise((resolve, reject) => {
-        httpsServer.once('error', error => { console.log(`https server error: ${error.message}`); reject(); });
-        httpsServer.listen(443, resolve);
+        http2Server.once('error', error => { console.log(`http2 server error: ${error.message}`); reject(); });
+        http2Server.listen(443, resolve);
     }),
 ]).then(() => {
-    console.log('socket server, http server and https server started');
+    console.log('socket server, http server and http2 server started');
 }).catch(() => {
     console.error('failed to start some server');
     process.exit(201);
@@ -164,12 +128,12 @@ function shutdown() {
             if (error) { console.log(`failed to close http server: ${error.message}`); reject(); } 
             else { resolve(); }
         })),
-        new Promise((resolve, reject) => httpsServer.close(error => {
-            if (error) { console.log(`failed to close https server: ${error.message}`); reject(error); }
+        new Promise((resolve, reject) => http2Server.close(error => {
+            if (error) { console.log(`failed to close http2 server: ${error.message}`); reject(error); }
             else { resolve(); } 
         })),
     ]).then(() => {
-        console.log('socket server, http server and https server closed');
+        console.log('socket server, http server and http2 server closed');
         process.exit(0);
     }).catch(() => {
         console.log('failed to close some server');
@@ -180,7 +144,7 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 admin.on('shutdown', shutdown);
 
-log.info('initialization finished');
+logInfo('initialization finished');
 
 // TODO NEXT
 // typescript separation build for apps and config, config.ts actually can just rename to config.js to use
