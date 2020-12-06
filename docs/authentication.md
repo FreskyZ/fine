@@ -23,6 +23,18 @@
    or return 401 if access token is invalid, front end page will try to refresh access token if get 401 and 
    throw error and redirect to login page if POST /refresh-token return 401
 
+### Cross Origin Cookie Issues
+
+1. always Secure, always HttpOnly
+2. non cross origin cookie is like
+  - (domain.com xhr/fetch) GET domain.com/xxx
+  - (server response) Set-Cookie: Name=Value; Path=/; (or) Set-Cookie: Name=Value; Domain=domain.com; Path=/;
+  - then the cookie will be sent with all request from domain.com xhr/fetch to domain.com server
+3. cross subdomain cookie should be like
+  - (domain.com xhr/fetch) GET domain.com/xxx
+  - (server response) Set-Cookie: Name=Value; Domain=sub.domain.com; Path=/;
+  - then cookie will be sent with all request from domain.com or sub.domain.com or sub2.domain.com xhr/fetch to sub.domain.com server
+
 ### Backup
 
 - database table `User`: 

@@ -7,17 +7,18 @@ build intermediate result, maybe used as build cache, not tracked by git
 the website itself, dist means it can be copied to elsewhere to run, tracked by git
 
 ### dist/home
-contains home page `GET domain.com` and server entry `nodejs dist/home/server.js`,
+contains home page and server entry `nodejs dist/home/server.js`,
 change to server entry requires server restart, change to home page `index.html` requires admin script.
-also include 404.html and 518.html because they are accessde by 'GET /404' instead of 'GET /404.html'
 
 ### dist/public
-contains not very interesting things at `/*`, like `robots.txt` and `sitemap.xml`,
-content is dynamic (can hot add or remove file) and always read from disk (can hot update file).
+contains not interesting things at `/*`, like `robots.txt` and `sitemap.xml`,
+all subdomains can access these files, content is dynamic (can hot add or remove file) and always read from disk (can hot update file),
+except html files, because server route like /xxx/xxx.html looks not good, they should be served without .html postfix
 
 ### dist/\<app\>
-contains application's main page `index.html`, both client and server script `client.js` and `server.js`,
-add, remove or update file list or file content requries admin script.
+contains application's main page `index.html`, application server entry `server.js` and web page content `js`/`css` files,
+web page contents are also served at `/*` at their own subdomain, mixed with shared public files,
+add, remove or update web page content file list or file content requries admin script.
 
 _admin script_ is a shell script execute on this machine (where server is running), 
 which uses IPC to control server behavior.
