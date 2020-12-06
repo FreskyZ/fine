@@ -12,6 +12,8 @@
   koa router (ZijianHe/koa-router) is also using regex but that is generic and more express style, 
   I'm not using it in server-core but may use them in app servers.
 
+> (updated) after refactor finish, I actually use naive operations for server-core and should use regex for apps
+
 ### Routes
 
 - regex input is `${method} /${subdomain}${path}`

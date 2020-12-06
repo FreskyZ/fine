@@ -6,6 +6,13 @@ import { logError } from './logger';
 
 // this module contains request and process unexpected error handlers
 
+export class ErrorWithName extends Error {
+    constructor(name: string, message: string) {
+        super(message);
+        this.name = name;
+    }
+}
+
 interface StackFrame {
     raw?: string,
     name?: string,
@@ -124,17 +131,30 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
     try {
         await next();
     } catch (error) {
-        ctx.status = 500;
         const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
-        const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
-        if ('stack' in error) {
-            const stack = await parseStack(error.stack);
-            logError({ type: 'request handler error', request: summary, error: errorMessage, stack });
-            console.log(`${summary}: ${errorMessage}: `);
-            printStackFrame(stack);
+
+        if (error instanceof Error && error.name == 'common-error') {
+            ctx.status = 400;
+            ctx.type = 'json';
+            ctx.body = JSON.stringify({ message: error.message });
+            logError({ type: 'common-error', request: summary, error: error.message });
+        } else if (error instanceof Error && error.name == 'auth-error') {
+            ctx.status = 401;
+            ctx.type = 'json';
+            ctx.body = JSON.stringify({ message: error.message });
+            logError({ type: 'auth-error', request: summary, error: error.message });
         } else {
-            logError({ type: 'request handler error', request: summary, error: errorMessage });
-            console.log(`${summary}: ${errorMessage}`);
+            ctx.status = 500;
+            const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
+            if ('stack' in error) {
+                const stack = await parseStack(error.stack);
+                logError({ type: 'request handler error', request: summary, error: errorMessage, stack });
+                console.log(`${summary}: ${errorMessage}: `);
+                printStackFrame(stack);
+            } else {
+                logError({ type: 'request handler error', request: summary, error: errorMessage });
+                console.log(`${summary}: ${errorMessage}`);
+            }
         }
     }
 }

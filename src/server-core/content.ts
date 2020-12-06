@@ -18,7 +18,7 @@ const html418 = fs.readFileSync(path.join(config.root, 'public/teapot.html'), 'u
 // different subdomains gets different file, reload-able cached html content
 // serverPath is absolute
 type IndexFiles = { [subdomain: string]: { readonly serverPath: string, content: string | null } }
-const indexFiles: IndexFiles = ['www', 'collect', 'cost'].reduce<IndexFiles>(
+const indexFiles: IndexFiles = ['www'].concat(config.apps).reduce<IndexFiles>(
     (acc, app) => { acc[app] = { serverPath: path.join(config.root, `${app == 'www' ? 'home' : app}/index.html`), content: null }; return acc; }, {});
 async function handleRequestIndexFile(ctx: koa.Context) {
 
@@ -38,7 +38,7 @@ async function handleRequestIndexFile(ctx: koa.Context) {
 // reload-able cached js/json/css/image content, cache key is `/${app}/${filename}`
 // if not match, try to load public files, which every time check file existence and read file and send file
 type StaticFiles = { [key: string]: { readonly serverPath: string, readonly contentType: string, content: string | null } }
-const staticFiles: StaticFiles = ['collect', 'cost'].reduce<StaticFiles>((acc, app) => { 
+const staticFiles: StaticFiles = config.apps.reduce<StaticFiles>((acc, app) => { 
     acc[`/${app}/index.js`] = { serverPath: path.join(config.root, `${app}/client.js`), contentType: 'js', content: null };
     acc[`/${app}/index.js.map`] = { serverPath: path.join(config.root, `${app}/client.js.map`), contentType: 'json', content: null };
     acc[`/${app}/index.css`] = { serverPath: path.join(config.root, `${app}/index.css`), contentType: 'css', content: null };
@@ -77,7 +77,7 @@ async function handleRequestStaticFile(ctx: koa.Context) {
 
 export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
     if (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') { return await next(); } // reject api early
-    if (ctx.method != 'GET') { return await next(); }
+    if (ctx.method != 'GET') { return await next(); } // reject POST /www/login and POST /www/refresh-token early
     // all of the remainings do not need next
 
     if (ctx.path == '/404') { ctx.type = 'html'; ctx.body = html404; return; } 

@@ -38,6 +38,10 @@ ue['login-btn'].onclick = async function handleLoginSubmit() {
     if (response.status == 400) {
         const { message } = await response.json();
         return alert(message);
+    } 
+    if (response.status == 500) {
+        const { message } = await response.json();
+        return alert(message);
     }
 
     tab = 'app';
@@ -83,7 +87,7 @@ async function fetchWithRefreshRetry<T>(path: string, init?: RequestInit): Promi
 
 async function initialize(): Promise<void> {
     try {
-        user = await fetchWithRefreshRetry<UserCredential>('/user-credential');
+        user = await fetchWithRefreshRetry<UserCredential>('/user-credential', { credentials: 'include' });
     } catch {
         user = null;
     }

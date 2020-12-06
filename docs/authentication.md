@@ -30,10 +30,12 @@
   - (domain.com xhr/fetch) GET domain.com/xxx
   - (server response) Set-Cookie: Name=Value; Path=/; (or) Set-Cookie: Name=Value; Domain=domain.com; Path=/;
   - then the cookie will be sent with all request from domain.com xhr/fetch to domain.com server
-3. cross subdomain cookie should be like
-  - (domain.com xhr/fetch) GET domain.com/xxx
-  - (server response) Set-Cookie: Name=Value; Domain=sub.domain.com; Path=/;
-  - then cookie will be sent with all request from domain.com or sub.domain.com or sub2.domain.com xhr/fetch to sub.domain.com server
+3. cross subdomain cookie has limitation that
+  - request from domain.com to sub.domain.com, all set-cookie headers are ignored regardless of cookie domain option SILENTLY
+  - request from domain.com to domain.com, set-cookie to sub.domain.com is ignored
+  - request from domain.com to domain.com, set-cookie to domain.com or .domain.com, cookie is not sent in request from sub.domain.com to sub2.domain.com
+  - cookies with path sometime disappears in devtool application tab or website information (the lock icon in front of address bar) cookie in use menu, clear all sometimes failed to clear all
+  - YES ALL DOMAIN.COM, SUB.DOMAIN.COM, SUB2.DOMAIN.COM IS SAME IP AND PORT while CHROME/EDGE rejects them all
 
 ### Backup
 

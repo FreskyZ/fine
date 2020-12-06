@@ -18,3 +18,7 @@ export interface UserCredential {
     id: number;
     name: string;
 }
+
+export interface MyState { // my koa context state
+    user: UserCredential,
+}

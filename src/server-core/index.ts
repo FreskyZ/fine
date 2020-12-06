@@ -4,20 +4,25 @@ import * as http from 'http';
 import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
+import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
+import type { MyState } from '../shared/types/auth';
 import { config } from './config';
 import { logInfo, logError } from './logger';
 import { handleRequestContent, handleAdminContentUpdate } from './content';
-import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
-// import { handleRequestAuthentication, handleApp } from './auth';
+import { handleRequestError, handleProcessException, handleProcessRejection, ErrorWithName } from './error';
+import { handleRequestAuthentication, handleApp } from './auth';
 
-const app = new Koa();
+const app = new Koa<MyState>();
 const admin: AdminEventEmitter = new EventEmitter();
 
 app.use(handleRequestError);
-// app.use(handleRequestAuthentication);
+app.use(bodyParser());
 app.use(handleRequestContent);
-// app.use(handleApp);
+app.use(handleRequestAuthentication);
+app.use(handleApp);
+
+app.use(() => { throw new ErrorWithName('common-error', 'unexpected unhandled route'); }); // assert route correctly handled
 
 admin.on('content-update', handleAdminContentUpdate);
 process.on('uncaughtException', handleProcessException);
