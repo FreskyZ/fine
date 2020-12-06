@@ -86,7 +86,7 @@ function buildWatch() {
     });
 }
 
-export default async function build(watch: boolean): Promise<void> {
+export async function build(watch: boolean): Promise<void> {
     if (watch) {
         buildWatch();
     } else {

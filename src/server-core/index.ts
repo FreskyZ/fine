@@ -87,15 +87,15 @@ http2Server.on('connection', socket => {
 
 // wait all server started to print only one line
 Promise.all([
-    new Promise((resolve, reject) => {
+    new Promise<void>((resolve, reject) => {
         socketServer.once('error', () => reject());
         socketServer.listen('/tmp/fps.socket', resolve);
     }),
-    new Promise((resolve, reject) => { 
+    new Promise<void>((resolve, reject) => { 
         httpServer.once('error', error => { console.log(`http server error: ${error.message}`); reject(); }); 
         httpServer.listen(80, resolve); 
     }),
-    new Promise((resolve, reject) => {
+    new Promise<void>((resolve, reject) => {
         http2Server.once('error', error => { console.log(`http2 server error: ${error.message}`); reject(); });
         http2Server.listen(443, resolve);
     }),
@@ -120,15 +120,15 @@ function shutdown() {
 
     // wait all server close
     Promise.all([
-        new Promise((resolve, reject) => socketServer.close(error => {
+        new Promise<void>((resolve, reject) => socketServer.close(error => {
             if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); } 
             else { resolve(); }
         })),
-        new Promise((resolve, reject) => httpServer.close(error => { 
+        new Promise<void>((resolve, reject) => httpServer.close(error => { 
             if (error) { console.log(`failed to close http server: ${error.message}`); reject(); } 
             else { resolve(); }
         })),
-        new Promise((resolve, reject) => http2Server.close(error => {
+        new Promise<void>((resolve, reject) => http2Server.close(error => {
             if (error) { console.log(`failed to close http2 server: ${error.message}`); reject(error); }
             else { resolve(); } 
         })),
