@@ -1,24 +1,27 @@
+// in this file XXXData means database model
 
-export interface UserClaim {
-    name: string,
-    password: string,
-}
-
-export interface User {
+export interface UserData {
     Id: number,
     Name: string,
-    AuthenticatorToken: string,
-    AccessToken: string,
-    AccessTokenDate: string,
-    RefreshToken: string,
-    RefreshTokenTime: string,
+    Token: string,
+}
+export interface UserDeviceData {
+    Id: number,
+    App: string,
+    Name: string,
+    Token: string,
+    UserId: number,
+    LastAccessTime: string,
+    // CreateClientIp is create only and will not be selected from db
 }
 
+export interface UserClaim {
+    username: string,
+    password: string,
+}
 export interface UserCredential {
     id: number;
     name: string;
-}
-
-export interface MyState { // my koa context state
-    user: UserCredential,
+    deviceId: number,
+    deviceName: string,
 }

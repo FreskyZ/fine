@@ -6,23 +6,24 @@ import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
-import type { MyState } from '../shared/types/auth';
+import { MyError } from '../shared/error';
 import { config } from './config';
 import { logInfo, logError } from './logger';
 import { handleRequestContent, handleAdminContentUpdate } from './content';
-import { handleRequestError, handleProcessException, handleProcessRejection, ErrorWithName } from './error';
-import { handleRequestAuthentication, handleApp } from './auth';
+import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
+import { handleRequestAccessControl, handleRequestAuthentication, handleApplications, ContextState } from './auth';
 
-const app = new Koa<MyState>();
+const app = new Koa<ContextState>();
 const admin: AdminEventEmitter = new EventEmitter();
 
 app.use(handleRequestError);
 app.use(bodyParser());
 app.use(handleRequestContent);
+app.use(handleRequestAccessControl);
 app.use(handleRequestAuthentication);
-app.use(handleApp);
+app.use(handleApplications);
 
-app.use(() => { throw new ErrorWithName('common-error', 'unexpected unhandled route'); }); // assert route correctly handled
+app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
 admin.on('content-update', handleAdminContentUpdate);
 process.on('uncaughtException', handleProcessException);
@@ -138,6 +139,7 @@ function shutdown() {
             else { resolve(); } 
         })),
     ]).then(() => {
+        logInfo('finalization completed');
         console.log('socket server, http server and http2 server closed');
         process.exit(0);
     }).catch(() => {
@@ -149,11 +151,12 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 admin.on('shutdown', shutdown);
 
-logInfo('initialization finished');
+logInfo('initialization completed');
 
 // TODO NEXT
-// typescript separation build for apps and config, config.ts actually can just rename to config.js to use
-//    webpack separation build is simply external
-// demo api and api authentication
-//    expected to log in at home page and store a refresh token cookie for only <app>.domain.com/refresh_token
-//    and if call api returned 501 use refresh token to get token and store access token in indexeddb
+// update certificate and make certificate support permenant
+// typescript separation build for apps, webpack separation build is simply external
+// app front end webpack, react, antd setup
+// build script generate front end wrapper and backend wrapper for api
+// login page and user management (user device management) page, learn and use indexeddb
+// FINALLY go on normal web app development

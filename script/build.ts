@@ -31,5 +31,5 @@ if (argv[0] == 'self') {
 } else if (argv[0] == 'content-update' && argv.length == 3) {
     send({ type: 'content-update', parameter: { app: argv[1], name: argv[2] } }).then(() => process.exit(0));
 } else {
-    console.log('unknown command.');
+    console.log('unknown command');
 }

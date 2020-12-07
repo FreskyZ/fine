@@ -3,15 +3,9 @@ import * as koa from 'koa';
 import { SourceMapConsumer } from 'source-map';
 import { config } from './config';
 import { logError } from './logger';
+import { MyError, MyErrorType } from '../shared/error';
 
-// this module contains request and process unexpected error handlers
-
-export class ErrorWithName extends Error {
-    constructor(name: string, message: string) {
-        super(message);
-        this.name = name;
-    }
-}
+// contains request and process unexpected error handlers
 
 interface StackFrame {
     raw?: string,
@@ -127,22 +121,19 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
 }
 
 // catch all request exceptions and continue
+const ErrorCodes: { [errorType in MyErrorType]: number } = { 'common': 400, 'auth': 401, 'method-not-allowed': 405, 'unreachable': 500 };
 export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
     try {
         await next();
     } catch (error) {
         const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
 
-        if (error instanceof Error && error.name == 'common-error') {
-            ctx.status = 400;
-            ctx.type = 'json';
-            ctx.body = JSON.stringify({ message: error.message });
-            logError({ type: 'common-error', request: summary, error: error.message });
-        } else if (error instanceof Error && error.name == 'auth-error') {
-            ctx.status = 401;
-            ctx.type = 'json';
-            ctx.body = JSON.stringify({ message: error.message });
-            logError({ type: 'auth-error', request: summary, error: error.message });
+        if (error instanceof MyError) {
+            const message = error.type == 'unreachable' ? 'unreachable code reached' 
+                : error.type == 'method-not-allowed' ? 'method not allowed' : error.message;
+            ctx.status = ErrorCodes[error.type];
+            ctx.body = { message };
+            logError({ type: error.type, request: summary, error: message });
         } else {
             ctx.status = 500;
             const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';

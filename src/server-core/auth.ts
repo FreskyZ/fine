@@ -1,219 +1,210 @@
 import { randomBytes } from 'crypto';
-import type * as cookies from 'cookies';
-import * as url from 'url';
 import * as dayjs from 'dayjs';
+import type * as _ from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import { config } from './config'; 
-import { ErrorWithName } from './error';
-import type { UserClaim, User, UserCredential, MyState } from '../shared/types/auth';
-import { DatabaseConnection } from '../shared/database';
+import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
+import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
+import { MyError } from '../shared/error';
 
 // see docs/authentication.md
-// handle /login, /refresh-token, api.domain.com/user-credentials and api.domain.com/app/xxx
+// handle common login and user info requests, and dispatch app api
+
+// these additional state actually only used in api
+export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential };
+type Ctx = koa.ParameterizedContext<ContextState>;
+
+// app related config
+const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'cost': true, 'collect': true };
+const allowedOriginConfig: { [origin: string]: string } = config.apps.reduce<{ [origin: string]: string }>(
+    (acc, app) => { acc[`https://${app}.${config.domain}`] = app; return acc; }, 
+    { [`https://${config.domain}`]: 'www', [`https://www.${config.domain}`]: 'www' });
 
 // cache user crendentials to prevent db operation every api call
-// entries live for one hour
-const usercache: { token: string, tokenDate: dayjs.Dayjs, entryTime: dayjs.Dayjs, id: number, name: string }[] = [];
+// entries will not expire, because I should and will not directly update db User and UserDevice table
+const userStorage: UserData[] = [];
+const userDeviceStorage: UserDeviceData[] = [];
 
-const baseCookieOptions: cookies.SetOption = { secure: true, httpOnly: true, sameSite: 'none', domain: 'api.' + config.domain };
+// ignore case comparator, this may need to be moved to some utility module
+const collator = Intl.Collator('en', { sensitivity: 'base' });
 
-// POST /www/login
-async function handleLogin(ctx: koa.Context) {
+const loginRegex = /POST \/login$/; 
+async function handleLogin(ctx: Ctx) {
 
-    if (ctx.get('Origin')) {
-        // access control
-        if (!allowedOrigins.includes(ctx.get('Origin'))) { return; } // do not set access-control-* and let browser reject it
-
-        ctx.vary('Origin');
-        ctx.set('Access-Control-Allow-Origin', ctx.get('Origin'));
-        ctx.set('Access-Control-Allow-Credentials', 'true'); // fetch({ credentials: 'include' }) need this
-        ctx.set('Access-Control-Allow-Methods', 'POST');
-        ctx.set('Access-Control-Allow-Headers', 'X-Access-Token,Content-Type');
-        if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // OPTIONS does not need furthur handling
+    // reuse x-access-token for password // actually authenticator token is also a kind of access token
+    const claim: UserClaim = { username: ctx.get('X-Name'), password: ctx.get('X-Access-Token') };
+    if (!claim.username || !claim.password) {
+        throw new MyError('common', 'user name or password cannot be empty');
     }
 
-    if (!ctx.request.body || !ctx.request.body.name || !ctx.request.body.password) {
-        throw new ErrorWithName('common-error', 'user name or password cannot be empty');
-    }
-    const claim = ctx.request.body as UserClaim;
+    const user = userStorage.find(u => collator.compare(u.Name, claim.username)) ?? await (async () => {
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
+        if (!Array.isArray(value) || value.length == 0) {
+            throw new MyError('common', 'unknonw user or incorrect password');
+        }
+        userStorage.push(value[0]);
+        return value[0];
+    })();
 
-    const db = await DatabaseConnection.create();
-    const { value } = await db.query(
-        'SELECT Id, Name, AuthenticatorToken, AccessToken, AccessTokenDate, RefreshToken, RefreshTokenTime FROM `User` WHERE `Name` = ?', claim.name);
-
-    if (!Array.isArray(value) || value.length == 0) {
-        throw new ErrorWithName('common-error', 'unknonw user or incorrect password');
-    }
-
-    const user = value[0] as Partial<User>;
-    if (!authenticator.check(claim.password, user.AuthenticatorToken)) {
-        throw new ErrorWithName('common-error', 'unknown user or incorrect password');
+    if (!authenticator.check(claim.password, user.Token)) {
+        throw new MyError('common', 'unknown user or incorrect password');
     }
 
-    // use existing valid tokens if exist
-    const now = dayjs.utc();
-    const isRefreshTokenValid = now.isBefore(dayjs.utc(user.RefreshTokenTime).add(7, 'day'));
-    const isAccessTokenValid = now.isSame(dayjs.utc(user.AccessTokenDate), 'date');
-
+    // login always create new device
     // 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
-    const refreshToken = isRefreshTokenValid ? user.RefreshToken : randomBytes(42).toString('base64').slice(0, 42);
-    const accessToken = isAccessTokenValid ? user.AccessToken : randomBytes(42).toString('base64').slice(0, 42);
-    if (!isRefreshTokenValid || !isAccessTokenValid) {
-        await db.query(
-            'UPDATE `User` SET `RefreshToken` = ?, `RefreshTokenTime` = ?, `AccessToken` = ?, `AccessTokenDate` = ? WHERE `Id` = ?;',
-            refreshToken, now.format('YYYY-MM-DD HH:mm:ss'), accessToken, now.format('YYYY-MM-DD'), user.Id);
-    }
-    
-    // update cache
-    const cachedUser = usercache.find(c => c.id == user.Id);
-    if (cachedUser) {
-        cachedUser.token = accessToken;
-        cachedUser.tokenDate = now;
-        cachedUser.entryTime = now;
-    } else {
-        usercache.push({ token: accessToken, tokenDate: now, entryTime: now, id: user.Id, name: user.Name });
-    }
+    const accessToken = randomBytes(42).toString('base64').slice(0, 42);
+    const userDevice: UserDeviceData = { Id: 0, App: ctx.state.app, Name: '<unnamed>', Token: accessToken, UserId: user.Id, LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime) };
+    const { value: { insertId: userDeviceId } } = await query<QueryResult>(
+        'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`) VALUES (?, ?, ?, ?, ?)',
+        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime);
+    userDevice.Id = userDeviceId;
+    userDeviceStorage.push(userDevice);
 
-    // browser seems to overwrite cookies with same name+domain+path
-    ctx.cookies
-        .set('RefreshToken', refreshToken, { maxAge: 604800000, path: '/refresh-token', ...baseCookieOptions })
-        .set('AccessToken', accessToken, { expires: now.hour(23).minute(59).second(59).millisecond(0).toDate(), ...baseCookieOptions });
-    ctx.type = 'json';
-    ctx.body = JSON.stringify({ id: user.Id, name: user.Name } as UserCredential);
-}
-
-// POST /www/refresh-token
-async function handleRefreshToken(ctx: koa.Context) {
-    const refreshToken = ctx.cookies.get('RefreshToken');
-    if (!refreshToken) {
-        throw new ErrorWithName('auth-error', 'no-refresh-token');
-    }
-
-    const db = await DatabaseConnection.create();
-    const { value } = await db.query('SELECT `Id`, `Name`, `RefreshTokenTime`, `AccessToken`, `AccessTokenDate` FROM `User` WHERE `RefreshToken` = ?', refreshToken);
-    if (!Array.isArray(value) || value.length == 0) {
-        throw new ErrorWithName('auth-error', 'unknown refresh token');
-    }
-
-    const user = value[0] as Partial<User>;
-    if (dayjs.utc().isAfter(dayjs.utc(user.RefreshTokenTime).add(7, 'day'))) {
-        await db.query(
-            'UPDATE `User` SET `RefreshToken` = NULL, `RefreshTokenTime` = NULL, `AccessToken` = NULL, `AccessTokenDate` = NULL WHERE `Id` = ?', user.Id);
-        throw new ErrorWithName('auth-error', 'expired refresh token');
-    }
-
-    // use existing valid access token if exist
-    const now = dayjs.utc();
-    const isAccessTokenValid = now.isSame(dayjs.utc(user.AccessTokenDate), 'date');
-
-    const accessToken = isAccessTokenValid ? user.AccessToken : randomBytes(42).toString('base64').slice(0, 42);
-    if (!isAccessTokenValid) {
-        await db.query(
-            'UPDATE `User` SET `AccessToken` = ?, `AccessTokenDate` = ? WHERE `Id` = ? ', accessToken, now.format('YYYY-MM-DD'), user.Id);
-    }
-
-    // update cache
-    const cachedUser = usercache.find(c => c.id == user.Id);
-    if (cachedUser) {
-        cachedUser.token = accessToken;
-        cachedUser.tokenDate = now;
-        cachedUser.entryTime = now;
-    } else {
-        usercache.push({ token: accessToken, tokenDate: now, entryTime: now, id: user.Id, name: user.Name });
-    }
-
-    ctx.cookies
-        .set('AccessToken', accessToken, { expires: now.hour(23).minute(59).second(59).toDate(), ...baseCookieOptions });
     ctx.status = 200;
+    ctx.set('X-Access-Token', accessToken);
 }
 
-const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'cost': true, 'collect': true };
-const allowedOrigins = [`https://${config.domain}`, `https://www.${config.domain}`].concat(config.apps.map(app => `https://${app}.${config.domain}`));
+// read X-Access-Token and save user credential to ctx.state is needed by all functions accept login
+async function authenticate(ctx: Ctx) {
+    if (!requireAuthConfig[ctx.state.app]) { return; } // ignore allow annoymous
+    if (!ctx.get('X-Access-Token')) { throw new MyError('auth', 'unauthorized'); }
 
-// GET /api/.+
-async function handleCommonAuthentication(ctx: koa.ParameterizedContext<{ user: UserCredential }>, next: koa.Next) {
-    // access control
-    if (!allowedOrigins.includes(ctx.get('Origin'))) { return; } // do not set access-control-* and let browser reject it
+    const accessToken = ctx.get('X-Access-Token');
+    const userDevice = userDeviceStorage.find(d => d.Token == accessToken) ?? await (async () => {
+        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Token` = ?', accessToken);
+        if (!Array.isArray(value) || value.length == 0) {
+            throw new MyError('auth', 'unauthorized');
+        }
+        userDeviceStorage.push(value[0]);
+        return value[0];
+    })();
+
+    // check expires or update last access time
+    if (dayjs.utc(userDevice.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
+        await query('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
+        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == userDevice.Id), 1);
+        throw new MyError('auth', 'authorization expired');
+    } else {
+        userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
+        await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', userDevice.LastAccessTime, userDevice.Id);
+    }
+
+    const user = userStorage.find(u => u.Id = userDevice.UserId) ?? await (async () => {
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
+        userStorage.push(value[0]); // db foreign key constraint will make this correct
+        return value[0];
+    })();
+
+    ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
+}
+
+// use regex to dispatch user and device handlers
+// now this format looks very like c# property/java annotation/python annotation/typescript metadata
+const matchers: [RegExp, (ctx: Ctx, parameters: Record<string, string>) => Promise<void>][] = [
+
+[/GET \/user-devices$/,
+async function handleGetUserDevices(ctx) {
+    // you always cannot tell whether all devices already loaded from db (unless new runtime memory storage added)
+    // so always load from db and replace user device storage
+
+    const { value: userDevices } = await query<UserDeviceData[]>(
+        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `UserId` = ?', ctx.state.user.id);
+    
+    // update storage
+    // // this is how you filter by predicate in place
+    while (userDeviceStorage.some(d => d.UserId == ctx.state.user.id)) {
+        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.UserId == ctx.state.user.id), 1);
+    }
+    userDeviceStorage.push(...userDevices);
+
+    ctx.status = 200;
+    ctx.body = userDevices.map(d => ({ id: d.Id, name: d.Name }));
+}],
+
+[/PATCH \/user-device\/(?<device_id>\d+)$/,
+async function handleUpdateDeviceName(ctx, parameters) {
+
+    const deviceId = parseInt(parameters['device_id']);
+    if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
+
+    const newDeviceName = ctx.request.body?.name;
+    if (!newDeviceName) { throw new MyError('common', 'invalid new device name'); }
+
+    const userDevice = userDeviceStorage.find(d => d.Id == deviceId) ?? await (async () => {
+        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Id` = ?', deviceId);
+        if (!Array.isArray(value) || value.length == 0) {
+            throw new MyError('common', 'invalid device id');
+        }
+        userDeviceStorage.push(value[0]);
+        return value[0];
+    })();
+
+    userDevice.Name = newDeviceName;
+    await query('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', newDeviceName, deviceId);
+
+    ctx.status = 201;
+    ctx.body = { id: userDevice.Id, name: userDevice.Name };
+}],
+
+[/DELETE \/user-device\/(?<device_id>\d+)$/,
+async function handleRemoveDevice(ctx, parameters) {
+
+    const deviceId = parseInt(parameters['device_id']);
+    if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
+
+    const maybeStorageIndex = userDeviceStorage.findIndex(d => d.Id == deviceId);
+    if (maybeStorageIndex >= 0) { userDeviceStorage.splice(maybeStorageIndex, 1); }
+
+    await query('DELETE FROM `UserDevice` WHERE `Id` = ?', deviceId);
+
+    ctx.status = 204;
+}],
+
+[/GET \/user-credential$/,
+async function handleGetUserCredential(ctx) {
+    ctx.status = 200;
+    ctx.body = ctx.state.user;
+}]];
+
+export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next) {
+    if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
+    // all functions need access control because all of them are called cross origin (from app.domain.com to api.domain.com)
+
+    const origin = ctx.get('origin');
+    if (!(origin in allowedOriginConfig)) { return; } // do not set access-control-* and let browser reject it
 
     ctx.vary('Origin');
-    ctx.set('Access-Control-Allow-Origin', ctx.get('Origin'));
-    ctx.set('Access-Control-Allow-Credentials', 'true'); // fetch({ credentials: 'include' }) need this
+    ctx.set('Access-Control-Allow-Origin', origin);
     ctx.set('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,DELETE,PATCH');
-    ctx.set('Access-Control-Allow-Headers', 'X-Access-Token');
-    if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // OPTIONS does not need furthur handling
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Access-Token');
+    if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // handling of OPTIONS is finished here
 
-    // check need authentication
-    const originSubdomains = new url.URL(ctx.get('Origin')).hostname.split('.'); // request origin already verified and is in known list
-    const originAppName = originSubdomains.length == 2 ? 'www' : originSubdomains[0];
-    if (!requireAuthConfig[originAppName]) { return await next(); } // continue to allow annonymous api
-
-    // validate access token
-    const accessToken = ctx.cookies.get('AccessToken') || ctx.get('X-Access-Token');
-    if (!accessToken) {
-        throw new ErrorWithName('auth-error', 'no access token');
-    }
-
-    const db = await DatabaseConnection.create();
-
-    const cachedUser = usercache.find(c => c.token == accessToken);
-    if (cachedUser) {
-        if (dayjs.utc().isAfter(cachedUser.entryTime.add(1, 'hour'))) { // cache invalidated
-            usercache.splice(usercache.findIndex(c => c == cachedUser), 1);
-            // continue to load db
-        } else if (!dayjs.utc().isSame(cachedUser.tokenDate, 'date')) { // token expired
-            usercache.splice(usercache.findIndex(c => c == cachedUser), 1);
-            db.query('UPDATE `User` SET `AccessToken` = NULL, `AccessTokenDate` = NULL WHERE `Id` = ?', cachedUser.id);
-            throw new ErrorWithName('auth-error', 'expired access token');
-        } else {
-            ctx.state.user = { id: cachedUser.id, name: cachedUser.name }; // normal
-            return await next(); // continue to api
-        }
-    }
-
-    const { value } = await db.query(
-        'SELECT `Id`, `Name`, `AccessTokenDate` FROM `User` WHERE `AccessToken` = ?', accessToken);
-    if (!Array.isArray(value) || value.length == 0) {
-        throw new ErrorWithName('auth-error', 'unknown access token');
-    }
-
-    const user = value[0] as Partial<User>;
-    if (!dayjs.utc().isSame(dayjs.utc(user.AccessTokenDate), 'date')) {
-        db.query('UPDATE `User` SET `AccessToken` = NULL, `AccessTokenDate` = NULL WHERE `Id` = ?', user.Id);
-        throw new ErrorWithName('auth-error', 'expired access token');
-    }
-
-    usercache.push({ 
-        token: accessToken, 
-        tokenDate: dayjs.utc(user.AccessTokenDate),
-        entryTime: dayjs.utc(),
-        id: user.Id,
-        name: user.Name,
-    });
-    ctx.state.user = { id: user.Id, name: user.Name };
-    await next(); // continue to api
+    ctx.state.app = allowedOriginConfig[origin];
+    await next();
 }
 
-export async function handleRequestAuthentication(ctx: koa.ParameterizedContext<MyState>, next: koa.Next) {
-    // /login and /refresh-token is on /www/ because you cannot cross origin set cookie
-    if (ctx.method == 'POST' && (ctx.subdomains.length == 0 || ctx.subdomains[0] == 'www') && ctx.path == '/login') { await handleLogin(ctx); return; }
-    if (ctx.method == 'POST' && (ctx.subdomains.length == 0 || ctx.subdomains[0] == 'www') && ctx.path == '/refresh-token') { await handleRefreshToken(ctx); return; }
-    if ((ctx.method == 'POST' || ctx.method == 'OPTIONS') && (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') && ctx.path == '/login') { await handleLogin(ctx); return; }
-    if ((ctx.method == 'POST' || ctx.method == 'OPTIONS') && (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') && ctx.path == '/refresh-token') { await handleRefreshToken(ctx); return; }
+export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
+    ctx.state.now = dayjs.utc();
 
-    if (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') { await handleCommonAuthentication(ctx, next); }
-    else { await next(); } // else should be unreachable according to existing routing setups
+    const key = `${ctx.method} ${ctx.path}`;
+    if (loginRegex.test(key)) { await handleLogin(ctx); return; }
+
+    await authenticate(ctx);
+
+    for (const [regex, handler] of matchers) {
+        const match = regex.exec(key);
+        if (match) { await handler(ctx, match.groups); return; }
+    }
+
+    return await next();
 }
 
-export async function handleApp(ctx: koa.ParameterizedContext<MyState>, next: koa.Next) {
-    if (ctx.subdomains.length != 0 && ctx.subdomains[0] != 'api') { return await next(); } // this should be unreachable according to existing routing setups
-
-    if (ctx.method == 'GET' && ctx.path == '/user-credential') {
-        ctx.type = 'json';
-        ctx.body = JSON.stringify(ctx.state.user);
-    } else {
-        // TODO: link app server
-        await next();
-    }
+export async function handleApplications(ctx: Ctx) {
+    if (!ctx.state.app) { throw new MyError('unreachable'); }
+    
+    // mock
+    ctx.status = 200;
+    ctx.body = { value: 'dummy' };
 }

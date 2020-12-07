@@ -5,6 +5,7 @@ import * as koa from 'koa';
 import { AdminContentUpdateParameter } from '../shared/types/admin';
 import { config } from './config';
 import { logInfo } from './logger';
+import { MyError } from '../shared/error';
 
 // see server-routing.md
 // handle all kinds of file requests, include html/js/css/image and not interesting robots.txt, sitemap.xml, etc.
@@ -76,8 +77,8 @@ async function handleRequestStaticFile(ctx: koa.Context) {
 }
 
 export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
-    if (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') { return await next(); } // reject api early
-    if (ctx.method != 'GET') { return await next(); } // reject POST /www/login and POST /www/refresh-token early
+    if (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'api') { return await next(); } // goto api
+    if (ctx.method != 'GET') { throw new MyError('method-not-allowed'); } // reject not GET 
     // all of the remainings do not need next
 
     if (ctx.path == '/404') { ctx.type = 'html'; ctx.body = html404; return; } 

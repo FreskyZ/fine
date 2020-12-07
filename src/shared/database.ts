@@ -8,17 +8,21 @@ const pool = mysql.createPool({
     dateStrings: true,
 });
 
+export const QueryDateTimeFormat = {
+    datetime: 'YYYY-MM-DD HH:mm:ss',
+    date: 'YYYY-MM-DD',
+}
+
+// query result except array of data
+export interface QueryResult {
+    insertId?: number,
+    affectedRows?: number,
+    changedRows?: number,
+}
+
 // promisify
-export class DatabaseConnection {
-    private constructor(private _inner: mysql.Connection) {
-    }
-    public static async create(): Promise<DatabaseConnection> {
-        return await new Promise((resolve, reject) => pool.getConnection(
-            (error, connection) => error ? reject(error) : resolve(new DatabaseConnection(connection))));
-    }
-    public async query(sql: string, ...params: any[]): Promise<{ fields: mysql.FieldInfo[], value: any }> {
-        return await new Promise((resolve, reject) => params.length == 0
-            ? this._inner.query(sql, (err, value, fields) => err ? reject(err) : resolve({ value, fields }))
-            : this._inner.query(sql, params, (err, value, fields) => err ? reject(err) : resolve({ value, fields })));
-    }
+export async function query<T = any>(sql: string, ...params: any[]): Promise<{ fields: mysql.FieldInfo[], value: T }> {
+    return await new Promise<{ fields: mysql.FieldInfo[], value: T }>((resolve, reject) => params.length == 0
+        ? pool.query(sql, (err, value, fields) => err ? reject(err) : resolve({ value, fields }))
+        : pool.query(sql, params, (err, value, fields) => err ? reject(err) : resolve({ value, fields })));
 }

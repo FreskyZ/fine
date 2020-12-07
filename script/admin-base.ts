@@ -9,8 +9,13 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
         const serialized = JSON.stringify(payload);
 
         socket.on('error', error => {
-            console.log(`[adm] socket error: ${error.message}`);
-            reject(); // close is auto called after this event
+            if ('code' in error && (error as any).code == 'ENOENT') {
+                console.log(`[adm] admin socket not open, command ${serialized} discarded`);
+                resolve();
+            } else {
+                console.log(`[adm] socket error: ${error.message}`);
+                reject(); // close is auto called after this event
+            }
         });
         socket.on('timeout', () => {
             console.log(`[adm] socket timeout`);
