@@ -11,8 +11,9 @@
     ```
    certificate name, certificate file and expire time is displayed,
    use privkey.pem as key, cert.pem as certificate and chain.pem as ca
-4. use `certbot certonly --certname domain.com --webroot -w WEBROOT -d domain.com,sub.domain.com,sub2.domain.com...` to add new domains,
-   don't forget to make them return 200 in server routing
+4. use `certbot certonly --cert-name domain.com --webroot -w WEBROOT -d domain.com,www.domain.com,ak.domain.com...` to add new domains,
+   don't forget to make them return 200 in server routing (https, not http)
+5. it seems to have error on http2, change `import http2 from 'http2'` to `import http2 from 'https'` and `createSecureServer` to `createServer` temporarily
 
 ### BACKUP
 
