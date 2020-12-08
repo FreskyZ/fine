@@ -1,21 +1,17 @@
 body
-    margin: auto
-    width: 30%
-    min-width: 320px
-    max-width: 350px
+    width: 320px
+    margin: calc(50vh - 180px) auto
 
-div#header
-    margin-top: 48px
-
+header
     span#title
         font-family: Georgia, serif
-        font-size: 20px
+        font-size: 24px
     span#title-explain
         font-size: 12px
         margin-left: 12px
         font-family: sans-serif
 
-div#app-container
+nav
     margin-top: 12px
     height: 144px
     overflow: hidden
@@ -44,20 +40,21 @@ div#app-container
         font-size: 12px
         color: #9F9F9F
 
-div#footer
+footer
     position: absolute
-    bottom: 24px
-    width: 30% // absolute footer does not follow body width, so should copy body width setting
-    min-width: 320px
-    max-width: 350px
+    bottom: 16px
+    width: 320px
 
+    a
+        text-decoration: none
     div#avatar-wrapper
         display: flex
-        width: 32px
+        width: 36px
         margin: auto
     img#my-avatar
         width: 16px
         height: 16px
+        margin-left: 4px
         border-radius: 8px
     span#mea-emoji
         width: 16px
@@ -72,5 +69,3 @@ div#footer
         &:last-child // beian is smaller and furthur
             font-size: 12px
             margin-top: 8px;
-    a
-        text-decoration: none

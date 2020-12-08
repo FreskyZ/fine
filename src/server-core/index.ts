@@ -154,9 +154,9 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// update home page style
-// typescript separation build for apps, webpack separation build is simply external, also try memfs again to remove build directory and rename ./biu to ./build also considering bundle build script in that case I accept version control track it
+// typescript separation build for app server, webpack separation build is simply external, also try memfs again to remove build directory and rename ./biu to ./build also considering bundle build script in that case I accept version control track it
 // app front end webpack, react, antd setup
 // build script generate front end wrapper and backend wrapper for api
+// check authentication correctly handle app, add expire-user to admin action
 // login page and user management (user device management) page, learn and use indexeddb
 // FINALLY go on normal web app development
