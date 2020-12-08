@@ -4,7 +4,9 @@ import * as filesize from 'filesize';
 import * as webpack from 'webpack';
 import { WebpackStat, WebpackStatModule } from './types';
 
-export type Configuration = webpack.Configuration;
+export type Configuration = webpack.Configuration & {
+    printStat?: boolean, 
+};
 
 /** 
  * @param previousModuleList null for direct run, null for first watch, previous return value for normal watch; show complete list for null, show diff for have value
@@ -19,7 +21,6 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
     for (const warning of stats.warnings) {
         console.error(`warning: ${warning}`);
     }
-
 
     const modules = stats.chunks.reduce<WebpackStatModule[]>((acc, chunk) => { acc.push(...chunk.modules); return acc; }, []);
 
@@ -73,12 +74,16 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
     return modules;
 }
 
-/** @param oncompleted called when complete, stat is null for failure */
-export async function run(options: webpack.Configuration, onerror: (error: Error) => void, oncompleted: (stat: WebpackStat) => void) {
+/** @param oncompleted called when complete */
+export async function run(options: Configuration, onerror: (error: Error) => void, oncompleted: (stat: WebpackStat) => void) {
     // wpb: webpack bundler
     console.log(`[wpb] bundling ${options.entry}`);
 
-    webpack(options, (error, statObject) => {
+    const enablePrintStat = !('printStat' in options) || options.printStat;
+    delete options.printStat;
+
+    const compiler =  webpack(options);
+    compiler.run((error, statObject) => {
         if (error) {
             console.log('[wpb] critical error: ' + error.message);
             onerror(null);
@@ -86,13 +91,17 @@ export async function run(options: webpack.Configuration, onerror: (error: Error
         }
     
         const stats = statObject?.toJson() as WebpackStat;
-        printStat(stats, null);
+        if (enablePrintStat) { 
+            printStat(stats, null); 
+        } else {
+            console.log('[wpb] bundled completed successfully');
+        }
         oncompleted(stats);
     });
 }
 
 /** @param onwatched called everytime when bundle completed, will not be called if failure or no change */
-export async function watch(config: webpack.Configuration, onwatched: (stat: WebpackStat) => void) {
+export async function watch(config: Configuration, onwatched: (stat: WebpackStat) => void) {
     console.log(`[wpb] bundling watching ${config.entry}`);
 
     let lastHash: string = null;

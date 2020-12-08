@@ -1,32 +1,47 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { minify } from 'terser';
 import * as ts from './run-typescript';
 
-// "build-bootstrap": "tsc script/build.ts --outDir script/bin --lib ES2020 --target ES2020 --module commonjs --moduleResolution node",
+// $ tsc script/index.ts --outDir build/self --lib ES2020 --target ES2020 --module commonjs --moduleResolution node
+// $ node build/self/index.js self
 
-const typescriptEntry = ['script/build.ts'];
+const typescriptEntry = ['script/index.ts'];
 const typescriptOptions = {
     types: ['node'],
     outDir: 'script/bin',
-    writeFileHook: (fileName, data, writeBOM, onError, sourceFiles, originalWriteFile) => {
-        // move entry out by redirect require, add shebang to allow direct execute by shell, replace use strict by the way
-        if (path.basename(fileName) == 'build.js') {
-            // ATTENTION: name the script biu until build folder is removed by using memfs in webpack
-            fs.writeFileSync('biu', data
-                .replace('"use strict";', '#!/usr/bin/env node')
-                .split('require("./').join('require("./script/bin/')); // it seems that replace left recursive need to be implemented this way
-        } else {
-            originalWriteFile(fileName, data, writeBOM, onError, sourceFiles);
-        }
-    }
 } as ts.CompilerOptions;
 
-export function build() {
+type IntermediateFiles = { name: string, content: string }[];
+function createWriteFileHook(intermediateFiles: IntermediateFiles) {
+    return ((name: string, content: string) => {
+        name = path.basename(name).slice(0, -3); // Attention: assume build script file structure is plain (no sub folder), assume all .js
+        content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1); // remove not used "use strict", exports.__esModule
+        if (content.startsWith('exports.')) { content = content.slice(content.indexOf('\n') + 1); } // remove not used init exports to undefined
+        content = content.split(/}\s*else/).join('} else'); // fix right bracket
+        content = content.split('requir' /* or else this string itself will be replaced */ + 'e("./').join('myrequire("')
+
+        intermediateFiles.push({ name, content });
+    }) as ts.CompilerOptions['writeFileHook'];
+}
+
+export async function build() {
     console.log('[bud] building self');
 
-    if (ts.compile(typescriptEntry, typescriptOptions)) {
-        console.log('[bud] build self completed succesfully');
-    } else {
-        console.log('[bud] build self completed with error');
+    const intermediateFiles: IntermediateFiles = [];
+    if (!ts.compile(typescriptEntry, { ...typescriptOptions, writeFileHook: createWriteFileHook(intermediateFiles) } as ts.CompilerOptions)) {
+        console.log('[bud] build self failed at transpiling');
+        process.exit(1);
     }
+
+    // this is how a simpliest bundler works (amazingly this supports input memfs)
+    const bundled = `#!/usr/bin/env node\n` 
+        + `((modules) => { const mycache = {};\n`
+        + `(function myrequire(name) { if (!(name in mycache)) { mycache[name] = {}; modules[name](mycache[name], myrequire); } return mycache[name]; })('index'); })({\n`
+        + `${intermediateFiles.map(({ name, content }) => `'${name}': (exports, myrequire) => {\n${content}}`)}\n})\n`;
+
+    const { code: minified } = await minify(bundled, {});
+
+    fs.writeFileSync('maka', minified);
+    console.log('[bud] build self completed successfully');
 }

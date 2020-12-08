@@ -3,17 +3,6 @@ import { build as buildSelf } from './build-self';
 import { build as buildServerCore } from './build-server-core';
 import { build as buildHomePage } from './build-home-page';
 
-// $ x self
-// $ x server-core
-// $ x watch server-core
-// $ x home-page
-// $ x watch home-page
-// $ x cost-server
-// $ x cost-client
-// $ x shutdown
-// $ x content-update www index.html
-// $ x content-update collect index.js
-
 const argv = process.argv.slice(2);
 
 if (argv[0] == 'self') {
