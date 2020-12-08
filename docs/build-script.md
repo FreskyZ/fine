@@ -15,6 +15,20 @@ $ maka content-update www index.html
 $ maka content-update collect index.js
 ```
 
+## API Declaration
+
+this topic seems to be some server-core or app server internal feature (like how is server content served),
+but it is actually related to build script because api function is the border of both server-core-app-server and app-server-app-client
+
+### `server-core` - `app-server` border
+
+1. write import 
+
+
+
+
+
+
 TODO how to separate build server core and app servers
 TODO update this
 
@@ -39,3 +53,6 @@ TODO update this
 //    2. hook read file and return dummy empty implementation for the dummy file
 //    3. hook write file and change back the dummy import statement
 //    4. externalize app-server in webpack config
+
+TODO how to use the advantange of shared code between app front end and back end
+investigate use build script to generate front end wrap code (call fetch) and backend wrap code (from request handler to implement functions), then missing functions, incorrect signatures. etc. will generate typescript transpile error
