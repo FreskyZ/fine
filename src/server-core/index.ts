@@ -155,6 +155,7 @@ logInfo('initialization completed');
 
 // TODO NEXT
 // typescript separation build for app server, webpack separation build is simply external, also try memfs again to remove build directory and rename ./biu to ./build also considering bundle build script in that case I accept version control track it
+// move src/server/config.js to maka config, work like webpack DefinePlugin, do not track by version control
 // app front end webpack, react, antd setup
 // build script generate front end wrapper and backend wrapper for api
 // new content reload strategy by dist/xxx/content.json

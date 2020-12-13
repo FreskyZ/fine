@@ -36,6 +36,6 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
 }
 
 const mutex = new Mutex();
-export async function send(payload: AdminSocketPayload) {
+export async function admin(payload: AdminSocketPayload) {
     await mutex.runExclusive(async () => await impl(payload));
 }

@@ -1,9 +1,10 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
+import { logError, logInfo } from './common';
 
 export const ModuleKind = ts.ModuleKind;
 export const ModuleResolutionKind = ts.ModuleResolutionKind;
-export type CompilerOptions = ts.CompilerOptions & {
+export type TypeScriptCompilerOptions = ts.CompilerOptions & {
     readFileHook?: (fileName: string, originalReadFile: (filename: string) => string) => string,
     writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => void,
     watchReadFileHook?: (path: string, encoding: string, originalReadFile: (path: string, encoding?: string) => string) => string,
@@ -71,25 +72,46 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
     console.log(displayCode + fileAndPosition + flattenedMessage);
 }
 
-function createCompilerHost(options: CompilerOptions) {
+function createCompilerHost(options: TypeScriptCompilerOptions) {
     const host = ts.createCompilerHost(options);
 
     if (options.readFileHook) {
         const originalReadFile = host.readFile;
         host.readFile = fileName => options.readFileHook(fileName, originalReadFile);
     }
-    if (options.writeFileHook) {
-        const originalWriteFile = host.writeFile;
-        host.writeFile = (fileName, data, writeBOM, onError, sourceFiles) => options.writeFileHook(fileName, data, writeBOM, onError, sourceFiles, originalWriteFile);
-    }
 
+    // optimize output content
+    const originalWriteFile = host.writeFile;
+    host.writeFile = (fileName, content, writeBOM, onError, sourceFiles) => {
+        if (fileName.endsWith('.js')) {
+            // remove not used "use strict"
+            // remove not used exports.__esModule = true
+            content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1);
+            // remove not used initialize exports.xxx as void 0
+            if (content.startsWith('exports.')) { 
+                content = content.slice(content.indexOf('\n') + 1);
+            }
+            // remove not used sourceMapURL
+            if (options.sourceMap) {
+                content = content.slice(0, content.lastIndexOf('\n') + 1); // make sure LF before EOF
+            } else if (!content.endsWith('\n')) {
+                content = content + '\n'; // make sure LF before EOF
+            }
+        }
+
+        if (options.writeFileHook) {
+            options.writeFileHook(fileName, content, writeBOM, onError, sourceFiles, originalWriteFile);
+        } else {
+            originalWriteFile(fileName, content, writeBOM, onError, sourceFiles);
+        }
+    }
     return host;
 }
 
 // although not needed, make this async to look like run-webpack and run-source-map
-export function compile(entry: string | string[], additionalOptions: CompilerOptions) {
+export function transpileOnce(entry: string | string[], additionalOptions: TypeScriptCompilerOptions) {
     // tsc: typescript compiler
-    console.log(`[tsc] transpiling ${entry}`);
+    logInfo('tsc', chalk`once {yellow ${entry}}`);
 
     const options = { 
         ...basicOptions, 
@@ -101,17 +123,22 @@ export function compile(entry: string | string[], additionalOptions: CompilerOpt
     const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options, host);
     const { diagnostics } = program.emit();
     const { success, message: summary } = summaryDiagnostics(diagnostics);
-    console.log(chalk`[tsc] transpile completed with ${summary}`);
+    if (success) {
+        logInfo('tsc', `completed with ${summary}`);
+    } else {
+        logError('tsc', `completed with ${summary}`);
+    }
+
     diagnostics.map(printDiagnostic);
     if (diagnostics.length > 0) {
-        console.log('[tsc] end of transpile diagnostics');
+        logError('tsc', 'end of transpile diagnostics');
     }
     
     return success;
 }
 
-export function watch(entry: string, additionalOptions: CompilerOptions): void {
-    console.log(`[tsc] transpiling watching ${entry}`);
+export function transpileWatch(entry: string, additionalOptions: TypeScriptCompilerOptions): void {
+    logInfo('tsc', `transpiling watching ${entry}`);
 
     if (additionalOptions.watchReadFileHook) {
         const originalReadFile = ts.sys.readFile;

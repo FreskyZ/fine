@@ -1,7 +1,8 @@
 import * as fs from 'fs';
-import * as path from 'path';
-import { minify } from 'terser';
-import * as ts from './run-typescript';
+import * as chalk from 'chalk';
+import { logInfo, logError } from './common';
+import { TypeScriptCompilerOptions, transpileOnce } from './run-typescript';
+import { MyPackOptions, bundleOnce } from './run-mypack';
 
 // $ tsc script/index.ts --outDir build/self --lib ES2020 --target ES2020 --module commonjs --moduleResolution node
 // $ node build/self/index.js self
@@ -9,39 +10,37 @@ import * as ts from './run-typescript';
 const typescriptEntry = ['script/index.ts'];
 const typescriptOptions = {
     types: ['node'],
-    outDir: 'script/bin',
-} as ts.CompilerOptions;
+    outDir: '/vbuild',
+} as TypeScriptCompilerOptions;
 
-type IntermediateFiles = { name: string, content: string }[];
-function createWriteFileHook(intermediateFiles: IntermediateFiles) {
+function createWriteFileHook(files: MyPackOptions['files']) {
     return ((name: string, content: string) => {
-        name = path.basename(name).slice(0, -3); // Attention: assume build script file structure is plain (no sub folder), assume all .js
-        content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1); // remove not used "use strict", exports.__esModule
-        if (content.startsWith('exports.')) { content = content.slice(content.indexOf('\n') + 1); } // remove not used init exports to undefined
-        content = content.split(/}\s*else/).join('} else'); // fix right bracket
-        content = content.split('requir' /* or else this string itself will be replaced */ + 'e("./').join('myrequire("')
+        files.push({ name, content });
+    }) as TypeScriptCompilerOptions['writeFileHook'];
+}
 
-        intermediateFiles.push({ name, content });
-    }) as ts.CompilerOptions['writeFileHook'];
+const mypackOptions: MyPackOptions = {
+    entry: '/vbuild/index.js',
+    files: [],
+    output: 'maka',
+    minify: true,
 }
 
 export async function build() {
-    console.log('[bud] building self');
+    logInfo('mka', chalk`{yellow self}`);
 
-    const intermediateFiles: IntermediateFiles = [];
-    if (!ts.compile(typescriptEntry, { ...typescriptOptions, writeFileHook: createWriteFileHook(intermediateFiles) } as ts.CompilerOptions)) {
-        console.log('[bud] build self failed at transpiling');
+    const files: MyPackOptions['files'] = [];
+    if (!transpileOnce(typescriptEntry, { ...typescriptOptions, writeFileHook: createWriteFileHook(files) } as TypeScriptCompilerOptions)) {
+        logError('mka', 'self failed at transpile typescript');
         process.exit(1);
     }
 
-    // this is how a simpliest bundler works (amazingly this supports input memfs)
-    const bundled = `#!/usr/bin/env node\n` 
-        + `((modules) => { const mycache = {};\n`
-        + `(function myrequire(name) { if (!(name in mycache)) { mycache[name] = {}; modules[name](mycache[name], myrequire); } return mycache[name]; })('index'); })({\n`
-        + `${intermediateFiles.map(({ name, content }) => `'${name}': (exports, myrequire) => {\n${content}}`)}\n})\n`;
+    const [jsContent] = await bundleOnce({ ...mypackOptions, files });
+    if (!jsContent) {
+        logError('mka', 'self failed at bundle');
+        process.exit(1);
+    }
+    fs.writeFileSync('maka', '#!/usr/bin/env node\n' + jsContent);
 
-    const { code: minified } = await minify(bundled, {});
-
-    fs.writeFileSync('maka', minified);
-    console.log('[bud] build self completed successfully');
+    logInfo('mka', 'self completed successfully');
 }

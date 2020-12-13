@@ -1,21 +1,30 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import * as fs from 'fs/promises';
 import * as path from 'path';
-import { projectDirectory, nodePackage } from './common';
-import * as admin from './admin-base';
-import * as ts from './run-typescript';
-import * as wp from './run-webpack';
-import * as sm from './run-sourcemap';
+import * as chalk from 'chalk';
+import { projectDirectory, nodePackage, logInfo, logError } from './common';
+import { admin } from './admin-base';
+import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { WebpackConfiguration, bundleWatch } from './run-webpack';
+import { MyPackOptions, bundleOnce } from './run-mypack';
+import { mergeSourceMap } from './run-sourcemap';
 
 const typescriptEntry = 'src/server-core/index.ts';
-const typescriptOptions: ts.CompilerOptions = {
+const typescriptOptions:TypeScriptCompilerOptions = {
     sourceMap: true,
-    // see run-typescript.ts,
-    // because server-core imported shared/xxx.ts
-    // so server-core result is in build/server-core and shared result is in build/shared
-    outDir: 'build',
+    outDir: '/vbuild',
 };
 
-const webpackConfiguration: wp.Configuration = {
+const mypackOptions: MyPackOptions = {
+    entry: '/vbuild/server-core/index.js',
+    files: [],
+    sourceMap: true,
+    output: 'dist/home/server.js',
+    printModules: true,
+    minify: false,
+}
+
+const webpackConfiguration: WebpackConfiguration = {
     mode: 'development',
     entry: path.join(projectDirectory, 'build/server-core/index.js'),
     output: {
@@ -31,21 +40,26 @@ const webpackConfiguration: wp.Configuration = {
 
 const sourcemapEntry = 'dist/home/server.js.map';
 
-function buildOnce() {
-    console.log(`[bud] building server-core`);
+async function buildOnce() {
+    logInfo('mka', chalk`{yellow server-core}`);
 
-    if (!ts.compile(typescriptEntry, typescriptOptions)) {
-        console.log('[bud] build server-core failed at transpiling');
-        return;
+    const files: MyPackOptions['files'] = [];
+    if (!transpileOnce(typescriptEntry, { ...typescriptOptions, 
+        writeFileHook: (name: string, content: string) => { files.push({ name, content }); } } as unknown as TypeScriptCompilerOptions)) {
+        logError('mka', chalk`{yellow server-core} failed at transpile typescript`);
+        process.exit(1);
     }
 
-    wp.run(webpackConfiguration, () => {
-        console.log('[bud] build server-core failed at bundling');
-    }, () => {
-        sm.merge(sourcemapEntry, false).then(() => {
-            console.log('[bud] build server-core completed successfully');
-        }); // fail is not expected and let it terminate process
-    });
+    const [resultJs, resultMap] = await bundleOnce({ ...mypackOptions, files });
+    if (!resultJs) {
+        logError('mka', chalk`{yellow server-core} failed at bundle`);
+        process.exit(1);
+    }
+
+    await fs.writeFile('build/server.js', resultJs);
+    await fs.writeFile('build/server.js.map', resultMap);
+
+    logInfo('mka', 'server-core completed successfully');
 }
 
 // only watch server-core require restart server process
@@ -65,20 +79,20 @@ function startOrRestartServer() {
     if (serverProcess != null) {
         console.log(`[mds] shutdown previous server process ${serverProcess.pid}`);
         serverProcess.once('exit', start);
-        admin.send({ type: 'shutdown' });
+        admin({ type: 'shutdown' });
     } else {
         start();
     }
 }
 
 function buildWatch() {
-    console.log(`[bud] building watching server-core`);
+    console.log(chalk`[mka] watch {yellow server-core}`);
 
     process.on('exit', () => serverProcess.kill()); // make sure
 
-    ts.watch(typescriptEntry, typescriptOptions);
-    wp.watch(webpackConfiguration, () => {
-        sm.merge(sourcemapEntry, true).then(() => {
+    transpileWatch(typescriptEntry, typescriptOptions);
+    bundleWatch(webpackConfiguration, () => {
+        mergeSourceMap(sourcemapEntry, true).then(() => {
             startOrRestartServer();
         }); // fail is not expected and let it terminate process
     });

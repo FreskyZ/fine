@@ -27,6 +27,7 @@ async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
         return null;
     }
     const mapFileName = jsFileName + '.map';
+    console.log('mapFileName: ' + mapFileName);
     if (!fs.existsSync(mapFileName)) {
         return null;
     }

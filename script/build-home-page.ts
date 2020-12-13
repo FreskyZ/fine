@@ -1,7 +1,7 @@
 import * as fs from 'fs';
-import * as ts from './run-typescript';
-import * as sass from 'node-sass';
-import * as admin from './admin-base';
+import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { Options as SassOptions, render as transpileStyle } from 'node-sass';
+import { admin } from './admin-base';
 
 const typescriptEntry = 'src/home-page/index.ts';
 const typescriptOptions = {
@@ -19,12 +19,12 @@ const typescriptOptions = {
             return originalWriteFile(fileName, data, writeBOM);
         }
         redirectWriteFileAndRemoveHeadingLines(data);
-        console.log('[bud] reload index.js');
-        admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } }).catch(() => { /* ignore */});
+        console.log('[mak] reload index.js');
+        admin({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } }).catch(() => { /* ignore */});
     },
-} as ts.CompilerOptions;
+} as TypeScriptCompilerOptions;
 
-const sassOptions: sass.Options = {
+const sassOptions: SassOptions = {
     file: 'src/home-page/index.sass',
     outputStyle: 'compressed',
 }
@@ -43,7 +43,7 @@ async function transpileSass(): Promise<void> {
     console.log(`[css] transpiling ${sassOptions.file}`);
 
     return new Promise((resolve, reject) => {
-        sass.render(sassOptions, (error, result) => {
+        transpileStyle(sassOptions, (error, result) => {
             if (error) {
                 console.log(`[css] error at ${sassOptions.file}:${error.line}:${error.column}: ${error.message}`);
                 reject();
@@ -57,37 +57,37 @@ async function transpileSass(): Promise<void> {
 }
 
 async function buildOnce() {
-    console.log('[bud] building home-page');
+    console.log('[mak] building home-page');
     // although these 3 things can be done in parallel, sequential them to prevent output mess
 
     // js
-    if (!ts.compile(typescriptEntry, typescriptOptions)) {
-        console.log('[bud] build home-page failed at transpiling script');
+    if (!transpileOnce(typescriptEntry, typescriptOptions)) {
+        console.log('[mak] build home-page failed at transpiling script');
         return;
     }
-    await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } });
+    await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } });
 
     // css
     try {
         await transpileSass();
-        await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } });
+        await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } });
     } catch {
-        console.log('[bud] build home-page failed at transpiling stylesheet');
+        console.log('[mak] build home-page failed at transpiling stylesheet');
         return;
     }
 
     // html
     console.log(`[cpy] copy index.html`);
     fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-    await admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } });
+    await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } });
 
-    console.log('[bud] build home-page completed succesfully');   
+    console.log('[mak] build home-page completed succesfully');   
 }
 
 function buildWatch() {
-    console.log('[bud] building watching home-page');
+    console.log('[mak] building watching home-page');
 
-    ts.watch(typescriptEntry, typescriptOptions);
+    transpileWatch(typescriptEntry, typescriptOptions);
 
     let htmlOperationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
     fs.watchFile('src/home-page/index.html', { persistent: false }, (currstat, prevstat) => {
@@ -97,9 +97,9 @@ function buildWatch() {
         htmlOperationIndex += 1;
         console.log(`[cpy] copy and reload index.html #${htmlOperationIndex}`);
         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-        admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } }).catch(() => { /* ignore */});
+        admin({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } }).catch(() => { /* ignore */});
     });
-    console.log('[bud] index.html fs watcher setup');
+    console.log('[mak] index.html fs watcher setup');
 
     let cssOperationIndex = 0;
     fs.watchFile('src/home-page/index.sass', { persistent: false }, (currstat, prevstat) => {
@@ -108,11 +108,11 @@ function buildWatch() {
         }
         transpileSass().then(() => {
             cssOperationIndex += 1;
-            console.log(`[bud] reload index.css #${cssOperationIndex}`);
-            admin.send({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } }).catch(() => { /* ignore */});
+            console.log(`[mak] reload index.css #${cssOperationIndex}`);
+            admin({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } }).catch(() => { /* ignore */});
         }).catch(() => { /* error already reported, ignore */});
     });
-    console.log('[bud] index.sass fs watcher setup');
+    console.log('[mak] index.sass fs watcher setup');
 
     process.on('SIGINT', () => {
         fs.unwatchFile('build/home-page/index.js');

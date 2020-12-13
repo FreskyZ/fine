@@ -35,7 +35,7 @@ const logReserveDays = 7;          // reserve log for 1 week
 
 const logsDirectory = path.join(process.cwd(), 'logs');
 function getLogFileName(date: dayjs.Dayjs, level: Level) {
-    return path.join(logsDirectory, `${date.format('YY-MM-DD')}-${level}.log`);
+    return path.join(logsDirectory, `${date.format('YYYY-MM-DD')}-${level}.log`);
 }
 
 function loadOrInitializeEntries(fileName: string): Entry[] {
@@ -105,7 +105,7 @@ setInterval(flushAll, lazyFlushInterval).unref(); // use unref unless it will bl
 
 function cleanup() {
     for (const filename of fs.readdirSync(logsDirectory)) {
-        const date = dayjs(path.basename(filename).slice(0, 8), 'YY-MM-DD');
+        const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYYY-MM-DD');
         if (date.isValid() && date.add(logReserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
             fs.unlinkSync(filename);
         }

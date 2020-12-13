@@ -4,7 +4,7 @@ import * as filesize from 'filesize';
 import * as webpack from 'webpack';
 import { WebpackStat, WebpackStatModule } from './types';
 
-export type Configuration = webpack.Configuration & {
+export type WebpackConfiguration = webpack.Configuration & {
     printStat?: boolean, 
 };
 
@@ -75,7 +75,7 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
 }
 
 /** @param oncompleted called when complete */
-export async function run(options: Configuration, onerror: (error: Error) => void, oncompleted: (stat: WebpackStat) => void) {
+export async function bundleOnce(options: WebpackConfiguration, onerror: (error: Error) => void, oncompleted: (stat: WebpackStat) => void) {
     // wpb: webpack bundler
     console.log(`[wpb] bundling ${options.entry}`);
 
@@ -101,7 +101,7 @@ export async function run(options: Configuration, onerror: (error: Error) => voi
 }
 
 /** @param onwatched called everytime when bundle completed, will not be called if failure or no change */
-export async function watch(config: Configuration, onwatched: (stat: WebpackStat) => void) {
+export async function bundleWatch(config: WebpackConfiguration, onwatched: (stat: WebpackStat) => void) {
     console.log(`[wpb] bundling watching ${config.entry}`);
 
     let lastHash: string = null;

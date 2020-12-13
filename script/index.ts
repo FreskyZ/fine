@@ -1,4 +1,4 @@
-import { send } from './admin-base';
+import { admin } from './admin-base';
 import { build as buildSelf } from './build-self';
 import { build as buildServerCore } from './build-server-core';
 import { build as buildHomePage } from './build-home-page';
@@ -39,11 +39,11 @@ if (argv[0] == 'self') {
     buildAppClient(validateApp(argv[1]), true);
     buildAppServer(validateApp(argv[1]), true);
 } else if (argv[0] == 'update-content' && argv.length == 3) {
-    send({ type: 'content-update', parameter: { app: argv[1], name: argv[2] } }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
+    admin({ type: 'content-update', parameter: { app: argv[1], name: argv[2] } }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
 } else if (argv[0] == 'expire-device' && argv.length == 2) {
     // send({ type: 'expire-device', parameter: { deviceId: parseInt(argv[2]) } }).then(() => process.exit(1))
 } else if (argv[0] == 'shutdown') {
-    send({ type: 'shutdown' }).then(() => process.exit(1));
+    admin({ type: 'shutdown' }).then(() => process.exit(1));
 } else {
     console.log('unknown command');
     process.exit(1);

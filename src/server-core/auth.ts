@@ -12,7 +12,7 @@ import { MyError } from '../shared/error';
 // handle common login and user info requests, and dispatch app api
 
 // these additional state actually only used in api
-export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential };
+export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential }
 type Ctx = koa.ParameterizedContext<ContextState>;
 
 // app related config
@@ -204,7 +204,17 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
 export async function handleApplications(ctx: Ctx) {
     if (!ctx.state.app) { throw new MyError('unreachable'); }
     
-    // mock
-    ctx.status = 200;
-    ctx.body = { value: 'dummy' };
+    for (const app of config.apps) {
+        if (new RegExp('^/' + app).test(ctx.path)) {
+
+            // NOTE:
+            // always re-require, for hot reloading
+            // tsc recognizes import statement and this require auto ignored 
+            // build script recognizes "require('." and this string template auto ignored
+            await (require(`../${app}/server`).dispatch as (ctx: Ctx) => Promise<void>)(ctx);
+            return;
+        }
+    }
+
+    throw new MyError('not-found', 'invalid invocation');
 }

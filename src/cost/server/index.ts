@@ -10,7 +10,7 @@ export async function dispatch(ctx: WebContext) {
     let match: RegExpExecArray;
     const methodAndPath = `${ctx.method} ${ctx.path}`; // method and path, note that query is not in ctx.path
 
-    match = /GET \/changes/.exec(methodAndPath);
+    match = /^GET \/changes$/.exec(methodAndPath);
     if (match) {
         ctx.body = await getChanges(ctx.state);
         return;

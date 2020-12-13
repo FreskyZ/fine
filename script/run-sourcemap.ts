@@ -4,7 +4,7 @@ import * as sm from 'source-map';
 import { projectDirectory } from './common';
 
 // watch does not log output
-export async function merge(file: string, watch: boolean): Promise<void> {
+export async function mergeSourceMap(file: string, watch: boolean): Promise<void> {
 
     const generator = new sm.SourceMapGenerator({ file: 'server.js', sourceRoot: '' });
     const consumer1s: { [key: string]: sm.BasicSourceMapConsumer } = {};

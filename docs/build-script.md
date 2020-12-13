@@ -26,8 +26,8 @@ but it is actually related to build script because api function is the border of
 
 
 
-TODO use webpack.DefinePlugin to replace `__DOMAIN_NAME__` to domain name
-
+TODO use webpack.DefinePlugin to replace `__DOMAIN_NAME__` to domain name, try something like `__my_variable__`('')
+UPDATE tsc just simply ignores `require` call and only include files by import statement
 
 TODO how to separate build server core and app servers
 TODO update this
