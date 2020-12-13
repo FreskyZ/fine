@@ -20,13 +20,13 @@ $ maka content-update collect index.js
 this topic seems to be some server-core or app server internal feature (like how is server content served),
 but it is actually related to build script because api function is the border of both server-core-app-server and app-server-app-client
 
-### `server-core` - `app-server` border
+### `server-core` - `app server` border
 
 1. write import 
 
 
 
-
+TODO use webpack.DefinePlugin to replace `__DOMAIN_NAME__` to domain name
 
 
 TODO how to separate build server core and app servers

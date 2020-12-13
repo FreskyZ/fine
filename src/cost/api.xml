@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<apis>
+    <!-- default namespace is default, body-type and body-name is required for POST/PUT/PATCH, default return type is void -->
+    <api name="getChanges" method="GET" path="/changes" return-type="Change[]" />
+    <api name="createChange" method="POST" path="/changes/" body-type="Change" body-name="change" return-type="Change" />
+    <api name="getChange" method="GET" path="/changes/{changeId:id}" return-type="Change" />
+    <api name="updateChange" method="PUT" path="/changes/{changeId:id}" body-type="Change" body-name="change" return-type="Change" />
+    <api name="deleteChange" method="DELETE" path="/changes/{changeId:id}" />
+</apis>

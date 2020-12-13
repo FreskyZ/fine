@@ -121,7 +121,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
 }
 
 // catch all request exceptions and continue
-const ErrorCodes: { [errorType in MyErrorType]: number } = { 'common': 400, 'auth': 401, 'method-not-allowed': 405, 'unreachable': 500 };
+const ErrorCodes: { [errorType in MyErrorType]: number } = { 'common': 400, 'auth': 401, 'not-found': 404, 'method-not-allowed': 405, 'unreachable': 500 };
 export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
     try {
         await next();

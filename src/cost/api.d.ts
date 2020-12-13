@@ -1,4 +1,5 @@
 
-export interface Value1 {
-    name: string,
+export interface Change {
+    type: 'expend' | 'income',
+    time: string,
 }
