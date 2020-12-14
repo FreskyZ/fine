@@ -11,7 +11,8 @@ import { config } from './config';
 import { logInfo, logError } from './logger';
 import { handleRequestContent, handleAdminContentUpdate } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
-import { handleRequestAccessControl, handleRequestAuthentication, handleApplications, ContextState } from './auth';
+import { handleRequestAccessControl, handleRequestAuthentication, 
+    handleApplications, ContextState, handleAdminReloadAppServer } from './auth';
 
 const app = new Koa<ContextState>();
 const admin: AdminEventEmitter = new EventEmitter();
@@ -26,6 +27,7 @@ app.use(handleApplications);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
 admin.on('content-update', handleAdminContentUpdate);
+admin.on('reload-app-server', handleAdminReloadAppServer);
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
@@ -63,6 +65,8 @@ socketServer.on('connection', connection => {
             admin.emit('shutdown');
         } else if (message.type == 'content-update') {
             admin.emit('content-update', message.parameter);
+        } else if (message.type == 'reload-app-server') {
+            admin.emit('reload-app-server', message.app);
         }
     });
 });

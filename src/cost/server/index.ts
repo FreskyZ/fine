@@ -8,34 +8,34 @@ import { getChanges, getChange, createChange, updateChange, deleteChange } from 
 
 export async function dispatch(ctx: WebContext) {
     let match: RegExpExecArray;
-    const methodAndPath = `${ctx.method} ${ctx.path}`; // method and path, note that query is not in ctx.path
+    const methodAndPath = `${ctx.method} ${ctx.path.slice(5)}`; // method and path, note that query is not in ctx.path, exclude '/cost header
 
-    match = /^GET \/changes$/.exec(methodAndPath);
+    match = /^GET \/v1\/changes$/.exec(methodAndPath);
     if (match) {
         ctx.body = await getChanges(ctx.state);
         return;
     }
 
-    match = /GET \/changes\/(?<changeId>\d+)/.exec(methodAndPath);
+    match = /GET \/v1\/changes\/(?<changeId>\d+)/.exec(methodAndPath);
     if (match) {
         ctx.body = await getChange(ctx.state, validateId('changeId', match.groups['changeId']));
         return;
     }
 
-    match = /POST \/changes\/(?<changeId>\d+)/.exec(methodAndPath);
+    match = /POST \/v1\/changes\/(?<changeId>\d+)/.exec(methodAndPath);
     if (match) {
         ctx.body = await createChange(ctx.state, validateId('changeId', match.groups['changeId']), validateBody(ctx.body));
         ctx.status = 201;
         return;
     }
 
-    match = /PUT \/changes\/(?<changeId>\d+)/.exec(methodAndPath);
+    match = /PUT \/v1\/changes\/(?<changeId>\d+)/.exec(methodAndPath);
     if (match) {
         ctx.body = await updateChange(ctx.state, validateId('changeId', match.groups['changeId']), validateBody(ctx.body));
         return;
     }
 
-    match = /DELETE \/changes\/(?<changeId>\d+)/.exec(methodAndPath);
+    match = /DELETE \/v1\/changes\/(?<changeId>\d+)/.exec(methodAndPath);
     if (match) {
         await deleteChange(ctx.state, validateId('changeId', match.groups['changeId']));
         ctx.status = 204;

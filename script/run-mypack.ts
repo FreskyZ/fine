@@ -11,6 +11,7 @@ import { logInfo, logError } from './common';
 
 // pack .js, merge .js.map
 export interface MyPackOptions {
+    type: 'lib' | 'app', // lib will reexport entry
     entry: string, // entry name should be in file list
     files: { name: string, content: string }[],
     sourceMap?: boolean, // default to false
@@ -58,9 +59,11 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
     let lineMovement = 3; // added lines to each module, used by source map
     const resultModules: MyPackResult['modules'] = [];
 
-    let resultJs = 
-        "((modules) => { const mycache = {};\n"
-        + "(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
+    let resultJs = options.type == 'app'
+        ? "((modules) => { const mycache = {};\n"
+            + "(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
+        : "module.exports = ((modules) => { const mycache = {};\n"
+            + "return (function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
     for (let { name: fileName, jsContent, mapContent } of sources) {
         // myrequire module name is always path relative to entry, so entry itself is '.'
         let moduleName = path.relative(entryFolder, fileName);

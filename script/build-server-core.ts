@@ -2,16 +2,17 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs/promises';
 import * as chalk from 'chalk';
 import { logInfo, logError } from './common';
-import { admin } from './admin-base';
+import { admin } from './admin';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
 const typescriptEntry = 'src/server-core/index.ts';
-const typescriptOptions:TypeScriptCompilerOptions = {
+const typescriptOptions: TypeScriptCompilerOptions = {
     sourceMap: true,
     outDir: '/vbuild',
 };
-const nodepackOptions: MyPackOptions = {
+const mypackOptions: MyPackOptions = {
+    type: 'app',
     entry: '/vbuild/server-core/index.js',
     files: [],
     sourceMap: true,
@@ -25,19 +26,20 @@ async function buildOnce() {
 
     const files: MyPackOptions['files'] = [];
     if (!transpileOnce(typescriptEntry, { ...typescriptOptions, 
-        writeFileHook: (name: string, content: string) => { files.push({ name, content }); } } as unknown as TypeScriptCompilerOptions)) {
+        writeFileHook: (name: string, content: string) => files.push({ name, content }),
+    } as unknown as TypeScriptCompilerOptions)) {
         logError('mka', chalk`{yellow server-core} failed at transpile typescript`);
         process.exit(1);
     }
 
-    const packResult = await pack({ ...nodepackOptions, files });
+    const packResult = await pack({ ...mypackOptions, files });
     if (!packResult.success) {
         logError('mka', chalk`{yellow server-core} failed at pack`);
         process.exit(1);
     }
 
-    await fs.writeFile('build/server.js', packResult.jsContent);
-    await fs.writeFile('build/server.js.map', packResult.mapContent);
+    await fs.writeFile('dist/home/server.js', packResult.jsContent);
+    await fs.writeFile('dist/home/server.js.map', packResult.mapContent);
 
     logInfo('mka', 'server-core completed successfully');
 }
@@ -87,7 +89,7 @@ function buildWatch() {
             }
         },
         watchEmit: async () => {
-            const currentResult = await pack({ ...nodepackOptions, files, lastResult });
+            const currentResult = await pack({ ...mypackOptions, files, lastResult });
             if (currentResult.success) {
                 await fs.writeFile('dist/home/server.js', currentResult.jsContent);
                 await fs.writeFile('dist/home/server.js.map', currentResult.mapContent);

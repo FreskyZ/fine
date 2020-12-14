@@ -217,3 +217,7 @@ export async function handleApplications(ctx: Ctx) {
 
     throw new MyError('not-found', 'invalid invocation');
 }
+
+export function handleAdminReloadAppServer(app: string) {
+    delete require.cache[require.resolve(`../${app}/server`)];
+}

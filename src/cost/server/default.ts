@@ -6,7 +6,7 @@ export async function getChanges(_: Context): Promise<Change[]> {
 }
 
 export async function getChange(_: Context, _changeId: number): Promise<Change> {
-    return { type: 'expend', time: '123' };
+    return { type: 'income', time: '123456' };
 }
 
 export async function createChange(_: Context, _changeId: number, _change: Change): Promise<Change> {

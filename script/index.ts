@@ -1,10 +1,9 @@
-import { admin } from './admin-base';
+import { admin } from './admin';
 import { build as buildSelf } from './build-self';
 import { build as buildServerCore } from './build-server-core';
 import { build as buildHomePage } from './build-home-page';
-
-function buildAppClient(_name: string, _watch: boolean) {}
-function buildAppServer(_name: string, _watch: boolean) {}
+import { build as buildAppServer } from './build-app-server';
+import { build as buildAppClient } from './build-app-client';
 
 function validateApp(appname: string) { 
     if (['ak', 'collect', 'cost'].includes(appname)) {
@@ -41,7 +40,9 @@ if (argv[0] == 'self') {
 } else if (argv[0] == 'update-content' && argv.length == 3) {
     admin({ type: 'content-update', parameter: { app: argv[1], name: argv[2] } }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
 } else if (argv[0] == 'expire-device' && argv.length == 2) {
-    // send({ type: 'expire-device', parameter: { deviceId: parseInt(argv[2]) } }).then(() => process.exit(1))
+    // admin({ type: 'expire-device', parameter: { deviceId: parseInt(argv[2]) } }).then(() => process.exit(1));
+} else if (argv[0] == 'reload-app-server' && argv.length == 2) {
+    admin({ type: 'reload-app-server', app: validateApp(argv[1]) }).then(() => process.exit(1));
 } else if (argv[0] == 'shutdown') {
     admin({ type: 'shutdown' }).then(() => process.exit(1));
 } else {

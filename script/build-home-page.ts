@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { Options as SassOptions, render as transpileStyle } from 'node-sass';
-import { admin } from './admin-base';
+import { admin } from './admin';
 
 const typescriptEntry = 'src/home-page/index.ts';
 const typescriptOptions = {
