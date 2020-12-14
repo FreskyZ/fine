@@ -1,3 +1,4 @@
+/// <reference path="../shared/types/config.d.ts" />
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -7,7 +8,6 @@ import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
 import { MyError } from '../shared/error';
-import { config } from './config';
 import { logInfo, logError } from './logger';
 import { handleRequestContent, handleAdminContentUpdate } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
@@ -79,8 +79,8 @@ function handleInsecureRequest(request: http.IncomingMessage, response: http.Ser
 // servers create, start, close
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = http2.createSecureServer({ 
-    key: fs.readFileSync(config['ssl-key'], 'utf-8'), 
-    cert: fs.readFileSync(config['ssl-cert'], 'utf-8'),
+    key: fs.readFileSync(SSL_KEY, 'utf-8'), 
+    cert: fs.readFileSync(SSL_CERT, 'utf-8'),
 }, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};
@@ -158,7 +158,6 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// setup build-app and also use mypack
 // change src/server/config.js to maka.config, work like webpack DefinePlugin, not track by version control
 // new content reload strategy by dist/xxx/content.json
 // app front end webpack, react, antd setup

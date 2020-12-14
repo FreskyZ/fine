@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as chalk from 'chalk';
 import { admin } from './admin';
-import { logInfo, logError } from './common';
+import { logInfo, logError, compileTimeConfig } from './common';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
@@ -11,7 +11,14 @@ function getTypescriptEntry(app: string) {
 const typescriptOptions: TypeScriptCompilerOptions = {
     sourceMap: true,
     outDir: '/vbuild',
-};
+    readFileHook: (fileName, originalReadFile) => {
+        let content = originalReadFile(fileName);
+        for (const configName in compileTimeConfig) {
+            content = content.split(configName).join(compileTimeConfig[configName]);
+        }
+        return content;
+    }
+} as TypeScriptCompilerOptions;
 function createMyPackOptions(app: string, files: MyPackOptions['files']): MyPackOptions {
     return {
         type: 'lib',

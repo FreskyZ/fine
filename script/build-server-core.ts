@@ -1,16 +1,23 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs/promises';
 import * as chalk from 'chalk';
-import { logInfo, logError } from './common';
+import { logInfo, logError, compileTimeConfig } from './common';
 import { admin } from './admin';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
 const typescriptEntry = 'src/server-core/index.ts';
-const typescriptOptions: TypeScriptCompilerOptions = {
+const typescriptOptions = {
     sourceMap: true,
     outDir: '/vbuild',
-};
+    readFileHook: (fileName, originalReadFile) => {
+        let content = originalReadFile(fileName);
+        for (const configName in compileTimeConfig) {
+            content = content.split(configName).join(compileTimeConfig[configName]);
+        }
+        return content;
+    }
+} as TypeScriptCompilerOptions;
 const mypackOptions: MyPackOptions = {
     type: 'app',
     entry: '/vbuild/server-core/index.js',

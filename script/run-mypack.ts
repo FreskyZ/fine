@@ -89,7 +89,7 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
                 : sources.some(s => s.name == requiredName + '/index.js') ? requiredName + '/index.js' 
                 : null;
             if (requiredModuleName === null) {
-                logError('mpk', `invalid module name ${match.groups['moduleName']} at ${match.index}`);
+                logError('mpk', `${fileName}: invalid module name ${match.groups['moduleName']} at ${match.index}`);
                 return { success: false };
             }
 

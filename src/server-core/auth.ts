@@ -3,7 +3,6 @@ import * as dayjs from 'dayjs';
 import type * as _ from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
-import { config } from './config'; 
 import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
@@ -17,9 +16,9 @@ type Ctx = koa.ParameterizedContext<ContextState>;
 
 // app related config
 const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'cost': true, 'collect': true };
-const allowedOriginConfig: { [origin: string]: string } = config.apps.reduce<{ [origin: string]: string }>(
-    (acc, app) => { acc[`https://${app}.${config.domain}`] = app; return acc; }, 
-    { [`https://${config.domain}`]: 'www', [`https://www.${config.domain}`]: 'www' });
+const allowedOriginConfig: { [origin: string]: string } = APP_NAMES.reduce<{ [origin: string]: string }>(
+    (acc, app) => { acc[`https://${app}.${DOMAIN_NAME}`] = app; return acc; }, 
+    { [`https://${DOMAIN_NAME}`]: 'www', [`https://www.${DOMAIN_NAME}`]: 'www' });
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
@@ -204,7 +203,7 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
 export async function handleApplications(ctx: Ctx) {
     if (!ctx.state.app) { throw new MyError('unreachable'); }
     
-    for (const app of config.apps) {
+    for (const app of APP_NAMES) {
         if (new RegExp('^/' + app).test(ctx.path)) {
             // NOTE:
             // always re-require, for hot reloading

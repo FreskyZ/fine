@@ -1,4 +1,5 @@
 import { admin } from './admin';
+import { compileTimeConfig } from './common';
 import { build as buildSelf } from './build-self';
 import { build as buildServerCore } from './build-server-core';
 import { build as buildHomePage } from './build-home-page';
@@ -6,7 +7,7 @@ import { build as buildAppServer } from './build-app-server';
 import { build as buildAppClient } from './build-app-client';
 
 function validateApp(appname: string) { 
-    if (['ak', 'collect', 'cost'].includes(appname)) {
+    if (JSON.parse(compileTimeConfig['APP_NAMES']).includes(appname)) {
         return appname;
     } else {
         console.log('unknown app name');

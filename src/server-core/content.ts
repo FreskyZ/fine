@@ -3,7 +3,6 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as koa from 'koa';
 import { AdminContentUpdateParameter } from '../shared/types/admin';
-import { config } from './config';
 import { logInfo } from './logger';
 import { MyError } from '../shared/error';
 
@@ -12,15 +11,15 @@ import { MyError } from '../shared/error';
 
 // GET /any/404 and GET /any/518
 // return non-reload-able static stand alone html text
-const html404 = fs.readFileSync(path.join(config.root, 'public/not-found.html'), 'utf-8');
-const html418 = fs.readFileSync(path.join(config.root, 'public/teapot.html'), 'utf-8');
+const html404 = fs.readFileSync(path.join(WEBROOT, 'public/not-found.html'), 'utf-8');
+const html418 = fs.readFileSync(path.join(WEBROOT, 'public/teapot.html'), 'utf-8');
 
 // GET /:app/
 // different subdomains gets different file, reload-able cached html content
 // serverPath is absolute
 type IndexFiles = { [subdomain: string]: { readonly serverPath: string, content: string | null } }
-const indexFiles: IndexFiles = ['www'].concat(config.apps).reduce<IndexFiles>(
-    (acc, app) => { acc[app] = { serverPath: path.join(config.root, `${app == 'www' ? 'home' : app}/index.html`), content: null }; return acc; }, {});
+const indexFiles: IndexFiles = ['www'].concat(APP_NAMES).reduce<IndexFiles>(
+    (acc, app) => { acc[app] = { serverPath: path.join(WEBROOT, `${app == 'www' ? 'home' : app}/index.html`), content: null }; return acc; }, {});
 async function handleRequestIndexFile(ctx: koa.Context) {
 
     const app = ctx.subdomains.length == 0 ? 'www' : ctx.subdomains[0];
@@ -39,14 +38,14 @@ async function handleRequestIndexFile(ctx: koa.Context) {
 // reload-able cached js/json/css/image content, cache key is `/${app}/${filename}`
 // if not match, try to load public files, which every time check file existence and read file and send file
 type StaticFiles = { [key: string]: { readonly serverPath: string, readonly contentType: string, content: string | null } }
-const staticFiles: StaticFiles = config.apps.reduce<StaticFiles>((acc, app) => { 
-    acc[`/${app}/index.js`] = { serverPath: path.join(config.root, `${app}/client.js`), contentType: 'js', content: null };
-    acc[`/${app}/index.js.map`] = { serverPath: path.join(config.root, `${app}/client.js.map`), contentType: 'json', content: null };
-    acc[`/${app}/index.css`] = { serverPath: path.join(config.root, `${app}/index.css`), contentType: 'css', content: null };
+const staticFiles: StaticFiles = APP_NAMES.reduce<StaticFiles>((acc, app) => { 
+    acc[`/${app}/index.js`] = { serverPath: path.join(WEBROOT, `${app}/client.js`), contentType: 'js', content: null };
+    acc[`/${app}/index.js.map`] = { serverPath: path.join(WEBROOT, `${app}/client.js.map`), contentType: 'json', content: null };
+    acc[`/${app}/index.css`] = { serverPath: path.join(WEBROOT, `${app}/index.css`), contentType: 'css', content: null };
     return acc;
 }, {
-    '/www/index.js': { serverPath: path.join(config.root, 'home/client.js'), contentType: 'js', content: null }, // only home page index js does not have source map
-    '/www/index.css': { serverPath: path.join(config.root, 'home/index.css'), contentType: 'css', content: null },
+    '/www/index.js': { serverPath: path.join(WEBROOT, 'home/client.js'), contentType: 'js', content: null }, // only home page index js does not have source map
+    '/www/index.css': { serverPath: path.join(WEBROOT, 'home/index.css'), contentType: 'css', content: null },
 });
 async function handleRequestStaticFile(ctx: koa.Context) {
     const key = `/${ctx.subdomains.length == 0 ? 'www' : ctx.subdomains[0]}${ctx.path}`;
@@ -68,9 +67,9 @@ async function handleRequestStaticFile(ctx: koa.Context) {
     }
 
     // check file existance and read file, or return 404 for not found file
-    if (fs.existsSync(path.join(config.root, 'public', ctx.path))) {
+    if (fs.existsSync(path.join(WEBROOT, 'public', ctx.path))) {
         ctx.type = path.extname(ctx.path);
-        ctx.body = await fsp.readFile(path.join(config.root, 'public', ctx.path));
+        ctx.body = await fsp.readFile(path.join(WEBROOT, 'public', ctx.path));
     } else {
         ctx.status = 404;
     }
