@@ -5,6 +5,7 @@ import * as http from 'http';
 import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
+import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminPayload } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
@@ -20,6 +21,7 @@ const admin: AdminEventEmitter = new EventEmitter();
 app.use(handleRequestError);
 app.use(handleRequestContent);
 app.use(handleRequestAccessControl);
+app.use(bodyParser());
 app.use(handleRequestAuthentication);
 app.use(handleApplications);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
@@ -159,8 +161,7 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
+// generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch
+// login page and user management (user device management) page, learn and use indexeddb, test api, check authentication correctly handle app
 // app front end webpack, react, antd setup
-// manually parse body
-// generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch, test api, check authentication correctly handle app, add expire-user to admin action
-// login page and user management (user device management) page, learn and use indexeddb
 // FINALLY go on normal web app development

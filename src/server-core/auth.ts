@@ -1,3 +1,4 @@
+/// <reference path="../shared/types/config.d.ts" />
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
 import type * as _ from 'dayjs/plugin/utc'; // vscode need this to prevent warning
@@ -141,6 +142,10 @@ async function handleUpdateDeviceName(ctx, parameters) {
         return value[0];
     })();
 
+    if (userDevice.UserId != ctx.state.user.id) {
+        throw new MyError('common', 'not my device');
+    }
+
     userDevice.Name = newDeviceName;
     await query('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', newDeviceName, deviceId);
 
@@ -206,7 +211,6 @@ export async function handleApplications(ctx: Ctx) {
     
     for (const app of APP_NAMES) {
         if (new RegExp('^/' + app).test(ctx.path)) {
-            // NOTE:
             // always re-require, for hot reloading
             // tsc recognizes import statement and this require auto ignored 
             // build script recognizes "require('." and this string template auto ignored
