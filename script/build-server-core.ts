@@ -12,8 +12,10 @@ const typescriptOptions = {
     outDir: '/vbuild',
     readFileHook: (fileName, originalReadFile) => {
         let content = originalReadFile(fileName);
-        for (const configName in compileTimeConfig) {
-            content = content.split(configName).join(compileTimeConfig[configName]);
+        if (!fileName.endsWith('.d.ts')) {
+            for (const configName in compileTimeConfig) {
+                content = content.split(configName).join(compileTimeConfig[configName]);
+            }
         }
         return content;
     }

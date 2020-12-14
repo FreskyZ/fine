@@ -13,8 +13,10 @@ const typescriptOptions: TypeScriptCompilerOptions = {
     outDir: '/vbuild',
     readFileHook: (fileName, originalReadFile) => {
         let content = originalReadFile(fileName);
-        for (const configName in compileTimeConfig) {
-            content = content.split(configName).join(compileTimeConfig[configName]);
+        if (!fileName.endsWith('.d.ts')) {
+            for (const configName in compileTimeConfig) {
+                content = content.split(configName).join(compileTimeConfig[configName]);
+            }
         }
         return content;
     }
@@ -51,7 +53,7 @@ async function buildOnce(app: string) {
     await fs.writeFile(`dist/${app}/server.js`, packResult.jsContent);
     await fs.writeFile(`dist/${app}/server.js.map`, packResult.mapContent);
 
-    await admin({ type: 'reload-app-server', app });
+    await admin({ type: 'reload-server', app });
     logInfo('mka', `${app}-server completed successfully`);
 }
 
@@ -79,7 +81,7 @@ function buildWatch(app: string) {
             }
 
             if (currentResult.hash != lastResult?.hash) {
-                await admin({ type: 'reload-app-server', app });
+                await admin({ type: 'reload-server', app });
             }
             lastResult = currentResult;
         },

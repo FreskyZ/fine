@@ -5,29 +5,28 @@ import * as http from 'http';
 import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
-import * as bodyParser from 'koa-bodyparser';
-import type { AdminEventEmitter, AdminSocketPayload } from '../shared/types/admin';
+import type { AdminEventEmitter, AdminPayload } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleRequestContent, handleAdminContentUpdate } from './content';
+import { handleRequestContent, handleAdminReloadStatic } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
-import { handleRequestAccessControl, handleRequestAuthentication, 
-    handleApplications, ContextState, handleAdminReloadAppServer } from './auth';
+import type { ContextState } from './auth';
+import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
+import { handleAdminReloadServer, handleAdminExpireDevice } from './auth'; // admin handler
 
 const app = new Koa<ContextState>();
 const admin: AdminEventEmitter = new EventEmitter();
 
 app.use(handleRequestError);
-app.use(bodyParser());
 app.use(handleRequestContent);
 app.use(handleRequestAccessControl);
 app.use(handleRequestAuthentication);
 app.use(handleApplications);
-
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
-admin.on('content-update', handleAdminContentUpdate);
-admin.on('reload-app-server', handleAdminReloadAppServer);
+admin.on('reload-static', handleAdminReloadStatic);
+admin.on('reload-server', handleAdminReloadServer);
+admin.on('expire-device', handleAdminExpireDevice);
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
@@ -53,7 +52,7 @@ socketServer.on('connection', connection => {
     });
     connection.on('data', data => {
         const payload = data.toString('utf-8');
-        let message = { type: null } as AdminSocketPayload;
+        let message = { type: null } as AdminPayload;
         try {
             message = JSON.parse(payload);
         } catch {
@@ -63,10 +62,12 @@ socketServer.on('connection', connection => {
 
         if (message.type == 'shutdown') {
             admin.emit('shutdown');
-        } else if (message.type == 'content-update') {
-            admin.emit('content-update', message.parameter);
-        } else if (message.type == 'reload-app-server') {
-            admin.emit('reload-app-server', message.app);
+        } else if (message.type == 'reload-static') {
+            admin.emit('reload-static', message.key);
+        } else if (message.type == 'reload-server') {
+            admin.emit('reload-server', message.app);
+        } else if (message.type == 'expire-device') {
+            admin.emit('expire-device', message.deviceId);
         }
     });
 });
@@ -158,8 +159,8 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// change src/server/config.js to maka.config, work like webpack DefinePlugin, not track by version control
-// new content reload strategy by dist/xxx/content.json
+// merge index.html and index.css, add login.html merged with login.js and login.css, update content routing and content update, update build-home-page to merge js/css into html
+// minify server-core and app-server
 // app front end webpack, react, antd setup
 // generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch, test api, check authentication correctly handle app, add expire-user to admin action
 // login page and user management (user device management) page, learn and use indexeddb

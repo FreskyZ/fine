@@ -6,6 +6,7 @@ import { authenticator } from 'otplib';
 import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
+import { logInfo } from './logger';
 
 // see docs/authentication.md
 // handle common login and user info requests, and dispatch app api
@@ -28,7 +29,7 @@ const userDeviceStorage: UserDeviceData[] = [];
 // ignore case comparator, this may need to be moved to some utility module
 const collator = Intl.Collator('en', { sensitivity: 'base' });
 
-const loginRegex = /POST \/login$/; 
+const loginRegex = /^POST \/login$/; 
 async function handleLogin(ctx: Ctx) {
 
     // reuse x-access-token for password // actually authenticator token is also a kind of access token
@@ -103,7 +104,7 @@ async function authenticate(ctx: Ctx) {
 // now this format looks very like c# property/java annotation/python annotation/typescript metadata
 const matchers: [RegExp, (ctx: Ctx, parameters: Record<string, string>) => Promise<void>][] = [
 
-[/GET \/user-devices$/,
+[/^GET \/user-devices$/,
 async function handleGetUserDevices(ctx) {
     // you always cannot tell whether all devices already loaded from db (unless new runtime memory storage added)
     // so always load from db and replace user device storage
@@ -122,7 +123,7 @@ async function handleGetUserDevices(ctx) {
     ctx.body = userDevices.map(d => ({ id: d.Id, name: d.Name }));
 }],
 
-[/PATCH \/user-device\/(?<device_id>\d+)$/,
+[/^PATCH \/user-devices\/(?<device_id>\d+)$/,
 async function handleUpdateDeviceName(ctx, parameters) {
 
     const deviceId = parseInt(parameters['device_id']);
@@ -147,7 +148,7 @@ async function handleUpdateDeviceName(ctx, parameters) {
     ctx.body = { id: userDevice.Id, name: userDevice.Name };
 }],
 
-[/DELETE \/user-device\/(?<device_id>\d+)$/,
+[/^DELETE \/user-devices\/(?<device_id>\d+)$/,
 async function handleRemoveDevice(ctx, parameters) {
 
     const deviceId = parseInt(parameters['device_id']);
@@ -161,7 +162,7 @@ async function handleRemoveDevice(ctx, parameters) {
     ctx.status = 204;
 }],
 
-[/GET \/user-credential$/,
+[/^GET \/user-credential$/,
 async function handleGetUserCredential(ctx) {
     ctx.status = 200;
     ctx.body = ctx.state.user;
@@ -217,6 +218,12 @@ export async function handleApplications(ctx: Ctx) {
     throw new MyError('not-found', 'invalid invocation');
 }
 
-export function handleAdminReloadAppServer(app: string) {
+// // these 2 admin handlers are amazingly simple
+export function handleAdminReloadServer(app: string) {
+    logInfo({ type: 'reload-server', value: { app }});
     delete require.cache[require.resolve(`../${app}/server`)];
+}
+export async function handleAdminExpireDevice(deviceId: number) {
+    logInfo({ type: 'expire-device', value: { deviceId }});
+    await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', (dayjs.utc as any)([1970, 1, 1]).format(QueryDateTimeFormat.datetime), deviceId);
 }

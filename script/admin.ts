@@ -1,9 +1,9 @@
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
-import { AdminSocketPayload } from '../src/shared/types/admin';
+import { AdminPayload } from '../src/shared/types/admin';
 import { logInfo, logError } from './common';
 
-async function impl(payload: AdminSocketPayload): Promise<void> {
+async function impl(payload: AdminPayload): Promise<void> {
     const socket = net.createConnection('/tmp/fps.socket').ref();
 
     return new Promise((resolve, reject) => {
@@ -37,6 +37,6 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
 }
 
 const mutex = new Mutex();
-export async function admin(payload: AdminSocketPayload) {
+export async function admin(payload: AdminPayload) {
     await mutex.runExclusive(async () => await impl(payload));
 }

@@ -16,19 +16,25 @@
 
 ### Routes
 
-- regex input is `${method} /${subdomain}${path}`
-- no subdomain is `${method} /www/${path}` (www.domain.com and domain.com is not same origin, but here is convenient and reasonable to regard them same)
+1. regex input is `${method} /${subdomain}${path}`
+2. no subdomain is `${method} /www/${path}` (www.domain.com and domain.com is not same origin, but here is convenient and reasonable to regard them same)
 
-GET /www/ => dist/home/index.html
-GET /:app/ => dist/:app/index.html
-GET /any/404 => dist/public/not-found.html
-GET /any/418 => dist/public/teapot.html
-GET /www/:path => dist/public/:path except html or known dist/home/ files
-GET /:app/:path => dist/public/:path except html or known dist/home/ files
 
-POST /www/login => login
-POST /www/refresh-token => refresh access token
-GET /api/user-credential => get user credential
-METHOD /api/app/:function => app server api
+- GET /any/404 => dist/home/404.html  
+- GET /any/418 => dist/home/418.html
 
-GET /share/:path => /api/save/share/:path (TBD)
+- GET /any/login => dist/home/login.html
+- GET /any/login.js => dist/home/login.js
+- GET /www/ => dist/home/index.html
+- GET /:app/ => dist/:app/index.html
+- GET /www/:path => known dist/home/ files, or else dist/public/:path except html 
+- GET /:app/:path => known dist/app/ files, or else dist/public/:path except html 
+
+- POST /api/login
+- GET /api/user-credential
+- GET /api/user-devices
+- PATCH /api/user-devices/:deviceid
+- DELETE /api/user-devices/:deviceid
+- METHOD /api/app/version/:function => app server api
+
+- GET /share/:path => /api/save/share/:path (TBD)

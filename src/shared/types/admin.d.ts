@@ -1,23 +1,22 @@
 import { EventEmitter } from 'events';
 
-export interface AdminContentUpdateParameter {
-    app: string,  // 'www' | appname
-    name: string, // e.g. index.html, index.js.map
-}
-
-export type AdminSocketPayload = {
+export type AdminPayload = {
     type: 'shutdown'
 } | {
-    type: 'content-update',
-    parameter: AdminContentUpdateParameter,
+    type: 'reload-static', // js/css/html
+    key: string,           // www | loging | app names
 } | {
-    type: 'reload-app-server'
-    app: string,
+    type: 'reload-server', // app/server.js
+    app: string,           // app names
+} | {
+    type: 'expire-device',
+    deviceId: number,
 }
 
 export interface AdminEventEmitter extends EventEmitter {
     on(event: 'shutdown', listener: () => void): this;
-    on(event: 'content-update', listener: (parameter: AdminContentUpdateParameter) => void): this;
-    on(event: 'reload-app-server', listener: (app: string) => void): this;
+    on(event: 'expire-device', listener: (deviceId: number) => void): this;
+    on(event: 'reload-static', listener: (key: string) => void): this;
+    on(event: 'reload-server', listener: (app: string) => void): this;
     on(event: string, listener: Function): this;
 }
