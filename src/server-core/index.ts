@@ -162,6 +162,6 @@ logInfo('initialization completed');
 
 // TODO NEXT
 // generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch
-// login page and user management (user device management) page, learn and use indexeddb, test api, check authentication correctly handle app
+// login page (at /login) and user management (user device management at /me) page, learn and use indexeddb, test api, check authentication correctly handle app
 // app front end webpack, react, antd setup
 // FINALLY go on normal web app development

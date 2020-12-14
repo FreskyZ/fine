@@ -31,9 +31,8 @@ export function validateId(name: string, raw: string): number {
 }
 
 export function validateBody<T>(body: any): T {
-    try {
-        return JSON.parse(body);
-    } catch (ex) {
-        throw new MyError('common', `invalid body ${body}`);
+    if (!body || Object.keys(body).length == 0) {
+        throw new MyError('common', 'invalid empty body');
     }
+    return body;
 }

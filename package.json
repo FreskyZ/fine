@@ -14,6 +14,7 @@
   },
   "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
+    "@types/xml2json": "^0.11.3",
     "dayjs": "^1.9.4",
     "koa": "^2.13.0",
     "koa-bodyparser": "^4.3.0",
@@ -46,6 +47,7 @@
     "react-dom": "^17.0.1",
     "terser": "^5.5.1",
     "typescript": "^4.1.2",
-    "webpack": "^5.10.0"
+    "webpack": "^5.10.0",
+    "xml2json": "^0.12.0"
   }
 }

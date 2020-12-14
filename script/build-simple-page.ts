@@ -108,9 +108,8 @@ function buildWatch(name: SimplePageName) {
     });
 
     process.on('SIGINT', () => {
-        fs.unwatchFile('build/home-page/index.js');
-        fs.unwatchFile('src/home-page/index.html');
-        fs.unwatchFile('src/home-page/index.sass');
+        fs.unwatchFile(`src/home-page/${name}.html`);
+        fs.unwatchFile(sassOptions.file);
         process.exit(0);
     });
 
