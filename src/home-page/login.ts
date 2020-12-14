@@ -1,1 +1,1 @@
-console.log('login.ts');
+console.log('login.js');

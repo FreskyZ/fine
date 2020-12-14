@@ -22,10 +22,10 @@ if (a1 == 'self') {
     buildServerCore(false);
 } else if (a1 == 'watch' && a2 == 'server-core') {
     buildServerCore(true);
-} else if (a1 == 'home-page') {
-    buildSimplePage('home', false);
-} else if (a1 == 'watch' && a2 == 'home-page') {
-    buildSimplePage('home', true);
+} else if (a1 == 'index-page') {
+    buildSimplePage('index', false);
+} else if (a1 == 'watch' && a2 == 'index-page') {
+    buildSimplePage('index', true);
 } else if (a1 == 'login-page') {
     buildSimplePage('login', false);
 } else if (a1 == 'watch' && a2 == 'login-page') {

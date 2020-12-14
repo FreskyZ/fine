@@ -18,7 +18,16 @@ const typescriptOptions = {
             }
         }
         return content;
-    }
+    },
+    watchReadFileHook: (fileName, encoding, originalReadFile) => {
+        let content = originalReadFile(fileName, encoding);
+        if (!fileName.endsWith('.d.ts')) {
+            for (const configName in compileTimeConfig) {
+                content = content.split(configName).join(compileTimeConfig[configName]);
+            }
+        }
+        return content;
+    },
 } as TypeScriptCompilerOptions;
 const mypackOptions: MyPackOptions = {
     type: 'app',

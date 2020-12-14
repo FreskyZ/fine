@@ -159,9 +159,9 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// merge index.html and index.css, add login.html merged with login.js and login.css, update content routing and content update, update build-home-page to merge js/css into html
 // minify server-core and app-server
 // app front end webpack, react, antd setup
+// manually parse body
 // generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch, test api, check authentication correctly handle app, add expire-user to admin action
 // login page and user management (user device management) page, learn and use indexeddb
 // FINALLY go on normal web app development

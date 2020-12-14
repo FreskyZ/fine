@@ -12,11 +12,13 @@ import { MyError } from '../shared/error';
 // reload by reload key, knowns files are all cached, not known files will redirect to public, any is handled by ['www'].concat(apps)
 const knownFiles: ReadonlyArray<Readonly<{ virtual: string, real: string, reloadKey: string }>> = [
     { virtual: '/www/', real: 'home/index.html', reloadKey: 'www' },
+    { virtual: '/www/index.css', real: 'home/index.css', reloadKey: 'www' },
     
     ...['www'].concat(APP_NAMES).map(any => ({ virtual: `/${any}/404`, real: 'home/404.html', reloadKey: 'no' })),
     ...['www'].concat(APP_NAMES).map(any => ({ virtual: `/${any}/418`, real: 'home/404.html', reloadKey: 'no' })),
     ...['www'].concat(APP_NAMES).map(any => ({ virtual: `/${any}/login`, real: 'home/login.html', reloadKey: 'login' })),
     ...['www'].concat(APP_NAMES).map(any => ({ virtual: `/${any}/login.js`, real: 'home/login.js', reloadKey: 'login' })),
+    ...['www'].concat(APP_NAMES).map(any => ({ virtual: `/${any}/login.css`, real: 'home/login.css', reloadKey: 'login' })),
 
     ...APP_NAMES.map(app => ({ virtual: `/${app}/`, real: `${app}/index.html`, reloadKey: app })),
     ...APP_NAMES.map(app => ({ virtual: `/${app}/index.js`, real: `${app}/client.js`, reloadKey: app })),

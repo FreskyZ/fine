@@ -1,134 +1,126 @@
-// import * as fs from 'fs';
-// import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
-// import { Options as SassOptions, render as transpileStyle } from 'node-sass';
-// import { admin } from './admin';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import * as chalk from 'chalk';
+import { logInfo, logError } from './common';
+import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { Options as SassOptions, render as transpileStyle } from 'node-sass';
+import { admin } from './admin';
 
-// // also include /login page, which is also hand written html/js/sass
-// // although /login also served at all domain.com/login and app.domain.com/login, put them in dist/home and this build-home-page
+// build simple page, copy html, transpile sass to css, transpile one ts file to one js file
 
-// const typescriptEntry = 'src/home-page/index.ts';
-// const typescriptOptions = {
-//     types: ['node'],
-//     outDir: 'build/home-page',
-//     lib: ['lib.dom.d.ts'],
-//     writeFileHook: (fileName, data, writeBOM, onError, sourceFiles, originalWriteFile) => {
-//         if (fileName != 'build/home-page/index.js') {
-//             return originalWriteFile(fileName, data, writeBOM, onError, sourceFiles); // // will this happen?
-//         }
-//         redirectWriteFileAndRemoveHeadingLines(data);
-//     },
-//     watchWriteFileHook: (fileName, data, writeBOM, originalWriteFile) => {
-//         if (fileName != 'build/home-page/index.js') {
-//             return originalWriteFile(fileName, data, writeBOM);
-//         }
-//         redirectWriteFileAndRemoveHeadingLines(data);
-//         console.log('[mak] reload index.js');
-//         admin({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } }).catch(() => { /* ignore */});
-//     },
-// } as TypeScriptCompilerOptions;
+type SimplePageName = 'index' | 'login';
+const getReloadKey = (name: SimplePageName) => name == 'index' ? 'www' : 'login';
 
-// const sassOptions: SassOptions = {
-//     file: 'src/home-page/index.sass',
-//     outputStyle: 'compressed',
-// }
+// also index page do not have js for now, reserved for it and skip for index
+const getTypeScriptEntry = (name: SimplePageName) => `src/home-page/${name}.ts`;
+const typescriptOptions = {
+    // types: ['node'],
+    outDir: 'dist/home/',
+    lib: ['lib.dom.d.ts'],
+};
 
-// function redirectWriteFileAndRemoveHeadingLines(data: string) {
-//     // typescript unexpectedly and maybe unconfigurably add not-used "use strict" 
-//     // and cause-error "Object.defineProperty(exports, '__esModule')" to emitted file after "import type from 'shared'" added
-//     // remove them and directly output to dist folder as write file hook feature is used
-//     const line1End = data.indexOf('\n');
-//     const line2End = data.indexOf('\n', line1End + 1);
-//     fs.writeFileSync('dist/home/client.js', data.slice(line2End + 1));
-// }
+const getSassOptions = (name: SimplePageName) => ({
+    file: `src/home-page/${name}.sass`,
+    outputStyle: 'compressed',
+} as SassOptions);
 
-// // directly call sass only happens in home page while app front end uses formal webpack ts loader and sass loader
-// async function transpileSass(): Promise<void> {
-//     console.log(`[css] transpiling ${sassOptions.file}`);
+// directly call sass only happens in simple pages while app front end is planed to use webpack with sass-loader
+async function transpileSass(options: SassOptions, operationIndex?: number): Promise<string> {
+    logInfo('css', chalk`transpile {yellow ${options.file}}${operationIndex ? ` #${operationIndex}` : ''}`);
 
-//     return new Promise((resolve, reject) => {
-//         transpileStyle(sassOptions, (error, result) => {
-//             if (error) {
-//                 console.log(`[css] error at ${sassOptions.file}:${error.line}:${error.column}: ${error.message}`);
-//                 reject();
-//                 return;
-//             }
-//             fs.writeFileSync('dist/home/index.css', result.css);
-//             console.log(`[css] transpiled completed successfully in ${result.stats.duration}ms`);
-//             resolve();
-//         });
-//     });
-// }
+    return new Promise((resolve, reject) => {
+        transpileStyle(options, (error, result) => {
+            if (error) {
+                logError('css', `error at ${options.file}:${error.line}:${error.column}: ${error.message}`);
+                reject();
+            } else {
+                logInfo('css', `transpile completed in ${result.stats.duration}ms`);
+                resolve(result.css.toString('utf-8'));
+            }
+        });
+    });
+}
 
-// async function buildOnce() {
-//     console.log('[mak] building home-page');
-//     // although these 3 things can be done in parallel, sequential them to prevent output mess
+async function buildOnce(name: SimplePageName) {
+    logInfo('mka', chalk`{yellow ${name}-page}`);
+    // although these 3 things can be done in parallel, sequential them to prevent output mess
 
-//     // js
-//     if (!transpileOnce(typescriptEntry, typescriptOptions)) {
-//         console.log('[mak] build home-page failed at transpiling script');
-//         return;
-//     }
-//     await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.js' } });
+    // js
+    if (name != 'index') {
+        if (!transpileOnce(getTypeScriptEntry(name), typescriptOptions)) {
+            logError('mka', chalk`{yellow ${name}-page} failed at transpile typescript`);
+            process.exit(1);
+        }
+    }
 
-//     // css
-//     try {
-//         await transpileSass();
-//         await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } });
-//     } catch {
-//         console.log('[mak] build home-page failed at transpiling stylesheet');
-//         return;
-//     }
+    // css
+    try {
+        const code = await transpileSass(getSassOptions(name));
+        await fsp.writeFile(`dist/home/${name}.css`, code);
+    } catch {
+        logError('mka', chalk`{yellow ${name}-page} failed at transpile stylesheet`);
+        process.exit(1);
+    }
 
-//     // html
-//     console.log(`[cpy] copy index.html`);
-//     fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-//     await admin({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } });
+    // html
+    logInfo('htm', chalk`copy {yellow ${name}.html}`);
+    await fsp.copyFile(`src/home-page/${name}.html`, `dist/home/${name}.html`);
+    logInfo('htm', 'copy completed');
 
-//     console.log('[mak] build home-page completed succesfully');   
-// }
+    await admin({ type: 'reload-static', key: getReloadKey(name) });
+    logInfo('mka', `build ${name}-page completed succesfully`);   
+}
 
-// function buildWatch() {
-//     console.log('[mak] building watching home-page');
+function buildWatch(name: SimplePageName) {
+    logInfo('mka', chalk`watch {yellow ${name}-page}`);
 
-//     transpileWatch(typescriptEntry, typescriptOptions);
+    if (name != 'index') {
+        transpileWatch(getTypeScriptEntry(name), {
+            ...typescriptOptions,
+            watchEmit: () => {
+                admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
+            },
+        } as TypeScriptCompilerOptions);
+    }
 
-//     let htmlOperationIndex = 0; // add an index to message or else when continuing updating this one file output message will seem not moving (same one line content)
-//     fs.watchFile('src/home-page/index.html', { persistent: false }, (currstat, prevstat) => {
-//         if (currstat.mtime == prevstat.mtime) {
-//             return;
-//         }
-//         htmlOperationIndex += 1;
-//         console.log(`[cpy] copy and reload index.html #${htmlOperationIndex}`);
-//         fs.copyFileSync('src/home-page/index.html', 'dist/home/index.html');
-//         admin({ type: 'content-update', parameter: { app: 'www', name: 'index.html' } }).catch(() => { /* ignore */});
-//     });
-//     console.log('[mak] index.html fs watcher setup');
+    let htmlOperationIndex = 0; // add an index to message or else when continuing updating this one file output message will look like not moving
+    fs.watchFile(`src/home-page/${name}.html`, { persistent: false }, (currstat, prevstat) => {
+        if (currstat.mtime == prevstat.mtime) {
+            return;
+        }
+        htmlOperationIndex += 1;
+        logInfo('htm', chalk`copy {yellow ${name}.html} #${htmlOperationIndex}`);
+        fs.copyFileSync(`src/home-page/${name}.html`, `dist/home/${name}.html`);
+        logInfo('htm', 'copy completed');
+        admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
+    });
 
-//     let cssOperationIndex = 0;
-//     fs.watchFile('src/home-page/index.sass', { persistent: false }, (currstat, prevstat) => {
-//         if (currstat.mtime == prevstat.mtime) {
-//             return;
-//         }
-//         transpileSass().then(() => {
-//             cssOperationIndex += 1;
-//             console.log(`[mak] reload index.css #${cssOperationIndex}`);
-//             admin({ type: 'content-update', parameter: { app: 'www', name: 'index.css' } }).catch(() => { /* ignore */});
-//         }).catch(() => { /* error already reported, ignore */});
-//     });
-//     console.log('[mak] index.sass fs watcher setup');
+    let cssOperationIndex = 0;
+    const sassOptions = getSassOptions(name);
+    fs.watchFile(sassOptions.file, { persistent: false }, (currstat, prevstat) => {
+        if (currstat.mtime == prevstat.mtime) {
+            return;
+        }
+        transpileSass(getSassOptions(name), cssOperationIndex).then(() => {
+            cssOperationIndex += 1;
+            admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
+        }).catch(() => { /* error already reported, ignore */});
+    });
 
-//     process.on('SIGINT', () => {
-//         fs.unwatchFile('build/home-page/index.js');
-//         fs.unwatchFile('src/home-page/index.html');
-//         fs.unwatchFile('src/home-page/index.sass');
-//         process.exit(0);
-//     });
-// }
+    process.on('SIGINT', () => {
+        fs.unwatchFile('build/home-page/index.js');
+        fs.unwatchFile('src/home-page/index.html');
+        fs.unwatchFile('src/home-page/index.sass');
+        process.exit(0);
+    });
 
-export async function build(_name: string, _watch: boolean): Promise<void> {
-    // if (watch) {
-    //     buildWatch();
-    // } else {
-    //     buildOnce();
-    // }
+    logInfo('mka', `tsc watch and fs watch setup`);
+}
+
+export async function build(name: SimplePageName, watch: boolean): Promise<void> {
+    if (watch) {
+        buildWatch(name);
+    } else {
+        await buildOnce(name);
+    }
 }
