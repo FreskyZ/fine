@@ -9,6 +9,7 @@ export type TypeScriptCompilerOptions = ts.CompilerOptions & {
     writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => void,
     watchReadFileHook?: (path: string, encoding: string, originalReadFile: (path: string, encoding?: string) => string) => string,
     watchWriteFileHook?: (path: string, data: string, writeBOM: boolean, originalWriteFile: (path: string, data: string, writeBOM?: boolean) => void) => void,
+    watchEmit?: () => void | Promise<void>, // after emit completed successfully
 };
 
 const basicOptions: ts.CompilerOptions = {
@@ -56,20 +57,32 @@ function summaryDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>): { succes
     return { success: errorCount == 0, message };
 }
 function printDiagnostic({ category, code, messageText, file, start }: ts.Diagnostic): void {
-    const categoryColor = diagnosticCategoryColors[category];
-    const displayCode = code == 6031 || code == 6032 ? chalk`[{cyan tsc}] ` : categoryColor(`  TS${code} `);
+    if (code == 6031) {
+        // original message is 'TS6031: Starting compilation in watch mode...'
+        // ignore because transpileWatch have its own starting message
+        return; 
+    } else if (code == 6032) {
+        // original message is 'TS6032: File change detected. Starting incremental compilation
+        logInfo('tsc', 'retranspile');
+    } else if (code == 6194) {
+        // originaL message is 'TS6194: Found 0 errors. Watching for file changes'
+        // because this is already checked by emit hook's !emitResult.emitSkipped, and this actually fires after that, which will make output message not in order, so ignore
+        return;
+    } else {
+        const displayCode = diagnosticCategoryColors[category](`  TS${code} `);
 
-    let fileAndPosition = '';
-    if (file) {
-        const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
-        fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
+        let fileAndPosition = '';
+        if (file) {
+            const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
+            fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
+        }
+    
+        let flattenedMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
+        if (flattenedMessage.includes('\n')) {
+            flattenedMessage = '\n' + flattenedMessage;
+        }
+        console.log(displayCode + fileAndPosition + flattenedMessage);
     }
-
-    let flattenedMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
-    if (flattenedMessage.includes('\n')) {
-        flattenedMessage = '\n' + flattenedMessage;
-    }
-    console.log(displayCode + fileAndPosition + flattenedMessage);
 }
 
 function createCompilerHost(options: TypeScriptCompilerOptions) {
@@ -137,23 +150,57 @@ export function transpileOnce(entry: string | string[], additionalOptions: TypeS
     return success;
 }
 
-export function transpileWatch(entry: string, additionalOptions: TypeScriptCompilerOptions): void {
-    logInfo('tsc', `transpiling watching ${entry}`);
+export function transpileWatch(entry: string, additionalOptions: TypeScriptCompilerOptions) {
+    logInfo('tsc', chalk`watch {yellow ${entry}}`);
 
     if (additionalOptions.watchReadFileHook) {
         const originalReadFile = ts.sys.readFile;
         ts.sys.readFile = (path, encoding) => additionalOptions.watchReadFileHook(path, encoding, originalReadFile);
     }
-    if (additionalOptions.watchWriteFileHook) {
-        const originalWriteFile = ts.sys.writeFile;
-        ts.sys.writeFile = (path, data, writeBOM) => additionalOptions.watchWriteFileHook(path, data, writeBOM, originalWriteFile);
+
+    const originalWriteFile = ts.sys.writeFile;
+    ts.sys.writeFile = (fileName, content, writeBOM) => {
+        if (fileName.endsWith('.js')) {
+            // remove not used "use strict"
+            // remove not used exports.__esModule = true
+            content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1);
+            // remove not used initialize exports.xxx as void 0
+            if (content.startsWith('exports.')) { 
+                content = content.slice(content.indexOf('\n') + 1);
+            }
+            // remove not used sourceMapURL
+            if (additionalOptions.sourceMap) {
+                content = content.slice(0, content.lastIndexOf('\n') + 1); // make sure LF before EOF
+            } else if (!content.endsWith('\n')) {
+                content = content + '\n'; // make sure LF before EOF
+            }
+        }
+
+        if (additionalOptions.watchWriteFileHook) {
+            additionalOptions.watchWriteFileHook(fileName, content, writeBOM, originalWriteFile);
+        } else {
+            originalWriteFile(fileName, content, writeBOM);
+        }
     }
 
-    ts.createWatchProgram(ts.createWatchCompilerHost(
+    ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
         [entry],
         { ...basicOptions, ...additionalOptions }, 
         ts.sys,
-        ts.createEmitAndSemanticDiagnosticsBuilderProgram,
+        (...createProgramArgs) => {
+            const program = ts.createEmitAndSemanticDiagnosticsBuilderProgram(...createProgramArgs);
+            if (additionalOptions.watchEmit) {
+                const originalEmit = program.emit;
+                program.emit = (...emitArgs) => {
+                    const emitResult = originalEmit(...emitArgs);
+                    if (!emitResult.emitSkipped) {
+                        additionalOptions.watchEmit();
+                    }
+                    return emitResult;
+                }
+            }
+            return program;
+        },
         printDiagnostic,
         printDiagnostic,
     ));

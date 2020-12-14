@@ -142,7 +142,7 @@ function shutdown() {
         logInfo('finalization completed');
         console.log('socket server, http server and http2 server closed');
         process.exit(0);
-    }).catch(() => {
+    }, () => {
         console.log('failed to close some server');
         process.exit(202);
     });
@@ -154,11 +154,10 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// typescript separation build for app server, webpack separation build is simply external, also try memfs again to remove build directory and rename ./biu to ./build also considering bundle build script in that case I accept version control track it
-// move src/server/config.js to maka config, work like webpack DefinePlugin, do not track by version control
-// app front end webpack, react, antd setup
-// build script generate front end wrapper and backend wrapper for api
+// setup build-app and also use mypack
+// change src/server/config.js to maka.config, work like webpack DefinePlugin, not track by version control
 // new content reload strategy by dist/xxx/content.json
-// check authentication correctly handle app, add expire-user to admin action
+// app front end webpack, react, antd setup
+// generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch, test api, check authentication correctly handle app, add expire-user to admin action
 // login page and user management (user device management) page, learn and use indexeddb
 // FINALLY go on normal web app development

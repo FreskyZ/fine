@@ -74,8 +74,6 @@ async function handleRequestStaticFile(ctx: koa.Context) {
     } else {
         ctx.status = 404;
     }
-
-    throw new Error('some error');
 }
 
 export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {

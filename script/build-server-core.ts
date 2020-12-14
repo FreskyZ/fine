@@ -1,21 +1,17 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as chalk from 'chalk';
-import { projectDirectory, nodePackage, logInfo, logError } from './common';
+import { logInfo, logError } from './common';
 import { admin } from './admin-base';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
-import { WebpackConfiguration, bundleWatch } from './run-webpack';
-import { MyPackOptions, bundleOnce } from './run-mypack';
-import { mergeSourceMap } from './run-sourcemap';
+import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
 const typescriptEntry = 'src/server-core/index.ts';
 const typescriptOptions:TypeScriptCompilerOptions = {
     sourceMap: true,
     outDir: '/vbuild',
 };
-
-const mypackOptions: MyPackOptions = {
+const nodepackOptions: MyPackOptions = {
     entry: '/vbuild/server-core/index.js',
     files: [],
     sourceMap: true,
@@ -23,22 +19,6 @@ const mypackOptions: MyPackOptions = {
     printModules: true,
     minify: false,
 }
-
-const webpackConfiguration: WebpackConfiguration = {
-    mode: 'development',
-    entry: path.join(projectDirectory, 'build/server-core/index.js'),
-    output: {
-        filename: 'server.js',
-        path: path.join(projectDirectory, 'dist/home'),
-    },
-    target: 'node',
-    externals: Object.keys(nodePackage['dependencies'])
-        .concat(['dayjs/plugin/utc'])
-        .reduce((acc, p) => ({ ...acc, [p]: `commonjs ${p}` }), {}),
-    devtool: 'hidden-nosources-source-map',
-};
-
-const sourcemapEntry = 'dist/home/server.js.map';
 
 async function buildOnce() {
     logInfo('mka', chalk`{yellow server-core}`);
@@ -50,34 +30,38 @@ async function buildOnce() {
         process.exit(1);
     }
 
-    const [resultJs, resultMap] = await bundleOnce({ ...mypackOptions, files });
-    if (!resultJs) {
-        logError('mka', chalk`{yellow server-core} failed at bundle`);
+    const packResult = await pack({ ...nodepackOptions, files });
+    if (!packResult.success) {
+        logError('mka', chalk`{yellow server-core} failed at pack`);
         process.exit(1);
     }
 
-    await fs.writeFile('build/server.js', resultJs);
-    await fs.writeFile('build/server.js.map', resultMap);
+    await fs.writeFile('build/server.js', packResult.jsContent);
+    await fs.writeFile('build/server.js.map', packResult.mapContent);
 
     logInfo('mka', 'server-core completed successfully');
 }
 
 // only watch server-core require restart server process
 let serverProcess: ChildProcessWithoutNullStreams = null;
-function startOrRestartServer() {
+export function startOrRestartServer() {
     function start() {
         // mds: my dev server
-        console.log('[mds] starting server process');
+        logInfo('mds', 'start server');
         serverProcess = spawn('node', ['dist/home/server.js']);
         
         serverProcess.stdout.pipe(process.stdout);
         serverProcess.stderr.pipe(process.stderr);
-        serverProcess.on('error', error => console.log(`[mds] server process error ${error.message}`));
-        serverProcess.on('exit', code => { console.log(`[mds] server process exited with code ${code}`); serverProcess = null; });
+        serverProcess.on('error', error => {
+            logError('mds', `server process error ${error.message}`);
+        });
+        serverProcess.on('exit', code => { 
+            (code == 0 ? logInfo : logError)('mds', `server process exited with code ${code}`); 
+            serverProcess = null; 
+        });
     }
 
     if (serverProcess != null) {
-        console.log(`[mds] shutdown previous server process ${serverProcess.pid}`);
         serverProcess.once('exit', start);
         admin({ type: 'shutdown' });
     } else {
@@ -86,22 +70,41 @@ function startOrRestartServer() {
 }
 
 function buildWatch() {
-    console.log(chalk`[mka] watch {yellow server-core}`);
+    logInfo('mka', chalk`watch {yellow server-core}`);
+    process.on('exit', () => serverProcess?.kill()); // make sure
 
-    process.on('exit', () => serverProcess.kill()); // make sure
+    const files: MyPackOptions['files'] = [];
+    let lastResult: MyPackResult = null;
 
-    transpileWatch(typescriptEntry, typescriptOptions);
-    bundleWatch(webpackConfiguration, () => {
-        mergeSourceMap(sourcemapEntry, true).then(() => {
-            startOrRestartServer();
-        }); // fail is not expected and let it terminate process
-    });
+    transpileWatch(typescriptEntry, { 
+        ...typescriptOptions,
+        watchWriteFileHook: (name: string, content: string) => {
+            const existIndex = files.findIndex(f => f.name == name);
+            if (existIndex >= 0) {
+                files.splice(existIndex, 1, { name, content });
+            } else {
+                files.push({ name, content });
+            }
+        },
+        watchEmit: async () => {
+            const currentResult = await pack({ ...nodepackOptions, files, lastResult });
+            if (currentResult.success) {
+                await fs.writeFile('dist/home/server.js', currentResult.jsContent);
+                await fs.writeFile('dist/home/server.js.map', currentResult.mapContent);
+            }
+
+            if (currentResult.hash != lastResult?.hash) {
+                startOrRestartServer();
+            }
+            lastResult = currentResult;
+        },
+    } as unknown as TypeScriptCompilerOptions);
 }
 
 export async function build(watch: boolean): Promise<void> {
     if (watch) {
         buildWatch();
     } else {
-        buildOnce();
+        await buildOnce();
     }
 }

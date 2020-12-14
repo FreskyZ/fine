@@ -1,6 +1,6 @@
-import * as crypto from 'crypto';
 import * as path from 'path';
 import * as chalk from 'chalk';
+import { SHA256 as sha256 } from 'crypto-js';
 import * as filesize from 'filesize';
 import { SourceMapGenerator, SourceMapConsumer } from 'source-map';
 import { minify } from 'terser';
@@ -9,7 +9,7 @@ import { logInfo, logError } from './common';
 // my bundler, input list of name/content of js file/source map
 // output minified js and source map
 
-// bundle .js, merge .js.map
+// pack .js, merge .js.map
 export interface MyPackOptions {
     entry: string, // entry name should be in file list
     files: { name: string, content: string }[],
@@ -17,15 +17,28 @@ export interface MyPackOptions {
     output?: string, // this is for display and hint in source map, will not actually write to file
     printModules?: boolean, // default to false
     minify?: boolean, // default to false
+    lastResult?: MyPackResult, // previous result when watch
+}
+
+export interface MyPackResult {
+    success: boolean, // others will be null if fail
+    jsContent?: string,
+    mapContent?: string,
+    hash?: string,
+    modules?: { fileName: string, moduleName: string, contentLength: number, hash: string }[],
 }
 
 // return [js content, sourcemap content, hash], js content null for failure
-export async function bundleOnce(options : MyPackOptions): Promise<[string, string, string]> {
-    logInfo('mpk', chalk`once {yellow ${options.entry}}`);
+export async function pack(options : MyPackOptions): Promise<MyPackResult> {
+    if (options.lastResult) {
+        logInfo('mpk', 'repack');
+    } else {
+        logInfo('mpk', chalk`pack {yellow ${options.entry}}`);
+    }
 
     if (!options.files.some(f => f.name == options.entry)) {
         logError('mpk', 'invalid entry');
-        return [null, null, null];
+        return { success: false };
     }
     const entryFolder = path.dirname(options.entry);
 
@@ -43,6 +56,8 @@ export async function bundleOnce(options : MyPackOptions): Promise<[string, stri
     }
 
     let lineMovement = 3; // added lines to each module, used by source map
+    const resultModules: MyPackResult['modules'] = [];
+
     let resultJs = 
         "((modules) => { const mycache = {};\n"
         + "(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
@@ -72,7 +87,7 @@ export async function bundleOnce(options : MyPackOptions): Promise<[string, stri
                 : null;
             if (requiredModuleName === null) {
                 logError('mpk', `invalid module name ${match.groups['moduleName']} at ${match.index}`);
-                return [null, null, null];
+                return { success: false };
             }
 
             // similar to previous moduleName
@@ -85,9 +100,10 @@ export async function bundleOnce(options : MyPackOptions): Promise<[string, stri
         }
 
         resultJs += `'${moduleName}': (exports, __myrequire__) => {\n${moduleContent}}, `;
+        resultModules.push({ fileName, moduleName, contentLength: moduleContent.length, hash: sha256(moduleContent).toString() });
 
         if (options.sourceMap) {            
-            let firstMappingLine: number = null; // first mapping line is 3/4 (diff by whether have export) which maps to bundled js line `lineMovement + 1`
+            let firstMappingLine: number = null; // first mapping line is 3/4 (diff by whether have export) which maps to packed js line `lineMovement + 1`
             const consumer = await new SourceMapConsumer(JSON.parse(mapContent));
             consumer.eachMapping(mapping => {
                 if (firstMappingLine === null) {
@@ -110,16 +126,35 @@ export async function bundleOnce(options : MyPackOptions): Promise<[string, stri
         resultJs = minifyResult.code;
     }
 
-    const hash = crypto.createHash('md5').update(resultJs, 'utf8').digest('hex');
-    logInfo('mpk', 'completed with no error');
-    if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }
-    logInfo('mpk', chalk`asset hash {yellow ${hash}}`);
-    logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);
-    if (options.printModules) {
-        for (const { name, jsContent } of sources) {
-            console.log(chalk`   {gray +} ${name} {gray size ${filesize(jsContent.length)}}`);
+    const hash = sha256(resultJs).toString();
+    if (hash === options.lastResult?.hash) {
+        logInfo('mpk', 'completed with no change');
+    } else {
+        if (!options.lastResult) {
+            logInfo('mpk', 'completed with no error');
+            if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }
+            logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);
+        }
+        if (options.printModules) {
+            if (options.lastResult) {
+                for (const addedModule of resultModules.filter(n => !options.lastResult.modules.some(p => p.fileName == n.fileName))) {
+                    console.log(chalk`  {gray +} ${addedModule.fileName} {cyan ${addedModule.moduleName}} {gray size ${filesize(addedModule.contentLength)}}`);
+                }
+                for (const [updatedModule] of resultModules
+                    .map(n => [n, options.lastResult.modules.find(p => p.fileName == n.fileName)])
+                    .filter(([currentModule, previousModule]) => previousModule && currentModule.hash != previousModule.hash)) {
+                    console.log(chalk`  {gray *} ${updatedModule.fileName} {cyan ${updatedModule.moduleName}} {gray size ${filesize(updatedModule.contentLength)}}`);
+                }
+                for (const removedModule of options.lastResult.modules.filter(p => !resultModules.some(n => n.fileName == p.fileName))) {
+                    console.log(chalk`  {gray - removed ${removedModule.fileName}} {cyan ${removedModule.moduleName}}`);
+                }
+            } else {
+                for (const { fileName, moduleName, contentLength } of resultModules) {
+                    console.log(chalk`   {gray +} ${fileName} {cyan ${moduleName}} {gray size ${filesize(contentLength)}}`);
+                }
+            }
         }
     }
 
-    return [resultJs, generator?.toString(), hash];
+    return { success: true, jsContent: resultJs, mapContent: generator?.toString(), hash: hash, modules: resultModules };
 }

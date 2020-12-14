@@ -2,10 +2,7 @@ import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logError } from './common';
 import { TypeScriptCompilerOptions, transpileOnce } from './run-typescript';
-import { MyPackOptions, bundleOnce } from './run-mypack';
-
-// $ tsc script/index.ts --outDir build/self --lib ES2020 --target ES2020 --module commonjs --moduleResolution node
-// $ node build/self/index.js self
+import { MyPackOptions, pack } from './run-mypack';
 
 const typescriptEntry = ['script/index.ts'];
 const typescriptOptions = {
@@ -19,7 +16,7 @@ function createWriteFileHook(files: MyPackOptions['files']) {
     }) as TypeScriptCompilerOptions['writeFileHook'];
 }
 
-const mypackOptions: MyPackOptions = {
+const nodepackOptions: MyPackOptions = {
     entry: '/vbuild/index.js',
     files: [],
     output: 'maka',
@@ -35,12 +32,12 @@ export async function build() {
         process.exit(1);
     }
 
-    const [jsContent] = await bundleOnce({ ...mypackOptions, files });
-    if (!jsContent) {
-        logError('mka', 'self failed at bundle');
+    const packResult = await pack({ ...nodepackOptions, files });
+    if (!packResult.success) {
+        logError('mka', 'self failed at pack');
         process.exit(1);
     }
-    fs.writeFileSync('maka', '#!/usr/bin/env node\n' + jsContent);
+    fs.writeFileSync('maka', '#!/usr/bin/env node\n' + packResult.jsContent);
 
     logInfo('mka', 'self completed successfully');
 }

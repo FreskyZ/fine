@@ -206,7 +206,6 @@ export async function handleApplications(ctx: Ctx) {
     
     for (const app of config.apps) {
         if (new RegExp('^/' + app).test(ctx.path)) {
-
             // NOTE:
             // always re-require, for hot reloading
             // tsc recognizes import statement and this require auto ignored 

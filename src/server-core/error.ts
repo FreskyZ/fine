@@ -10,6 +10,7 @@ import { MyError, MyErrorType } from '../shared/error';
 interface StackFrame {
     raw?: string,
     name?: string,
+    async?: boolean,
     asName?: string,
     file?: string,
     line?: number,
@@ -27,7 +28,6 @@ async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
         return null;
     }
     const mapFileName = jsFileName + '.map';
-    console.log('mapFileName: ' + mapFileName);
     if (!fs.existsSync(mapFileName)) {
         return null;
     }
@@ -52,7 +52,7 @@ function printStackFrame(frames: StackFrame[]) {
         
         let result = '  at';
         if (frame.name) {
-            result += ` ${frame.name}`;
+            result += ` ${frame.async ? 'async ' : ''}${frame.name}`;
             if (frame.asName) {
                 result += ` [as ${frame.asName}]`;
             }
@@ -73,10 +73,11 @@ function printStackFrame(frames: StackFrame[]) {
 }
 
 const stackFrameRegex1 = /^(?<file>.+):(?<line>\d+):(?<column>\d+)$/;
-const stackFrameRegex2 = /^(?<name>[\w.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
+const stackFrameRegex2 = /^(?<async>async )?(?<name>[\w.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
 async function parseStack(raw: string): Promise<StackFrame[]> {
     // example
     // Error: some message
+    //   at async function3 (/path/to/file3.js:20:30)
     //   at function_name (/path/to/file.js:10:20)
     //   at function2 [as function3] (path/to/file2.js:10:20)
     //   at path/to/file3.js:10:20
@@ -102,16 +103,16 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
 
         const match2 = stackFrameRegex2.exec(rawFrame);
         if (match2) {
-            const [name, asName] = [match2.groups['name'], match2.groups['asName']];
+            const [name, async, asName] = [match2.groups['name'], !!match2.groups['async'], match2.groups['asName']];
             const file = match2.groups['file'];
             const [line, column] = [parseInt(match2.groups['line']), parseInt(match2.groups['column'])];
 
             const sourcemap = await tryGetSourceMap(file);
             if (!sourcemap) {
-                frames.push({ name, asName, file, line, column });
+                frames.push({ name, async, asName, file, line, column });
             } else {
                 const position = sourcemap.originalPositionFor({ line, column });
-                frames.push({ name, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column })
+                frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column })
             }
             continue;
         }

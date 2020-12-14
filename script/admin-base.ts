@@ -1,6 +1,7 @@
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
 import { AdminSocketPayload } from '../src/shared/types/admin';
+import { logInfo, logError } from './common';
 
 async function impl(payload: AdminSocketPayload): Promise<void> {
     const socket = net.createConnection('/tmp/fps.socket').ref();
@@ -10,21 +11,21 @@ async function impl(payload: AdminSocketPayload): Promise<void> {
 
         socket.on('error', error => {
             if ('code' in error && (error as any).code == 'ENOENT') {
-                console.log(`[adm] admin socket not open, command ${serialized} discarded`);
+                logError('adm', `admin socket not open, command ${serialized} discarded`);
                 resolve();
             } else {
-                console.log(`[adm] socket error: ${error.message}`);
+                logError('adm', `socket error: ${error.message}`);
                 reject(); // close is auto called after this event
             }
         });
         socket.on('timeout', () => {
-            console.log(`[adm] socket timeout`);
+            logError('adm', `socket timeout`);
             socket.destroy(); // close is not auto called after this event
             reject();
         });
         socket.once('data', data => {
             if (data.toString('utf-8') == 'ACK') {
-                console.log(`[adm] command ${serialized} acknowledged`);
+                logInfo('adm', `command ${serialized} acknowledged`);
                 setTimeout(() => {
                     socket.destroy();
                     resolve();
