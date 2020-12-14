@@ -159,7 +159,6 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// minify server-core and app-server
 // app front end webpack, react, antd setup
 // manually parse body
 // generate client/api.ts and server/index.ts by app/api.xml, don't forget the '/cost/v1/xxx' and the ^$ in dispatch, test api, check authentication correctly handle app, add expire-user to admin action

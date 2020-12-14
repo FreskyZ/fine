@@ -53,7 +53,7 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         
     let generator: SourceMapGenerator = null;
     if (options.sourceMap) {
-        generator = new SourceMapGenerator({ file: options.output,  })
+        generator = new SourceMapGenerator({ file: options.output })
     }
 
     let lineMovement = 3; // added lines to each module, used by source map
@@ -124,9 +124,15 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
     }
     resultJs += '})\n';
 
+    let resultMap = generator?.toString();
     if (options.minify) {
-        const minifyResult = await minify(resultJs);
+        const minifyResult = await minify(resultJs, { sourceMap: !options.sourceMap ? false: { 
+            content: resultMap,
+            filename: options.output,     // this is new SourceMapGenerator({ file }), which I do not use
+            url: options.output + '.map', // this is generated //#sourceMapURL, which I do not use
+        } });
         resultJs = minifyResult.code;
+        resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
     }
 
     const hash = sha256(resultJs).toString();
@@ -159,5 +165,5 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         }
     }
 
-    return { success: true, jsContent: resultJs, mapContent: generator?.toString(), hash: hash, modules: resultModules };
+    return { success: true, jsContent: resultJs, mapContent: resultMap, hash: hash, modules: resultModules };
 }

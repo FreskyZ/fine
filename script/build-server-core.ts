@@ -36,7 +36,7 @@ const mypackOptions: MyPackOptions = {
     sourceMap: true,
     output: 'dist/home/server.js',
     printModules: true,
-    minify: false,
+    minify: true,
 }
 
 async function buildOnce() {

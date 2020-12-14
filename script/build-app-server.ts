@@ -38,7 +38,7 @@ function createMyPackOptions(app: string, files: MyPackOptions['files']): MyPack
         sourceMap: true,
         output: `dist/${app}/server.js`,
         printModules: true,
-        minify: false,
+        minify: true,
     };
 }
 
