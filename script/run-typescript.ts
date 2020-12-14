@@ -98,8 +98,13 @@ function createCompilerHost(options: TypeScriptCompilerOptions) {
     host.writeFile = (fileName, content, writeBOM, onError, sourceFiles) => {
         if (fileName.endsWith('.js')) {
             // remove not used "use strict"
+            if (content.startsWith('"use strict"')) {
+                content = content.slice(content.indexOf('\n') + 1);
+            }
             // remove not used exports.__esModule = true
-            content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1);
+            if (content.startsWith('Object.define')) {
+                content = content.slice(content.indexOf('\n') + 1);
+            }
             // remove not used initialize exports.xxx as void 0
             if (content.startsWith('exports.')) { 
                 content = content.slice(content.indexOf('\n') + 1);
@@ -162,8 +167,13 @@ export function transpileWatch(entry: string, additionalOptions: TypeScriptCompi
     ts.sys.writeFile = (fileName, content, writeBOM) => {
         if (fileName.endsWith('.js')) {
             // remove not used "use strict"
+            if (content.startsWith('"use strict"')) {
+                content = content.slice(content.indexOf('\n') + 1);
+            }
             // remove not used exports.__esModule = true
-            content = content.slice(content.indexOf('\n', content.indexOf('\n') + 1) + 1);
+            if (content.startsWith('Object.define')) {
+                content = content.slice(content.indexOf('\n') + 1);
+            }
             // remove not used initialize exports.xxx as void 0
             if (content.startsWith('exports.')) { 
                 content = content.slice(content.indexOf('\n') + 1);

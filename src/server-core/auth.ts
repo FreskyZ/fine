@@ -63,8 +63,8 @@ async function handleLogin(ctx: Ctx) {
     userDevice.Id = userDeviceId;
     userDeviceStorage.push(userDevice);
 
-    ctx.status = 200;
-    ctx.set('X-Access-Token', accessToken);
+    // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body 
+    ctx.body = { accessToken };
 }
 
 // read X-Access-Token and save user credential to ctx.state is needed by all functions accept login

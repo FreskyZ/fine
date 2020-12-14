@@ -11,34 +11,53 @@ header
         margin-left: 12px
         font-family: sans-serif
 
-nav
-    margin-top: 12px
-    height: 144px
+main
+    width: 320px
+    margin: auto
     overflow: hidden
+    transition: height ease 0.25s
 
-    a.app-btn
+    input
         display: block
         width: 100%
-        box-sizing: border-box // or else the width will be 100% + 12px padding
-        height: 36px
-        border-radius: 4px
-        padding: 0 12px
+        height: 28px
+        border-width: 0px 0px 1px 0px
+        border-color: #AFAFAF
+        border-top-left-radius: 4px
+        border-top-right-radius: 4px
+    input:focus
+        outline-width: 0
+        border-color: #3F3F3F
+    input:disabled
+        cursor: not-allowed
+    input#username
+        margin-top: 36px
+    input#password
         margin-top: 12px
-        text-decoration: none
-        background-color: #E4DFDF50
-        &:hover
-            background-color: #E4DFDF70
 
-    span
-        font-family: sans-serif
-        line-height: 36px
-    span.left
-        font-size: 16px
-        margin-top: 8px
-    span.right
-        float: right
+    button
+        display: block
+        margin: 20px auto
+        width: 120px
+        height: 28px
+        border-radius: 4px
+        border-width: 0
+        cursor: pointer
+    button:focus
+        outline: none
+        border-width: 1px
+        border-color: #3F3F3F
+    button:disabled
+        cursor: not-allowed
+
+    span#message
+        display: block
+        width: 320px
+        text-align: center
         font-size: 12px
-        color: #9F9F9F
+        font-family: sans-serif
+        color: #1c9dda
+        cursor: default
 
 footer
     position: absolute

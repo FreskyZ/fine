@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
-import { logInfo, logError } from './common';
+import { logInfo, logError, compileTimeConfig } from './common';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { Options as SassOptions, render as transpileStyle } from 'node-sass';
 import { admin } from './admin';
@@ -17,7 +17,25 @@ const typescriptOptions = {
     // types: ['node'],
     outDir: 'dist/home/',
     lib: ['lib.dom.d.ts'],
-};
+    readFileHook: (fileName, originalReadFile) => {
+        let content = originalReadFile(fileName);
+        if (!fileName.endsWith('.d.ts')) {
+            for (const configName in compileTimeConfig) {
+                content = content.split(configName).join(compileTimeConfig[configName]);
+            }
+        }
+        return content;
+    },
+    watchReadFileHook: (fileName, encoding, originalReadFile) => {
+        let content = originalReadFile(fileName, encoding);
+        if (!fileName.endsWith('.d.ts')) {
+            for (const configName in compileTimeConfig) {
+                content = content.split(configName).join(compileTimeConfig[configName]);
+            }
+        }
+        return content;
+    },
+} as TypeScriptCompilerOptions;
 
 const getSassOptions = (name: SimplePageName) => ({
     file: `src/home-page/${name}.sass`,
@@ -25,8 +43,8 @@ const getSassOptions = (name: SimplePageName) => ({
 } as SassOptions);
 
 // directly call sass only happens in simple pages while app front end is planed to use webpack with sass-loader
-async function transpileSass(options: SassOptions, operationIndex?: number): Promise<string> {
-    logInfo('css', chalk`transpile {yellow ${options.file}}${operationIndex ? ` #${operationIndex}` : ''}`);
+async function transpileSass(options: SassOptions): Promise<string> {
+    logInfo('css', chalk`transpile {yellow ${options.file}}`);
 
     return new Promise((resolve, reject) => {
         transpileStyle(options, (error, result) => {
@@ -83,26 +101,23 @@ function buildWatch(name: SimplePageName) {
         } as TypeScriptCompilerOptions);
     }
 
-    let htmlOperationIndex = 0; // add an index to message or else when continuing updating this one file output message will look like not moving
     fs.watchFile(`src/home-page/${name}.html`, { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
-        htmlOperationIndex += 1;
-        logInfo('htm', chalk`copy {yellow ${name}.html} #${htmlOperationIndex}`);
+        logInfo('htm', chalk`copy {yellow ${name}.html}`);
         fs.copyFileSync(`src/home-page/${name}.html`, `dist/home/${name}.html`);
         logInfo('htm', 'copy completed');
         admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
     });
 
-    let cssOperationIndex = 0;
     const sassOptions = getSassOptions(name);
     fs.watchFile(sassOptions.file, { persistent: false }, (currstat, prevstat) => {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
-        transpileSass(getSassOptions(name), cssOperationIndex).then(() => {
-            cssOperationIndex += 1;
+        transpileSass(getSassOptions(name)).then(code => {
+            fs.writeFileSync(`dist/home/${name}.css`, code);
             admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
         }).catch(() => { /* error already reported, ignore */});
     });
