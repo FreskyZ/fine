@@ -3,5 +3,7 @@
     "typescript.format.semicolons": "insert",
     "javascript.preferences.quoteStyle": "single",
     "javascript.validate.enable": false,
-    "remote.autoForwardPorts": false
+    "remote.autoForwardPorts": false,
+    "javascript.suggest.autoImports": false,
+    "typescript.suggest.autoImports": false
 }
