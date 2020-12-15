@@ -160,6 +160,4 @@ admin.on('shutdown', shutdown);
 logInfo('initialization completed');
 
 // TODO NEXT
-// app front end webpack, react, antd setup, generate client/api.ts by app/api.xml
-// FINALLY go on normal web app development
 // user management (user device management) component and test device related api

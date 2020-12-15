@@ -51,7 +51,7 @@ async function buildOnce(app: string) {
     await fsp.writeFile(`dist/${app}/server.js`, packResult.jsContent);
     await fsp.writeFile(`dist/${app}/server.js.map`, packResult.mapContent);
 
-    await admin({ type: 'reload-static', key: app });
+    await admin({ type: 'reload-server', app });
     logInfo('mka', `${app}-server completed successfully`);
 }
 
@@ -93,7 +93,7 @@ function buildWatch(app: string) {
             }
 
             if (currentResult.hash != lastResult?.hash) {
-                await admin({ type: 'reload-static', key: app });
+                await admin({ type: 'reload-server', app });
             }
             lastResult = currentResult;
         },
