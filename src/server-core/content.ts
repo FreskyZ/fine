@@ -32,11 +32,11 @@ const extensionToType: { [ext: string]: string } = { '.html': 'html', '.js': 'js
 const fileCache: FileCache[] = knownFiles
     .map(f => f.real)
     .filter((real, index, array) => array.indexOf(real) == index) // deduplicate
-    .map(real => ({ name: path.join(WEBROOT, real), type: extensionToType[path.extname(real)], content: null }));
+    .map(real => ({ name: path.join("WEBROOT", real), type: extensionToType[path.extname(real)], content: null }));
 
 // key is /${subdomain ?? 'www'}${path}, value is absolute path
 // use 2 step because some virtual path point to same real path, while same real path should have same cache entry
-const virtualToReal: { [key: string]: string } = knownFiles.reduce<{ [key: string]: string }>((acc, f) => { acc[f.virtual] = path.join(WEBROOT, f.real); return acc; }, {});
+const virtualToReal: { [key: string]: string } = knownFiles.reduce<{ [key: string]: string }>((acc, f) => { acc[f.virtual] = path.join("WEBROOT", f.real); return acc; }, {});
 // key is absolute path, value is cache entry
 const realToCache: { [name: string]: FileCache } = fileCache.reduce<{ [name: string]: FileCache }>((acc, c) => { acc[c.name] = c; return acc; }, {});
 // key is reload key, value is cache entry, use to conveniently invalidate cache by admin
@@ -60,7 +60,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         ctx.type = cachedFile.type;
         ctx.body = cachedFile.content;
     } else {
-        const real = path.join(WEBROOT, 'public', ctx.path);
+        const real = path.join("WEBROOT", 'public', ctx.path);
         if (!fs.existsSync(real)) { ctx.status = 404; return; }
 
         ctx.type = path.extname(ctx.path);

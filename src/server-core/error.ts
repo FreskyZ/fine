@@ -1,4 +1,3 @@
-/// <reference path="../shared/types/config.d.ts" />
 import * as fs from 'fs';
 import * as koa from 'koa';
 import { SourceMapConsumer } from 'source-map';
@@ -24,7 +23,7 @@ interface StackFrame {
 const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
 // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
 async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
-    if (!jsFileName.startsWith(WEBROOT)) {
+    if (!jsFileName.startsWith("WEBROOT")) {
         return null;
     }
     const mapFileName = jsFileName + '.map';

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
-import { logInfo, logError, compileTimeConfig } from './common';
+import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
 import { Options as SassOptions, render as transpileStyle } from 'node-sass';
 import { admin } from './admin';
@@ -17,24 +17,8 @@ const typescriptOptions = {
     // types: ['node'],
     outDir: 'dist/home/',
     lib: ['lib.dom.d.ts'],
-    readFileHook: (fileName, originalReadFile) => {
-        let content = originalReadFile(fileName);
-        if (!fileName.endsWith('.d.ts')) {
-            for (const configName in compileTimeConfig) {
-                content = content.split(configName).join(compileTimeConfig[configName]);
-            }
-        }
-        return content;
-    },
-    watchReadFileHook: (fileName, encoding, originalReadFile) => {
-        let content = originalReadFile(fileName, encoding);
-        if (!fileName.endsWith('.d.ts')) {
-            for (const configName in compileTimeConfig) {
-                content = content.split(configName).join(compileTimeConfig[configName]);
-            }
-        }
-        return content;
-    },
+    readFileHook: commonReadFileHook,
+    watchReadFileHook: commonWatchReadFileHook,
 } as TypeScriptCompilerOptions;
 
 const getSassOptions = (name: SimplePageName) => ({

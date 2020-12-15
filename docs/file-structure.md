@@ -39,7 +39,7 @@ server entry, environment setup, application hot reload support
 home page, home page is manual html, css and js
 
 ### src/\<app\>
-application server and client
+application server and client, index.html is outside of client/server folder because it is just a placeholder (react root holder)
 
 ### src/shared
 shared types, component and logics by all of the above, regardless of client of server

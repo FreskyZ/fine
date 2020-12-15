@@ -1,4 +1,3 @@
-/// <reference path="../shared/types/config.d.ts" />
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -82,8 +81,8 @@ function handleInsecureRequest(request: http.IncomingMessage, response: http.Ser
 // servers create, start, close
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = http2.createSecureServer({ 
-    key: fs.readFileSync(SSL_KEY, 'utf-8'), 
-    cert: fs.readFileSync(SSL_CERT, 'utf-8'),
+    key: fs.readFileSync("SSL_KEY", 'utf-8'), 
+    cert: fs.readFileSync("SSL_CERT", 'utf-8'),
 }, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};
