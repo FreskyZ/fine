@@ -82,15 +82,20 @@ async function authenticate(ctx: Ctx) {
         return value[0];
     })();
 
-    // check expires or update last access time
+    if (userDevice.App != ctx.state.app) {
+        // actually this will only happen when I manually copy token from db or from other app
+        // but need to be checked anyway
+        throw new MyError('auth', 'unauthorized');
+    }
     if (dayjs.utc(userDevice.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
+        // check expires or update last access time
         await query('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
         userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == userDevice.Id), 1);
         throw new MyError('auth', 'authorization expired');
-    } else {
-        userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
-        await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', userDevice.LastAccessTime, userDevice.Id);
     }
+
+    userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
+    await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', userDevice.LastAccessTime, userDevice.Id);
 
     const user = userStorage.find(u => u.Id = userDevice.UserId) ?? await (async () => {
         const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
@@ -111,7 +116,7 @@ async function handleGetUserDevices(ctx) {
     // so always load from db and replace user device storage
 
     const { value: userDevices } = await query<UserDeviceData[]>(
-        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `UserId` = ?', ctx.state.user.id);
+        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', ctx.state.user.id, ctx.state.app);
     
     // update storage
     // // this is how you filter by predicate in place
@@ -145,6 +150,9 @@ async function handleUpdateDeviceName(ctx, parameters) {
     if (userDevice.UserId != ctx.state.user.id) {
         throw new MyError('common', 'not my device');
     }
+    if (userDevice.App != ctx.state.app) { // cannot manage other app's device
+        throw new MyError('common', 'not my device');
+    }
 
     userDevice.Name = newDeviceName;
     await query('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', newDeviceName, deviceId);
@@ -159,9 +167,24 @@ async function handleRemoveDevice(ctx, parameters) {
     const deviceId = parseInt(parameters['device_id']);
     if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
 
-    const maybeStorageIndex = userDeviceStorage.findIndex(d => d.Id == deviceId);
-    if (maybeStorageIndex >= 0) { userDeviceStorage.splice(maybeStorageIndex, 1); }
+    // if the request fail by common error, add it to cache helps later request
+    const userDevice = userDeviceStorage.find(d => d.Id == deviceId) ?? await (async () => {
+        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Id` = ?', deviceId);
+        if (!Array.isArray(value) || value.length == 0) {
+            throw new MyError('common', 'invalid device id');
+        }
+        userDeviceStorage.push(value[0]);
+        return value[0];
+    })();
 
+    if (userDevice.UserId != ctx.state.user.id) {
+        throw new MyError('common', 'not my device');
+    }
+    if (userDevice.App != ctx.state.app) {
+        throw new MyError('common', 'not my device');
+    }
+
+    userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == deviceId), 1);
     await query('DELETE FROM `UserDevice` WHERE `Id` = ?', deviceId);
 
     ctx.status = 204;
@@ -211,10 +234,21 @@ export async function handleApplications(ctx: Ctx) {
     
     for (const app of APP_NAMES) {
         if (new RegExp('^/' + app).test(ctx.path)) {
-            // always re-require, for hot reloading
-            // tsc recognizes import statement and this require auto ignored 
-            // build script recognizes "require('." and this string template auto ignored
-            await (require(`../${app}/server`).dispatch as (ctx: Ctx) => Promise<void>)(ctx);
+
+            let dispatch: (ctx: Ctx) => Promise<void>;
+            try {
+                // always re-require, for hot reloading
+                // this require expression is ignored by tsc and mypack, see docs/build-script
+                dispatch = require(`../${app}/server`).dispatch;
+            } catch {
+                // in case module not found, return 500 // actually ak is designed to be no server
+                throw new MyError('unreachable');
+            }
+            if (typeof dispatch !== 'function') {
+                throw new MyError('unreachable');
+            }
+
+            await dispatch(ctx);
             return;
         }
     }

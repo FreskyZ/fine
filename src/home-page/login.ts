@@ -1,13 +1,19 @@
 /// <reference path="../shared/types/config.d.ts" />
-import type { UserCredential } from '../shared/types/auth';
 
 const inputUserName = document.querySelector('input#username') as HTMLInputElement;
 const inputPassword = document.querySelector('input#password') as HTMLInputElement;
 const button = document.querySelector('button#login') as HTMLButtonElement;
 const span = document.querySelector('span#message') as HTMLSpanElement;
+const returnAddress = new URLSearchParams(window.location.search).get("return") ?? '/'; // this already decodeURIComponent
 
-inputUserName.onkeydown = inputPassword.onkeydown = () => {
-    span.innerText = '';
+inputUserName.onkeydown = inputPassword.onkeydown = (e) => {
+    if (e.key != 'Enter') {
+        span.innerText = '';
+        return;
+    } else {
+        button.click();
+        e.preventDefault();
+    }
 }
 button.onclick = async () => {
     const [username, password] = [inputUserName.value, inputPassword.value];
@@ -29,7 +35,7 @@ button.onclick = async () => {
         span.innerText = 'unexpected error';
     } else {
         localStorage['access-token'] = (await response.json()).accessToken;
-        window.location.href = '/'; // TODO goto previous page
+        window.location.href = returnAddress;
     }
 };
 
@@ -37,9 +43,9 @@ button.onclick = async () => {
     if (localStorage['access-token']) {
         const response = await fetch(`https://api.${DOMAIN_NAME}/user-credential`, { headers: { 'X-Access-Token': localStorage['access-token'] } });
         if (response.status == 200) {
-            const user = await response.json() as UserCredential;
-            inputUserName.disabled = inputPassword.disabled = button.disabled = true;
-            span.innerHTML = `logged in as ${user.name}, goto <a href="/">home page</a>`;
+            window.location.href = returnAddress;
+        } else if (response.status == 401) {
+            localStorage.removeItem('access-token');
         }
     }
 })();
