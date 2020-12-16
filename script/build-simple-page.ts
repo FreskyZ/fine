@@ -1,8 +1,7 @@
 import * as fs from 'fs';
-import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
-import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
-import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { logInfo, logError } from './common';
+import { TypeScriptOptions, TypeScriptResult, transpile as transpileScript } from './run-typescript';
 import { SassOptions, transpile as transpileStyle } from './run-sass';
 import { admin } from './admin';
 
@@ -12,36 +11,38 @@ type SimplePageName = 'index' | 'login';
 const getReloadKey = (name: SimplePageName) => name == 'index' ? 'www' : 'login';
 
 // also index page do not have js for now, reserved for it and skip for index
-const getTypeScriptEntry = (name: SimplePageName) => `src/home-page/${name}.ts`;
-const typescriptOptions = {
-    // types: ['node'],
-    outDir: 'dist/home/',
-    lib: ['lib.dom.d.ts'],
-    readFileHook: commonReadFileHook,
-    watchReadFileHook: commonWatchReadFileHook,
-} as TypeScriptCompilerOptions;
+const getTypeScriptOptions = (name: SimplePageName): TypeScriptOptions => ({
+    entry: `src/home-page/${name}.ts`,
+    additionalLib: ['dom'],
+});
 
 const getSassOptions = (name: SimplePageName): SassOptions => ({
     file: `src/home-page/${name}.sass`,
     outputStyle: 'compressed',
 });
 
+// ATTENTION don't forget // outDir: 'dist/home/',
+
 async function buildOnce(name: SimplePageName) {
     logInfo('mka', chalk`{yellow ${name}-page}`);
-    // although these 3 things can be done in parallel, sequential them to prevent output mess
+    // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
 
     // js
     if (name != 'index') {
-        if (!transpileOnce(getTypeScriptEntry(name), typescriptOptions)) {
-            logError('mka', chalk`{yellow ${name}-page} failed at transpile typescript`);
-            process.exit(1);
-        }
+        const files = await new Promise<TypeScriptResult['files']>(resolve => transpileScript(getTypeScriptOptions(name), { afterEmit: ({ success, files }) => {
+            if (!success) {
+                logError('mka', chalk`{yellow ${name}-page} failed at transpile typescript`);
+                process.exit(1);
+            }
+            resolve(files);
+        } }));
+        await fs.promises.writeFile(`dist/home/${name}.js`, files[0].content); // this only generates one output file
     }
 
     // css
     try {
         const code = await transpileStyle(getSassOptions(name));
-        await fsp.writeFile(`dist/home/${name}.css`, code);
+        await fs.promises.writeFile(`dist/home/${name}.css`, code);
     } catch {
         logError('mka', chalk`{yellow ${name}-page} failed at transpile stylesheet`);
         process.exit(1);
@@ -49,7 +50,7 @@ async function buildOnce(name: SimplePageName) {
 
     // html
     logInfo('htm', chalk`copy {yellow ${name}.html}`);
-    await fsp.copyFile(`src/home-page/${name}.html`, `dist/home/${name}.html`);
+    await fs.promises.copyFile(`src/home-page/${name}.html`, `dist/home/${name}.html`);
     logInfo('htm', 'copy completed');
 
     await admin({ type: 'reload-static', key: getReloadKey(name) });
@@ -60,12 +61,10 @@ function buildWatch(name: SimplePageName) {
     logInfo('mka', chalk`watch {yellow ${name}-page}`);
 
     if (name != 'index') {
-        transpileWatch(getTypeScriptEntry(name), {
-            ...typescriptOptions,
-            watchEmit: () => {
-                admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
-            },
-        } as TypeScriptCompilerOptions);
+        transpileScript({ ...getTypeScriptOptions(name), watch: true }, { afterEmit: ({ files }) => {
+            fs.writeFileSync(`dist/home/${name}.js`, files[0].content); // this only generates one output file
+            admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
+        } });
     }
 
     fs.watchFile(`src/home-page/${name}.html`, { persistent: false }, (currstat, prevstat) => {

@@ -208,3 +208,5 @@ export interface SassOptions {
 export interface SassRenderFunction {
     (opts: SassOptions, callback: (error: SassError, result: SassResult) => void): void,
 }
+
+declare const APP_NAMES: string[];

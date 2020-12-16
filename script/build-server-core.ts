@@ -1,18 +1,16 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
+import { logInfo, logError } from './common';
 import { admin } from './admin';
-import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { TypeScriptOptions, transpile } from './run-typescript';
 import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
-const typescriptEntry = 'src/server-core/index.ts';
-const typescriptOptions = {
+const typescriptOptions: TypeScriptOptions = {
+    entry: 'src/server-core/index.ts',
     sourceMap: true,
-    outDir: '/vbuild',
-    readFileHook: commonReadFileHook,
-    watchReadFileHook: commonWatchReadFileHook,
-} as TypeScriptCompilerOptions;
+};
+
 const mypackOptions: MyPackOptions = {
     type: 'app',
     entry: '/vbuild/server-core/index.js',
@@ -23,27 +21,27 @@ const mypackOptions: MyPackOptions = {
     minify: true,
 }
 
-async function buildOnce() {
+function buildOnce() {
     logInfo('mka', chalk`{yellow server-core}`);
 
-    const files: MyPackOptions['files'] = [];
-    if (!transpileOnce(typescriptEntry, { ...typescriptOptions, 
-        writeFileHook: (name: string, content: string) => files.push({ name, content }),
-    } as unknown as TypeScriptCompilerOptions)) {
-        logError('mka', chalk`{yellow server-core} failed at transpile typescript`);
-        process.exit(1);
-    }
+    transpile(typescriptOptions, { afterEmit: async ({ success, files }) => {
+        if (!success) {
+            logError('mka', chalk`{yellow server-core} failed at transpile typescript`);
+            process.exit(1);
+        }
 
-    const packResult = await pack({ ...mypackOptions, files });
-    if (!packResult.success) {
-        logError('mka', chalk`{yellow server-core} failed at pack`);
-        process.exit(1);
-    }
+        const packResult = await pack({ ...mypackOptions, files });
+        if (!packResult.success) {
+            logError('mka', chalk`{yellow server-core} failed at pack`);
+            process.exit(1);
+        }
 
-    await fs.writeFile('dist/home/server.js', packResult.jsContent);
-    await fs.writeFile('dist/home/server.js.map', packResult.mapContent);
-
-    logInfo('mka', 'server-core completed successfully');
+        await Promise.all([
+            fs.promises.writeFile('dist/home/server.js', packResult.jsContent),
+            fs.promises.writeFile('dist/home/server.js.map', packResult.mapContent),
+        ]);
+        logInfo('mka', 'server-core completed successfully');
+    }});
 }
 
 // only watch server-core require restart server process
@@ -77,38 +75,24 @@ function buildWatch() {
     logInfo('mka', chalk`watch {yellow server-core}`);
     process.on('exit', () => serverProcess?.kill()); // make sure
 
-    const files: MyPackOptions['files'] = [];
     let lastResult: MyPackResult = null;
+    transpile({ ...typescriptOptions, watch: true }, { afterEmit: async ({ files }) => {
+        const currentResult = await pack({ ...mypackOptions, files, lastResult });
+        if (!currentResult.success) {
+            return;
+        }
 
-    transpileWatch(typescriptEntry, { 
-        ...typescriptOptions,
-        watchWriteFileHook: (name: string, content: string) => {
-            const existIndex = files.findIndex(f => f.name == name);
-            if (existIndex >= 0) {
-                files.splice(existIndex, 1, { name, content });
-            } else {
-                files.push({ name, content });
-            }
-        },
-        watchEmit: async () => {
-            const currentResult = await pack({ ...mypackOptions, files, lastResult });
-            if (currentResult.success) {
-                await fs.writeFile('dist/home/server.js', currentResult.jsContent);
-                await fs.writeFile('dist/home/server.js.map', currentResult.mapContent);
-            }
-
-            if (currentResult.hash != lastResult?.hash) {
-                startOrRestartServer();
-            }
-            lastResult = currentResult;
-        },
-    } as unknown as TypeScriptCompilerOptions);
+        await Promise.all([
+            fs.promises.writeFile('dist/home/server.js', currentResult.jsContent),
+            fs.promises.writeFile('dist/home/server.js.map', currentResult.mapContent),
+        ]);
+        if (currentResult.hash != lastResult?.hash) {
+            startOrRestartServer();
+        }
+        lastResult = currentResult;
+    }});
 }
 
-export async function build(watch: boolean): Promise<void> {
-    if (watch) {
-        buildWatch();
-    } else {
-        await buildOnce();
-    }
+export function build(watch: boolean) {
+    (watch ? buildWatch : buildOnce)();
 }

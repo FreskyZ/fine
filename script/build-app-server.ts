@@ -1,21 +1,18 @@
 import * as fs from 'fs';
-import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
 import { admin } from './admin';
-import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
+import { logInfo, logError } from './common';
 import { generate } from './run-codegen';
-import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
+import { TypeScriptOptions, transpile } from './run-typescript';
 import { MyPackOptions, MyPackResult, pack } from './run-mypack';
 
-const getTypescriptEntry =(app: string) => `src/${app}/server/index.ts`;
-const typescriptOptions: TypeScriptCompilerOptions = {
+const getTypeScriptOptions = (app: string, watch: boolean,): TypeScriptOptions => ({
+    entry: `src/${app}/server/index.ts`,
     sourceMap: true,
-    outDir: '/vbuild',
-    readFileHook: commonReadFileHook,
-    watchReadFileHook: commonWatchReadFileHook,
-} as TypeScriptCompilerOptions;
+    watch,
+});
 
-const createMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
+const getMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
     type: 'lib',
     entry: `/vbuild/${app}/server/index.js`,
     files,
@@ -34,25 +31,28 @@ async function buildOnce(app: string) {
         process.exit(1);
     }
 
-    const files: MyPackOptions['files'] = [];
-    if (!transpileOnce(getTypescriptEntry(app), { ...typescriptOptions, 
-        writeFileHook: (name: string, content: string) => files.push({ name, content }),
-    } as unknown as TypeScriptCompilerOptions)) {
-        logError('mka', chalk`{yellow ${app}-server} failed at transpile typescript`);
-        process.exit(1);
-    }
+    transpile(getTypeScriptOptions(app, false), { afterEmit: async ({ success, files }) => {
+        if (!success) {
+            logError('mka', chalk`{yellow ${app}-server} failed at transpile typescript`);
+            process.exit(1);
+        }
 
-    const packResult = await pack(createMyPackOptions(app, files));
-    if (!packResult.success) {
-        logError('mka', chalk`{yellow ${app}-server} failed at pack`);
-        process.exit(1);
-    }
+        const packResult = await pack(getMyPackOptions(app, files));
+        if (!packResult.success) {
+            logError('mka', chalk`{yellow ${app}-server} failed at pack`);
+            process.exit(1);
+        }
+    
+        // do not sequential await when parallel available
+        await Promise.all([
+            fs.promises.writeFile(`dist/${app}/server.js`, packResult.jsContent),
+            fs.promises.writeFile(`dist/${app}/server.js.map`, packResult.mapContent),
+        ]);
 
-    await fsp.writeFile(`dist/${app}/server.js`, packResult.jsContent);
-    await fsp.writeFile(`dist/${app}/server.js.map`, packResult.mapContent);
-
-    await admin({ type: 'reload-server', app });
-    logInfo('mka', `${app}-server completed successfully`);
+        // cannot parallel because this should be after previous 2 finish
+        await admin({ type: 'reload-server', app });
+        logInfo('mka', `${app}-server completed successfully`);
+    } });
 }
 
 function buildWatch(app: string) {
@@ -72,32 +72,22 @@ function buildWatch(app: string) {
         process.exit(0);
     });
 
-    const files: MyPackOptions['files'] = [];
     let lastResult: MyPackResult = null;
+    transpile(getTypeScriptOptions(app, true), { afterEmit: async ({ files }) => {
+        const currentResult = await pack(getMyPackOptions(app, files, lastResult));
+        if (!currentResult.success) {
+            return;
+        }
 
-    transpileWatch(getTypescriptEntry(app), { 
-        ...typescriptOptions,
-        watchWriteFileHook: (name: string, content: string) => {
-            const existIndex = files.findIndex(f => f.name == name);
-            if (existIndex >= 0) {
-                files.splice(existIndex, 1, { name, content });
-            } else {
-                files.push({ name, content });
-            }
-        },
-        watchEmit: async () => {
-            const currentResult = await pack(createMyPackOptions(app, files, lastResult));
-            if (currentResult.success) {
-                await fsp.writeFile(`dist/${app}/server.js`, currentResult.jsContent);
-                await fsp.writeFile(`dist/${app}/server.js.map`, currentResult.mapContent);
-            }
-
-            if (currentResult.hash != lastResult?.hash) {
-                await admin({ type: 'reload-server', app });
-            }
-            lastResult = currentResult;
-        },
-    } as unknown as TypeScriptCompilerOptions);
+        await Promise.all([
+            fs.promises.writeFile(`dist/${app}/server.js`, currentResult.jsContent),
+            fs.promises.writeFile(`dist/${app}/server.js.map`, currentResult.mapContent),
+        ]);
+        if (currentResult.hash != lastResult?.hash) {
+            await admin({ type: 'reload-server', app });
+        }
+        lastResult = currentResult;
+    }});
     
     // initial code generation
     generate(app, 'server');

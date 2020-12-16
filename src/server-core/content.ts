@@ -1,6 +1,5 @@
 /// <reference path="../shared/types/config.d.ts" />
 import * as fs from 'fs';
-import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as koa from 'koa';
 import { logInfo } from './logger';
@@ -54,7 +53,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         const cachedFile = realToCache[virtualToReal[virtual]];
         if (cachedFile.content === null) {
             if (!fs.existsSync(cachedFile.name)) { ctx.status = 404; return; }
-            cachedFile.content = await fsp.readFile(cachedFile.name, 'utf-8');
+            cachedFile.content = await fs.promises.readFile(cachedFile.name, 'utf-8');
         }
 
         ctx.type = cachedFile.type;
@@ -64,7 +63,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         if (!fs.existsSync(real)) { ctx.status = 404; return; }
 
         ctx.type = path.extname(ctx.path);
-        ctx.body = await fsp.readFile(real);
+        ctx.body = await fs.promises.readFile(real);
     }
 }
 

@@ -29,7 +29,6 @@ export interface MyPackResult {
     modules?: { fileName: string, moduleName: string, contentLength: number, hash: string }[],
 }
 
-// return [js content, sourcemap content, hash], js content null for failure
 export async function pack(options : MyPackOptions): Promise<MyPackResult> {
     if (options.lastResult) {
         logInfo('mpk', 'repack');
@@ -142,8 +141,8 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         if (!options.lastResult) {
             logInfo('mpk', 'completed with no error');
             if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }
-            logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);
         }
+        logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);
         if (options.printModules) {
             if (options.lastResult) {
                 for (const addedModule of resultModules.filter(n => !options.lastResult.modules.some(p => p.fileName == n.fileName))) {

@@ -1,21 +1,25 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
-import { logError, logInfo } from './common';
+import { logError, logInfo, compileTimeConfig } from './common';
 
-export const ModuleKind = ts.ModuleKind;
-export const ModuleResolutionKind = ts.ModuleResolutionKind;
-export const JsxEmit = ts.JsxEmit;
-export const ScriptTarget = ts.ScriptTarget;
-export type TypeScriptCompilerOptions = ts.CompilerOptions & {
-    readFileHook?: (fileName: string, originalReadFile: (filename: string) => string) => string,
-    writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => void,
-    watchReadFileHook?: (path: string, encoding: string, originalReadFile: (path: string, encoding?: string) => string) => string,
-    watchWriteFileHook?: (path: string, data: string, writeBOM: boolean, originalWriteFile: (path: string, data: string, writeBOM?: boolean) => void) => void,
-    watchEmit?: () => void | Promise<void>, // after emit completed successfully
-};
+export interface TypeScriptOptions {
+    entry: string,
+    watch?: boolean, // default to false
+    sourceMap?: boolean, // default ot false
+    additionalLib?: string[],
+}
+export interface TypeScriptHooks {
+    readFile?: (fileName: string, originalReadFile: (fileName: string) => string) => string,
+    afterEmit: (result: TypeScriptResult) => any,
+}
+export interface TypeScriptResult {
+    success?: boolean, // not used when watch, because watch retranspile error will not call callback
+    files: { name: string, content: string }[],
+}
 
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.es2020.d.ts'],
+    outDir: '/vbuild', // always write to memory, so give a virtual path is ok
     target: ts.ScriptTarget.ES2020,
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
@@ -34,30 +38,14 @@ const basicOptions: ts.CompilerOptions = {
     removeComments: true,
 };
 
-const diagnosticCategoryColors = {
-    [ts.DiagnosticCategory.Warning]: chalk.red,
-    [ts.DiagnosticCategory.Error]: chalk.red,
-    [ts.DiagnosticCategory.Suggestion]: chalk.green,
-    [ts.DiagnosticCategory.Message]: chalk.cyan,
-};
-
-function summaryDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>): { success: boolean, message: string } {
-    const errorCount = diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
-    const normalCount = diagnostics.length - errorCount;
-
-    let message: string;
-    if (normalCount == 0 && errorCount == 0) {
-        message = 'no diagnostic';
-    } else if (normalCount != 0 && errorCount == 0) {
-        message = chalk`{yellow ${normalCount}} infos`;
-    } else if (normalCount == 0 /* && errorCount != 0 */) {
-        message = chalk`{yellow ${errorCount}} errors`;
-    } else /* normalCount != 0 && errorCount != 0 */ {
-        message = chalk`{yellow ${errorCount}} errors and {yellow ${normalCount}} infos`;
-    }
-
-    return { success: errorCount == 0, message };
+function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
+    return {
+        ...basicOptions,
+        sourceMap: 'sourceMap' in options ? options.sourceMap : undefined,
+        lib: 'additionalLib' in options ? [...basicOptions.lib, ...options.additionalLib.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
+    };
 }
+
 function printDiagnostic({ category, code, messageText, file, start }: ts.Diagnostic): void {
     if (code == 6031) {
         // original message is 'TS6031: Starting compilation in watch mode...'
@@ -71,7 +59,13 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
         // because this is already checked by emit hook's !emitResult.emitSkipped, and this actually fires after that, which will make output message not in order, so ignore
         return;
     } else {
-        const displayCode = diagnosticCategoryColors[category](`  TS${code} `);
+        const displayColor = {
+            [ts.DiagnosticCategory.Warning]: chalk.red,
+            [ts.DiagnosticCategory.Error]: chalk.red,
+            [ts.DiagnosticCategory.Suggestion]: chalk.green,
+            [ts.DiagnosticCategory.Message]: chalk.cyan,
+        }[category];
+        const displayCode = displayColor(`  TS${code} `);
 
         let fileAndPosition = '';
         if (file) {
@@ -87,129 +81,126 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
     }
 }
 
-function createCompilerHost(options: TypeScriptCompilerOptions) {
-    const host = ts.createCompilerHost(options);
+function printEmitResult(emitResult: ts.EmitResult): boolean {
+    const errorCount = emitResult.diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
+    const normalCount = emitResult.diagnostics.length - errorCount;
 
-    if (options.readFileHook) {
-        const originalReadFile = host.readFile;
-        host.readFile = fileName => options.readFileHook(fileName, originalReadFile);
+    let message: string;
+    if (normalCount == 0 && errorCount == 0) {
+        message = 'no diagnostic';
+    } else if (normalCount != 0 && errorCount == 0) {
+        message = chalk`{yellow ${normalCount}} infos`;
+    } else if (normalCount == 0 /* && errorCount != 0 */) {
+        message = chalk`{yellow ${errorCount}} errors`;
+    } else /* normalCount != 0 && errorCount != 0 */ {
+        message = chalk`{yellow ${errorCount}} errors and {yellow ${normalCount}} infos`;
     }
 
-    // optimize output content
-    const originalWriteFile = host.writeFile;
-    host.writeFile = (fileName, content, writeBOM, onError, sourceFiles) => {
-        if (fileName.endsWith('.js')) {
-            // remove not used "use strict"
-            if (content.startsWith('"use strict"')) {
-                content = content.slice(content.indexOf('\n') + 1);
-            }
-            // remove not used exports.__esModule = true
-            if (content.startsWith('Object.define')) {
-                content = content.slice(content.indexOf('\n') + 1);
-            }
-            // remove not used initialize exports.xxx as void 0
-            if (content.startsWith('exports.')) { 
-                content = content.slice(content.indexOf('\n') + 1);
-            }
-            // remove not used sourceMapURL
-            if (options.sourceMap) {
-                content = content.slice(0, content.lastIndexOf('\n') + 1); // make sure LF before EOF
-            } else if (!content.endsWith('\n')) {
-                content = content + '\n'; // make sure LF before EOF
-            }
-        }
-
-        if (options.writeFileHook) {
-            options.writeFileHook(fileName, content, writeBOM, onError, sourceFiles, originalWriteFile);
-        } else {
-            originalWriteFile(fileName, content, writeBOM, onError, sourceFiles);
-        }
+    (emitResult.emitSkipped ? logError : logInfo)('tsc', `completed with ${message}`);
+    for (const diagnostic of emitResult.diagnostics) {
+        printDiagnostic(diagnostic);
     }
-    return host;
+
+    return !emitResult.emitSkipped;
 }
 
-// although not needed, make this async to look like run-webpack and run-source-map
-export function transpileOnce(entry: string | string[], additionalOptions: TypeScriptCompilerOptions) {
-    // tsc: typescript compiler
-    logInfo('tsc', chalk`once {yellow ${entry}}`);
+// install on ts.sys, already replace by maka.config, call additional hook if exists
+function setupReadFileHook(hooks: TypeScriptHooks) {
+    const originalReadFile = ts.sys.readFile;
+    ts.sys.readFile = (fileName, encoding) => {
+        let fileContent: string;
+        if (hooks.readFile) {
+            fileContent = hooks.readFile(fileName, fileName => originalReadFile(fileName, encoding));
+        } else {
+            fileContent = originalReadFile(fileName, encoding);
+        }
 
-    const options = { 
-        ...basicOptions, 
-        ...additionalOptions, 
-        lib: 'lib' in additionalOptions ? [...basicOptions.lib, ...additionalOptions.lib] : basicOptions.lib,
-    } as unknown as ts.CompilerOptions; // typescript says writeFileHook and readFileHook is not compatible with the definition because the index property, ignore it
-
-    const host = createCompilerHost(options);
-    const program = ts.createProgram(Array.isArray(entry) ? entry : [entry], options, host);
-    const { diagnostics } = program.emit();
-    const { success, message: summary } = summaryDiagnostics(diagnostics);
-    if (success) {
-        logInfo('tsc', `completed with ${summary}`);
-    } else {
-        logError('tsc', `completed with ${summary}`);
-    }
-
-    diagnostics.map(printDiagnostic);    
-    return success;
+        if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
+            for (const configName in compileTimeConfig) {
+                fileContent = fileContent.split(configName).join(compileTimeConfig[configName]);
+            }
+        }
+        return fileContent;
+    };
 }
 
-export function transpileWatch(entry: string, additionalOptions: TypeScriptCompilerOptions) {
-    logInfo('tsc', chalk`watch {yellow ${entry}}`);
-
-    if (additionalOptions.watchReadFileHook) {
-        const originalReadFile = ts.sys.readFile;
-        ts.sys.readFile = (path, encoding) => additionalOptions.watchReadFileHook(path, encoding, originalReadFile);
-    }
-
-    const originalWriteFile = ts.sys.writeFile;
-    ts.sys.writeFile = (fileName, content, writeBOM) => {
+// use ts.Program.emit second parameter
+function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCallback {
+    return (fileName, fileContent) => {
+        // ignore .js.map
         if (fileName.endsWith('.js')) {
-            // remove not used "use strict"
-            if (content.startsWith('"use strict"')) {
-                content = content.slice(content.indexOf('\n') + 1);
+            // remove not used `"use strict";`
+            if (fileContent.startsWith('"use strict"')) {
+                fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
-            // remove not used exports.__esModule = true
-            if (content.startsWith('Object.define')) {
-                content = content.slice(content.indexOf('\n') + 1);
+            // remove not used `Object.definePropert(exports, '__esModule', true);`
+            if (fileContent.startsWith('Object.defineProperty')) {
+                fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
-            // remove not used initialize exports.xxx as void 0
-            if (content.startsWith('exports.')) { 
-                content = content.slice(content.indexOf('\n') + 1);
+            // remove not used initialize `exports.x = exports.y = void 0;`
+            if (fileContent.startsWith('exports.')) { 
+                fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
-            // remove not used sourceMapURL
-            if (additionalOptions.sourceMap) {
-                content = content.slice(0, content.lastIndexOf('\n') + 1); // make sure LF before EOF
-            } else if (!content.endsWith('\n')) {
-                content = content + '\n'; // make sure LF before EOF
+
+            const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
+            if (match) {
+                fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
+            } else if (!fileContent.endsWith('\n')) {
+                fileContent += '\n'; // make sure LF before EOF
             }
         }
 
-        if (additionalOptions.watchWriteFileHook) {
-            additionalOptions.watchWriteFileHook(fileName, content, writeBOM, originalWriteFile);
+        // the `files` is closured when watch, so always check existance and splice
+        const existIndex = files.findIndex(f => f.name == fileName);
+        if (existIndex >= 0) {
+            files.splice(existIndex, 1, { name: fileName, content: fileContent });
         } else {
-            originalWriteFile(fileName, content, writeBOM);
+            files.push({ name: fileName, content: fileContent });
         }
-    }
+    };
+}
 
+// promisify it to allow parallel work
+function transpileOnce(options: TypeScriptOptions, hooks: TypeScriptHooks) {
+    logInfo('tsc', chalk`once {yellow ${options.entry}}`);
+
+    setupReadFileHook(hooks);
+    const mergedOptions = mergeOptions(options);
+    const program = ts.createProgram([options.entry], mergedOptions, ts.createCompilerHost(mergedOptions));
+
+    const files: TypeScriptResult['files'] = [];
+    const emitResult = program.emit(undefined, createWriteFileHook(files));
+
+    const success = printEmitResult(emitResult);
+    hooks.afterEmit({ success, files });
+}
+
+function transpileWatch(options: TypeScriptOptions, hooks: TypeScriptHooks) {
+    logInfo('tsc', chalk`watch {yellow ${options.entry}}`);
+
+    setupReadFileHook(hooks);
+    const files: TypeScriptResult['files'] = [];
     ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
-        [entry],
-        { ...basicOptions, ...additionalOptions }, 
+        [options.entry], 
+        mergeOptions(options),
         ts.sys,
         (...createProgramArgs) => {
             const program = ts.createEmitAndSemanticDiagnosticsBuilderProgram(...createProgramArgs);
-            if (additionalOptions.watchEmit) {
-                const originalEmit = program.emit;
-                program.emit = (...emitArgs) => {
-                    const emitResult = originalEmit(...emitArgs);
-                    if (!emitResult.emitSkipped) {
-                        additionalOptions.watchEmit();
-                    }
-                    return emitResult;
+            const originalEmit = program.emit;
+            program.emit = (targetSourceFile, _writeFile, ...restEmitArgs) => {
+                const emitResult = originalEmit(targetSourceFile, createWriteFileHook(files), ...restEmitArgs);
+                if (!emitResult.emitSkipped) {
+                    hooks.afterEmit({ files });
                 }
+                return emitResult;
             }
             return program;
         },
         printDiagnostic,
         printDiagnostic,
     ));
+}
+
+export function transpile(options: TypeScriptOptions, hooks: TypeScriptHooks) {
+    (options.watch ? transpileWatch : transpileOnce)(options, hooks);
 }
