@@ -1,37 +1,51 @@
 import * as fs from 'fs';
-import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
 import { admin } from './admin';
 import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
 import { generate } from './run-codegen';
-import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
-import { MyPackOptions, MyPackResult, pack } from './run-mypack';
+import { TypeScriptCompilerOptions, JsxEmit, ModuleKind, transpileOnce } from './run-typescript';
+import { SassOptions, transpile as transpileStyle } from './run-sass';
+import { MyPackOptions } from './run-mypack';
 
-const getTypescriptEntry =(app: string) => `src/${app}/client/index.ts`;
+const getTypescriptEntry = (app: string) => `src/${app}/client/index.tsx`;
 const typescriptOptions: TypeScriptCompilerOptions = {
+    lib: ['lib.dom.d.ts'],
     sourceMap: true,
     outDir: '/vbuild',
+    jsx: JsxEmit.React,
+    module: ModuleKind.ESNext,
+    // NOTE: something like optional chaining (?.) is not supported on edge (chromium) android, 
+    //       redirect to ES2015 if newest version still do not support
+    // target: ScriptTarget.ES2015,
+    esModuleInterop: true,
     readFileHook: commonReadFileHook,
     watchReadFileHook: commonWatchReadFileHook,
 } as TypeScriptCompilerOptions;
 
-const createMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
-    type: 'lib',
-    entry: `/vbuild/${app}/client/index.js`,
-    files,
-    sourceMap: true,
-    output: `dist/${app}/client.js`,
-    printModules: true,
-    minify: true,
-    lastResult,
+// const createMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
+//     type: 'lib',
+//     entry: `/vbuild/${app}/client/index.js`,
+//     files,
+//     sourceMap: true,
+//     output: `dist/${app}/client.js`,
+//     printModules: true,
+//     minify: true,
+//     lastResult,
+// });
+
+const getSassOptions = (app: string): SassOptions => ({
+    file: `src/${app}/client/index.sass`,
+    outputStyle: 'compressed',
 });
 
 async function buildOnce(app: string) {
     logInfo('mka', chalk`{yellow ${app}-client}`);
 
-    if (!await generate(app, 'client')) {
-        logError('mka', chalk`{yellow ${app}-client} failed at code generation`);
-        process.exit(1);
+    if (fs.existsSync(`src/${app}/api.xml`)) {
+        if (!await generate(app, 'client')) {
+            logError('mka', chalk`{yellow ${app}-client} failed at code generation`);
+            process.exit(1);
+        }
     }
 
     const files: MyPackOptions['files'] = [];
@@ -42,65 +56,44 @@ async function buildOnce(app: string) {
         process.exit(1);
     }
 
-    const packResult = await pack(createMyPackOptions(app, files));
-    if (!packResult.success) {
-        logError('mka', chalk`{yellow ${app}-client} failed at pack`);
+    // ATTENTION TEMP
+    let content = files.find(f => f.name == '/vbuild/index.js').content;
+    content = content.slice(content.indexOf('\n') + 1); // remove import React from 'react'
+    content = content.slice(content.indexOf('\n') + 1); // remove import ReactDOM from 'react-dom'
+    const importStatement = content.slice(0, content.indexOf('\n')); // the import xxx from 'antd' statement
+    const usedAntdComponents = importStatement.slice(importStatement.indexOf('{'), importStatement.indexOf('}') + 1);
+    content = `const ${usedAntdComponents} = antd;` + content.slice(content.indexOf('\n'));
+    // END OF ATTENTION
+
+    await fs.promises.writeFile(`dist/${app}/client.js`, content);
+
+    // css
+    try {
+        const code = await transpileStyle(getSassOptions(app));
+        await fs.promises.writeFile(`dist/${app}/index.css`, code);
+    } catch {
+        logError('mka', chalk`{yellow ${app}-client} failed at transpile stylesheet`);
         process.exit(1);
     }
 
-    await fsp.writeFile(`dist/${app}/client.js`, packResult.jsContent);
-    await fsp.writeFile(`dist/${app}/client.js.map`, packResult.mapContent);
+    // html
+    logInfo('htm', chalk`copy {yellow src/${app}/index.html}`);
+    await fs.promises.copyFile(`src/${app}/index.html`, `dist/${app}/index.html`);
+    logInfo('htm', 'copy completed');
+
+    // const packResult = await pack(createMyPackOptions(app, files));
+    // if (!packResult.success) {
+    //     logError('mka', chalk`{yellow ${app}-client} failed at pack`);
+    //     process.exit(1);
+    // }
+    // await fsp.writeFile(`dist/${app}/client.js`, packResult.jsContent);
+    // await fsp.writeFile(`dist/${app}/client.js.map`, packResult.mapContent);
 
     await admin({ type: 'reload-static', key: app });
     logInfo('mka', `${app}-client completed successfully`);
 }
 
-function buildWatch(app: string) {
-    logInfo('mka', chalk`watch {yellow ${app}-client}`);
-
-    // watch api.xml
-    fs.watchFile(`src/${app}/api.xml`, { persistent: false }, (currstat, prevstat) => {
-        if (currstat.mtime == prevstat.mtime) {
-            return;
-        }
-        // if error, no emit and tsc watch retranspile will not be triggered
-        generate(app, 'client');
-    });
-
-    process.on('SIGINT', () => {
-        fs.unwatchFile(`src/${app}/api.xml`);
-        process.exit(0);
-    });
-
-    const files: MyPackOptions['files'] = [];
-    let lastResult: MyPackResult = null;
-
-    transpileWatch(getTypescriptEntry(app), { 
-        ...typescriptOptions,
-        watchWriteFileHook: (name: string, content: string) => {
-            const existIndex = files.findIndex(f => f.name == name);
-            if (existIndex >= 0) {
-                files.splice(existIndex, 1, { name, content });
-            } else {
-                files.push({ name, content });
-            }
-        },
-        watchEmit: async () => {
-            const currentResult = await pack(createMyPackOptions(app, files, lastResult));
-            if (currentResult.success) {
-                await fsp.writeFile(`dist/${app}/client.js`, currentResult.jsContent);
-                await fsp.writeFile(`dist/${app}/client.js.map`, currentResult.mapContent);
-            }
-
-            if (currentResult.hash != lastResult?.hash) {
-                await admin({ type: 'reload-static', key: app });
-            }
-            lastResult = currentResult;
-        },
-    } as unknown as TypeScriptCompilerOptions);
-    
-    // initial code generation
-    generate(app, 'client');
+function buildWatch(_app: string) {
 }
 
 export async function build(app: string, watch: boolean): Promise<void> {

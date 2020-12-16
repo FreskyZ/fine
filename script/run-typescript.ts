@@ -4,6 +4,8 @@ import { logError, logInfo } from './common';
 
 export const ModuleKind = ts.ModuleKind;
 export const ModuleResolutionKind = ts.ModuleResolutionKind;
+export const JsxEmit = ts.JsxEmit;
+export const ScriptTarget = ts.ScriptTarget;
 export type TypeScriptCompilerOptions = ts.CompilerOptions & {
     readFileHook?: (fileName: string, originalReadFile: (filename: string) => string) => string,
     writeFileHook?: (fileName: string, data: string, writeByteOrderMark: boolean, onError: (message: string) => void, sourceFiles: readonly ts.SourceFile[], originalWriteFile: ts.WriteFileCallback) => void,
@@ -147,11 +149,7 @@ export function transpileOnce(entry: string | string[], additionalOptions: TypeS
         logError('tsc', `completed with ${summary}`);
     }
 
-    diagnostics.map(printDiagnostic);
-    if (diagnostics.length > 0) {
-        logError('tsc', 'end of transpile diagnostics');
-    }
-    
+    diagnostics.map(printDiagnostic);    
     return success;
 }
 

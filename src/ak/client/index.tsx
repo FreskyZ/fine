@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { Checkbox, InputNumber } from 'antd';
+import { Button, Checkbox, InputNumber } from 'antd';
 
 interface SynthesizeFrom {
     itemName: string,
@@ -55,7 +55,7 @@ function App() {
     const [requirements, setRequirements] = React.useState<ItemRequirement[]>([]);
 
     return <>
-        <header>ARK&#2468;</header>
+        <header>ARK&#x2468;</header>
         <main>
             <section id="levels">{gamedata.levels.map(level => 
                 <div key={level.name} className='level-container'>
@@ -97,7 +97,7 @@ function App() {
                     </span>}
                 </div>)}
             </section>
-            <button>GO</button>
+            <Button>GO</Button>
             <section id='plan-result' style={{ display: 'none' }}>
                 RESULTRESULTRESULT
             </section>

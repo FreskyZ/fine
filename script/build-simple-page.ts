@@ -3,7 +3,7 @@ import * as fsp from 'fs/promises';
 import * as chalk from 'chalk';
 import { logInfo, logError, commonReadFileHook, commonWatchReadFileHook } from './common';
 import { TypeScriptCompilerOptions, transpileOnce, transpileWatch } from './run-typescript';
-import { Options as SassOptions, render as transpileStyle } from 'node-sass';
+import { SassOptions, transpile as transpileStyle } from './run-sass';
 import { admin } from './admin';
 
 // build simple page, copy html, transpile sass to css, transpile one ts file to one js file
@@ -21,27 +21,10 @@ const typescriptOptions = {
     watchReadFileHook: commonWatchReadFileHook,
 } as TypeScriptCompilerOptions;
 
-const getSassOptions = (name: SimplePageName) => ({
+const getSassOptions = (name: SimplePageName): SassOptions => ({
     file: `src/home-page/${name}.sass`,
     outputStyle: 'compressed',
-} as SassOptions);
-
-// directly call sass only happens in simple pages while app front end is planed to use webpack with sass-loader
-async function transpileSass(options: SassOptions): Promise<string> {
-    logInfo('css', chalk`transpile {yellow ${options.file}}`);
-
-    return new Promise((resolve, reject) => {
-        transpileStyle(options, (error, result) => {
-            if (error) {
-                logError('css', `error at ${options.file}:${error.line}:${error.column}: ${error.message}`);
-                reject();
-            } else {
-                logInfo('css', `transpile completed in ${result.stats.duration}ms`);
-                resolve(result.css.toString('utf-8'));
-            }
-        });
-    });
-}
+});
 
 async function buildOnce(name: SimplePageName) {
     logInfo('mka', chalk`{yellow ${name}-page}`);
@@ -57,7 +40,7 @@ async function buildOnce(name: SimplePageName) {
 
     // css
     try {
-        const code = await transpileSass(getSassOptions(name));
+        const code = await transpileStyle(getSassOptions(name));
         await fsp.writeFile(`dist/home/${name}.css`, code);
     } catch {
         logError('mka', chalk`{yellow ${name}-page} failed at transpile stylesheet`);
@@ -100,7 +83,7 @@ function buildWatch(name: SimplePageName) {
         if (currstat.mtime == prevstat.mtime) {
             return;
         }
-        transpileSass(getSassOptions(name)).then(code => {
+        transpileStyle(getSassOptions(name)).then(code => {
             fs.writeFileSync(`dist/home/${name}.css`, code);
             admin({ type: 'reload-static', key: getReloadKey(name) }).catch(() => { /* ignore */});
         }).catch(() => { /* error already reported, ignore */});
