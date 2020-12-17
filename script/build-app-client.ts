@@ -1,10 +1,9 @@
 // import * as fs from 'fs';
-// import * as chalk from 'chalk';
+import * as chalk from 'chalk';
 // import { admin } from './admin';
-// import { logInfo, logError } from './common';
+import { logInfo } from './common';
 // import { generate } from './run-codegen';
 // import { TypeScriptCompilerOptions, JsxEmit, ModuleKind, installReadFileHook, transpileOnce } from './run-typescript';
-// import { SassOptions, transpile as transpileStyle } from './run-sass';
 // import { MyPackOptions } from './run-mypack';
 
 // const getTypescriptEntry = (app: string) => `src/${app}/client/index.tsx`;
@@ -20,32 +19,14 @@
 //     esModuleInterop: true,
 // } as TypeScriptCompilerOptions;
 
-// const createMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
-//     type: 'lib',
-//     entry: `/vbuild/${app}/client/index.js`,
-//     files,
-//     sourceMap: true,
-//     output: `dist/${app}/client.js`,
-//     printModules: true,
-//     minify: true,
-//     lastResult,
-// });
-
 // const getSassOptions = (app: string): SassOptions => ({
 //     file: `src/${app}/client/index.sass`,
 //     outputStyle: 'compressed',
 // });
 
-async function buildOnce(_app: string) {
-    // logInfo('mka', chalk`{yellow ${app}-client}`);
+async function buildOnce(app: string) {
+    logInfo('mka', chalk`{yellow ${app}-client}`);
     
-    // if (fs.existsSync(`src/${app}/api.xml`)) {
-    //     if (!await generate(app, 'client')) {
-    //         logError('mka', chalk`{yellow ${app}-client} failed at code generation`);
-    //         process.exit(1);
-    //     }
-    // }
-
     // const files: MyPackOptions['files'] = [];
     // installReadFileHook(commonReadFileHook);
     // if (!transpileOnce(getTypescriptEntry(app), { ...typescriptOptions, 

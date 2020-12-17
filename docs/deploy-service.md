@@ -8,9 +8,9 @@ Description = <service description>
 
 [Service]
 WorkingDirectory = <working directory>
-ExecStart = npm run start-server
-ExecStop = npm run stop-server
-Restart = always
+ExecStart = npm run start
+ExecStop = npm run stop
+Restart = on-failure
 RestartSec = 15
 User = root
 Group = root

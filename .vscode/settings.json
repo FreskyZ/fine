@@ -5,5 +5,8 @@
     "javascript.validate.enable": false,
     "remote.autoForwardPorts": false,
     "javascript.suggest.autoImports": false,
-    "typescript.suggest.autoImports": false
+    "typescript.suggest.autoImports": false,
+    "files.exclude": {
+        "node_modules": true
+    }
 }

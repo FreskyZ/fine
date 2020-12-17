@@ -160,7 +160,6 @@ function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCall
     };
 }
 
-// promisify it to allow parallel work
 function transpileOnce(options: TypeScriptOptions, hooks: TypeScriptHooks) {
     logInfo('tsc', chalk`once {yellow ${options.entry}}`);
 
