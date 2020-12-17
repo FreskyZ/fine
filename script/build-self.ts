@@ -21,7 +21,7 @@ export function build() {
 
     transpile(typescriptOptions, { afterEmit: async ({ success, files }) => {
         if (!success) {
-            logError('mka', chalk`{yellow self} failed at transpile}`);
+            logError('mka', chalk`{yellow self} failed at transpile`);
             process.exit(1);
         }
 

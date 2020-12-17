@@ -93,7 +93,7 @@ function App() {
                                 setRequirements(requirements);
                             }}} />
                     {item.froms && <span className='synthesis-container'>{item.froms.map(from => 
-                        <span className='item-name'>{from.itemName}x{from.count}</span>)}
+                        <span key={from.itemName} className='item-name'>{from.itemName}x{from.count}</span>)}
                     </span>}
                 </div>)}
             </section>
@@ -107,7 +107,3 @@ function App() {
 }
 
 ReactDOM.render(<App/>, document.querySelector('div#root'));
-
-// TODO NEXT
-// add react, antd, antd.css cdn to ak.html, manually tsc this file and try my actual first react hook application on my first site!
-// add formal build-app-client

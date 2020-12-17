@@ -10,10 +10,10 @@ export const nodePackage = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
 export const compileTimeConfig = JSON.parse(fs.readFileSync('maka.config', 'utf-8'));
 
 export function logInfo(header: string, message: string) {
-    console.log(chalk`[${dayjs().format('HH:mm:ss')}][{cyan ${header}}] ${message}`);
+    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} ${header}] ${message}`);
 }
 export function logError(header: string, message: string) {
-    console.log(chalk`[${dayjs().format('HH:mm:ss')}][{red ${header}}] ${message}`);
+    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
 }
 
 process.on('unhandledRejection', error => { 

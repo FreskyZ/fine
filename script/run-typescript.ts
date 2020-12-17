@@ -7,6 +7,8 @@ export interface TypeScriptOptions {
     watch?: boolean, // default to false
     sourceMap?: boolean, // default ot false
     additionalLib?: string[],
+    jsx?: boolean, // react-jsx
+    importDefault?: boolean, // esModuleInterop
 }
 export interface TypeScriptHooks {
     readFile?: (fileName: string, originalReadFile: (fileName: string) => string) => string,
@@ -23,6 +25,7 @@ const basicOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2020,
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    skipLibCheck: true,
     noEmitOnError: true,
     noImplicitAny: true,
     noFallthroughCaseInSwitch: true,
@@ -41,7 +44,9 @@ const basicOptions: ts.CompilerOptions = {
 function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
     return {
         ...basicOptions,
-        sourceMap: 'sourceMap' in options ? options.sourceMap : undefined,
+        sourceMap: options.sourceMap,
+        esModuleInterop: options.importDefault,
+        jsx: 'jsx' in options ? ts.JsxEmit.ReactJSX : undefined,
         lib: 'additionalLib' in options ? [...basicOptions.lib, ...options.additionalLib.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
     };
 }
@@ -142,12 +147,13 @@ function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCall
                 fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
 
-            const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
-            if (match) {
-                fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
-            } else if (!fileContent.endsWith('\n')) {
-                fileContent += '\n'; // make sure LF before EOF
-            }
+            // ATTENTION ATTENTION TEMP DISABLE
+            // const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
+            // if (match) {
+            //     fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
+            // } else if (!fileContent.endsWith('\n')) {
+            //     fileContent += '\n'; // make sure LF before EOF
+            // }
         }
 
         // the `files` is closured when watch, so always check existance and splice

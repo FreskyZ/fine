@@ -2,29 +2,26 @@
 import * as chalk from 'chalk';
 import * as filesize from 'filesize';
 import * as webpack from 'webpack';
+import { logInfo, logError } from './common';
 import { WebpackStat, WebpackStatModule } from './types';
 
 export type WebpackConfiguration = webpack.Configuration & {
     printStat?: boolean, 
 };
 
-/** 
- * @param previousModuleList null for direct run, null for first watch, previous return value for normal watch; show complete list for null, show diff for have value
- * @returns source file name list 
-*/
-function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): WebpackStatModule[] {
-    console.log(chalk`[{cyan wpb}] bundled {yellow ${stats.assets.length}} asset in {yellow ${stats.time}ms}, hash {yellow ${stats.hash}}`);
+function printStat(stats: WebpackStat, lastStat: WebpackStat) {
+    logInfo('wpb', chalk`{yellow ${stats.assets.length}} asset in {yellow ${stats.time}ms}, hash {yellow ${stats.hash}}`);
 
     for (const error of stats.errors) {
-        console.error(`error: ${error.message}`);
+        console.log(error);
     }
-    for (const warning of stats.warnings) {
-        console.error(`warning: ${warning}`);
+    for (const warning of (stats.warnings as any[])) {
+        console.log(warning.message ?? warning);
     }
 
     const modules = stats.chunks.reduce<WebpackStatModule[]>((acc, chunk) => { acc.push(...chunk.modules); return acc; }, []);
 
-    if (previousModules == null) {
+    if (lastStat == null) {
         for (let assetIndex = 0; assetIndex < stats.assets.length; ++assetIndex) {
             const asset = stats.assets[assetIndex];
             console.log(chalk`  {gray asset#}${assetIndex} {yellow ${asset.name}}` 
@@ -53,6 +50,7 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
             }
         }
     } else {
+        const previousModules = lastStat.chunks.reduce<WebpackStatModule[]>((acc, chunk) => { acc.push(...chunk.modules); return acc; }, []);
         const addedModules = modules.filter(n => !previousModules.some(p => p.name === n.name));
         const removedModules = previousModules.filter(p => !modules.some(n => n.name === p.name));
 
@@ -74,10 +72,8 @@ function printStat(stats: WebpackStat, previousModules: WebpackStatModule[]): We
     return modules;
 }
 
-/** @param oncompleted called when complete */
-export async function bundleOnce(options: WebpackConfiguration, onerror: (error: Error) => void, oncompleted: (stat: WebpackStat) => void) {
-    // wpb: webpack bundler
-    console.log(`[wpb] bundling ${options.entry}`);
+export async function bundleOnce(options: WebpackConfiguration, onerror: (error: Error) => any, oncompleted: (stat: WebpackStat) => any) {
+    logInfo('wpb', chalk`once {yellow ${options.entry}}`);
 
     const enablePrintStat = !('printStat' in options) || options.printStat;
     delete options.printStat;
@@ -85,7 +81,7 @@ export async function bundleOnce(options: WebpackConfiguration, onerror: (error:
     const compiler =  webpack(options);
     compiler.run((error, statObject) => {
         if (error) {
-            console.log('[wpb] critical error: ' + error.message);
+            logError('wpb', 'critical error: ' + error.message);
             onerror(null);
             return;
         }
@@ -94,34 +90,33 @@ export async function bundleOnce(options: WebpackConfiguration, onerror: (error:
         if (enablePrintStat) { 
             printStat(stats, null); 
         } else {
-            console.log('[wpb] bundled completed successfully');
+            logInfo('wpb', 'completed with no error');
         }
         oncompleted(stats);
     });
 }
 
 /** @param onwatched called everytime when bundle completed, will not be called if failure or no change */
-export async function bundleWatch(config: WebpackConfiguration, onwatched: (stat: WebpackStat) => void) {
-    console.log(`[wpb] bundling watching ${config.entry}`);
+export async function bundleWatch(options: WebpackConfiguration, onwatched: (stat: WebpackStat) => any) {
+    logInfo('wpb', chalk`watch {yellow ${options.entry}}`);
 
-    let lastHash: string = null;
-    let lastModules: WebpackStatModule[] = null;
-    webpack({ ...config, watch: true }, (error, statObject) => {
+    let lastStat: WebpackStat = null;
+    webpack({ ...options, watch: true }, (error, statObject) => {
         if (error) {
-            console.log('[wpb] critical error: ' + error.message);
+            logError('wpb', 'critical error: ' + error.message);
             return;
         }
     
         const stats = statObject?.toJson() as WebpackStat;
-        if (stats.hash == lastHash) {
-            lastHash = stats.hash;
-            console.log('[wpb] rebundle no change');
+        if (stats.hash == lastStat.hash) {
+            lastStat = stats;
+            logInfo('wpb', 'completed with no change');
             return;
         } else {
-            lastHash = stats.hash;
         }
 
-        lastModules = printStat(stats, lastModules);
+        printStat(stats, lastStat);
+        lastStat = stats;
         onwatched(stats);
     })
 }

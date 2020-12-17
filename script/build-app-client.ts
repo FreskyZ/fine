@@ -1,51 +1,108 @@
-// import * as fs from 'fs';
+/// <reference path="antd-dayjs-plugin.d.ts" />
+import * as fs from 'fs';
+import * as path from 'path';
 import * as chalk from 'chalk';
-// import { admin } from './admin';
-import { logInfo } from './common';
+import { admin } from './admin';
+import { projectDirectory, logInfo, logError } from './common';
 // import { generate } from './run-codegen';
-// import { TypeScriptCompilerOptions, JsxEmit, ModuleKind, installReadFileHook, transpileOnce } from './run-typescript';
+import { TypeScriptOptions, transpile } from './run-typescript';
 // import { MyPackOptions } from './run-mypack';
+import { WebpackConfiguration, bundleOnce } from './run-webpack';
+import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
+import * as AntdDayjsWebpackPlugin from 'antd-dayjs-webpack-plugin';
+import * as TerserPlugin from 'terser-webpack-plugin';
 
-// const getTypescriptEntry = (app: string) => `src/${app}/client/index.tsx`;
-// const typescriptOptions: TypeScriptCompilerOptions = {
-//     lib: ['lib.dom.d.ts'],
-//     sourceMap: true,
-//     outDir: '/vbuild',
-//     jsx: JsxEmit.React,
-//     module: ModuleKind.ESNext,
-//     // NOTE: something like optional chaining (?.) is not supported on edge (chromium) android, 
-//     //       redirect to ES2015 if newest version still do not support
-//     // target: ScriptTarget.ES2015,
-//     esModuleInterop: true,
-// } as TypeScriptCompilerOptions;
-
-// const getSassOptions = (app: string): SassOptions => ({
-//     file: `src/${app}/client/index.sass`,
-//     outputStyle: 'compressed',
-// });
+const getTypeScriptOptions = (app: string): TypeScriptOptions => ({
+    entry: `src/${app}/client/index.tsx`,
+    sourceMap: true,
+    additionalLib: ['dom'],
+    jsx: true,
+    importDefault: true,
+});
+const getWebpackConfiguration = (app: string): WebpackConfiguration => ({
+    mode: 'production',
+    entry: path.join(projectDirectory, `build/${app}-client/index.js`),
+    output: {
+        filename: 'client.js',
+        path: path.join(projectDirectory, `dist/${app}`),
+    },
+    devtool: 'source-map',
+    optimization: {
+        splitChunks: {
+            cacheGroups: {
+                antd: {
+                    test: /node_modules\/(antd|rc)/,
+                    priority: 20,
+                    chunks: 'all',
+                    filename: 'antd.js',
+                },
+                antdIcon: {
+                    test: /node_modules\/\@ant-design/,
+                    priority: 20,
+                    chunks: 'all',
+                    filename: 'antd-icon.js'
+                },
+                reactDom: {
+                    test: /node_modules\/react-dom/,
+                    priority: 20,
+                    chunks: 'all',
+                    filename: 'react-dom.js'
+                },
+                vender: {
+                    test: /node_modules/,
+                    priority: 10,
+                    chunks: 'all',
+                    filename: 'vendor.js',
+                },
+            }
+        },
+        minimizer: [
+            new TerserPlugin({
+                terserOptions: {
+                    format: {
+                        comments: false,
+                    },
+                },
+                extractComments: false,
+            }),
+        ],
+    },
+    plugins: [
+        new BundleAnalyzerPlugin({ 
+            analyzerMode: 'static',
+            openAnalyzer: false,
+            reportFilename: `stat.html`,
+        }),
+        new AntdDayjsWebpackPlugin(),
+    ]
+});
 
 async function buildOnce(app: string) {
     logInfo('mka', chalk`{yellow ${app}-client}`);
     
-    // const files: MyPackOptions['files'] = [];
-    // installReadFileHook(commonReadFileHook);
-    // if (!transpileOnce(getTypescriptEntry(app), { ...typescriptOptions, 
-    //     writeFileHook: (name: string, content: string) => files.push({ name, content }),
-    // } as unknown as TypeScriptCompilerOptions)) {
-    //     logError('mka', chalk`{yellow ${app}-client} failed at transpile typescript`);
-    //     process.exit(1);
-    // }
+    // html
+    logInfo('htm', chalk`copy {yellow src/${app}/index.html}`);
+    await fs.promises.copyFile(`src/${app}/index.html`, `dist/${app}/index.html`);
+    logInfo('htm', 'copy completed');
 
-    // // ATTENTION TEMP
-    // let content = files.find(f => f.name == '/vbuild/index.js').content;
-    // content = content.slice(content.indexOf('\n') + 1); // remove import React from 'react'
-    // content = content.slice(content.indexOf('\n') + 1); // remove import ReactDOM from 'react-dom'
-    // const importStatement = content.slice(0, content.indexOf('\n')); // the import xxx from 'antd' statement
-    // const usedAntdComponents = importStatement.slice(importStatement.indexOf('{'), importStatement.indexOf('}') + 1);
-    // content = `const ${usedAntdComponents} = antd;` + content.slice(content.indexOf('\n'));
-    // // END OF ATTENTION
+    // js
+    transpile(getTypeScriptOptions(app), ({ afterEmit: async ({ success, files }) => {
+        if (!success) {
+            logError('mka', chalk`{yellow ${app}-client} failed at transpile typescript`);
+            process.exit(1);
+        }
 
-    // await fs.promises.writeFile(`dist/${app}/client.js`, content);
+        await fs.promises.writeFile(`build/${app}-client/index.js`, files.find(f => f.name == '/vbuild/index.js').content);
+        await fs.promises.writeFile(`build/${app}-client/index.js.map`, files.find(f => f.name == '/vbuild/index.js.map').content);
+
+        bundleOnce(getWebpackConfiguration(app), () => {
+            logError('mka', chalk`{yellow ${app}-client} failed at bundle`);
+            process.exit(1);
+        }, async () => {
+            await admin({ type: 'reload-static', key: app });
+            logInfo('mka', `${app}-client completed successfully`);
+        });
+    } }));
 
     // // css
     // try {
@@ -55,11 +112,6 @@ async function buildOnce(app: string) {
     //     logError('mka', chalk`{yellow ${app}-client} failed at transpile stylesheet`);
     //     process.exit(1);
     // }
-
-    // // html
-    // logInfo('htm', chalk`copy {yellow src/${app}/index.html}`);
-    // await fs.promises.copyFile(`src/${app}/index.html`, `dist/${app}/index.html`);
-    // logInfo('htm', 'copy completed');
 
     // // const packResult = await pack(createMyPackOptions(app, files));
     // // if (!packResult.success) {

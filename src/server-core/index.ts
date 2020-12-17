@@ -158,6 +158,3 @@ process.on('SIGINT', shutdown);
 admin.on('shutdown', shutdown);
 
 logInfo('initialization completed');
-
-// TODO NEXT
-// user management (user device management) component and test device related api
