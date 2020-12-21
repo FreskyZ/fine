@@ -23,7 +23,7 @@ const getSassOptions = (pagename: string): SassOptions => ({
 
 async function buildOnce(pagename: string) {
     logInfo('mka', chalk`{yellow ${pagename}-page}`);
-    await fs.promises.mkdir('dist/home', { recursive: true });
+    await fs.promises.mkdir('dist/main', { recursive: true });
     // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
 
     const typescriptOptions = getTypeScriptOptions(pagename, false);
@@ -36,7 +36,7 @@ async function buildOnce(pagename: string) {
             resolve(files);
         } }));
         const code = files[0].content; // this ts config only generates one output file
-        await fs.promises.writeFile(`dist/home/${pagename}.js`, code); 
+        await fs.promises.writeFile(`dist/main/${pagename}.js`, code); 
     }
 
     const sassOptions = getSassOptions(pagename);
@@ -47,11 +47,11 @@ async function buildOnce(pagename: string) {
             process.exit(1);
         }
 
-        await fs.promises.writeFile(`dist/home/${pagename}.css`, style);
+        await fs.promises.writeFile(`dist/main/${pagename}.css`, style);
     }
 
     logInfo('htm', chalk`copy {yellow ${pagename}.html}`);
-    await fs.promises.copyFile(`src/pages/${pagename}.html`, `dist/home/${pagename}.html`);
+    await fs.promises.copyFile(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
     logInfo('htm', 'copy completed');
 
     await admin({ type: 'reload-static', key: pagename }); // unknown page name auto ignored
@@ -60,13 +60,13 @@ async function buildOnce(pagename: string) {
 
 async function buildWatch(pagename: string) {
     logInfo('mka', chalk`watch {yellow ${pagename}-page}`);
-    await fs.promises.mkdir('dist/home', { recursive: true });
+    await fs.promises.mkdir('dist/main', { recursive: true });
 
     const typescriptOptions = getTypeScriptOptions(pagename, true);
     if (fs.existsSync(typescriptOptions.entry)) {
         transpileScript(typescriptOptions, { afterEmit: async ({ files }) => {
             const code = files[0].content; // this ts config only generates one output file
-            await fs.promises.writeFile(`dist/home/${pagename}.js`, code);
+            await fs.promises.writeFile(`dist/main/${pagename}.js`, code);
             admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
         } });
     }
@@ -79,7 +79,7 @@ async function buildWatch(pagename: string) {
             }
             const { success, style } = await transpileStyle(getSassOptions(pagename));
             if (success) {
-                fs.writeFileSync(`dist/home/${pagename}.css`, style);
+                fs.writeFileSync(`dist/main/${pagename}.css`, style);
                 admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
             }
         });
@@ -90,7 +90,7 @@ async function buildWatch(pagename: string) {
             return;
         }
         logInfo('htm', chalk`copy {yellow ${pagename}.html}`);
-        fs.copyFileSync(`src/pages/${pagename}.html`, `dist/home/${pagename}.html`);
+        fs.copyFileSync(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
         logInfo('htm', 'copy completed');
         admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
     });

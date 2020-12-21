@@ -16,7 +16,7 @@ const mypackOptions: MyPackOptions = {
     entry: '/vbuild/server-core/index.js',
     files: [],
     sourceMap: true,
-    output: 'dist/home/server.js',
+    output: 'dist/main/server.js',
     printModules: true,
     minify: true,
 }
@@ -36,10 +36,10 @@ function buildOnce() {
             process.exit(1);
         }
 
-        await fs.promises.mkdir('dist/home', { recursive: true });
+        await fs.promises.mkdir('dist/main', { recursive: true });
         await Promise.all([
-            fs.promises.writeFile('dist/home/server.js', packResult.jsContent),
-            fs.promises.writeFile('dist/home/server.js.map', packResult.mapContent),
+            fs.promises.writeFile('dist/main/server.js', packResult.jsContent),
+            fs.promises.writeFile('dist/main/server.js.map', packResult.mapContent),
         ]);
         logInfo('mka', 'server-core completed successfully');
     }});
@@ -51,7 +51,7 @@ export function startOrRestartServer() {
     function start() {
         // mds: my dev server
         logInfo('mds', 'start server');
-        serverProcess = spawn('node', ['dist/home/server.js']);
+        serverProcess = spawn('node', ['dist/main/server.js']);
         
         serverProcess.stdout.pipe(process.stdout);
         serverProcess.stderr.pipe(process.stderr);
@@ -83,10 +83,10 @@ function buildWatch() {
             return;
         }
 
-        await fs.promises.mkdir('dist/home', { recursive: true });
+        await fs.promises.mkdir('dist/main', { recursive: true });
         await Promise.all([
-            fs.promises.writeFile('dist/home/server.js', currentResult.jsContent),
-            fs.promises.writeFile('dist/home/server.js.map', currentResult.mapContent),
+            fs.promises.writeFile('dist/main/server.js', currentResult.jsContent),
+            fs.promises.writeFile('dist/main/server.js.map', currentResult.mapContent),
         ]);
         if (currentResult.hash != lastResult?.hash) {
             startOrRestartServer();

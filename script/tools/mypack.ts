@@ -21,8 +21,8 @@ export interface MyPackOptions {
     lastResult?: MyPackResult, // previous result when watch
 }
 
-export interface MyPackResult {
-    success: boolean, // others will be null if fail
+export type MyPackResult = {
+    success: boolean,
     jsContent?: string,
     mapContent?: string,
     hash?: string,

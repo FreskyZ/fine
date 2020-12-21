@@ -14,6 +14,8 @@ $ maka watch cost-client
 $ maka watch cost
 $
 $ maka self
+$ maka public
+$ maka clean
 $
 $ maka shutdown
 $ maka reload-static www

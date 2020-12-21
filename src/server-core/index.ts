@@ -8,7 +8,7 @@ import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminPayload } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleRequestContent, handleAdminReloadStatic } from './content';
+import { handleRequestContent, handleAdminReloadStatic, handleAdminSwitchSourceMap } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
 import type { ContextState } from './auth';
 import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
@@ -26,6 +26,7 @@ app.use(handleApplications);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
 admin.on('reload-static', handleAdminReloadStatic);
+admin.on('source-map', handleAdminSwitchSourceMap);
 admin.on('reload-server', handleAdminReloadServer);
 admin.on('expire-device', handleAdminExpireDevice);
 process.on('uncaughtException', handleProcessException);
@@ -65,6 +66,8 @@ socketServer.on('connection', connection => {
             admin.emit('shutdown');
         } else if (message.type == 'reload-static') {
             admin.emit('reload-static', message.key);
+        } else if (message.type == 'source-map') {
+            admin.emit('source-map', message.enabled);
         } else if (message.type == 'reload-server') {
             admin.emit('reload-server', message.app);
         } else if (message.type == 'expire-device') {

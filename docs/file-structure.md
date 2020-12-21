@@ -6,9 +6,9 @@ build intermediate result, maybe used as build cache, not tracked by git
 ## dist
 the website itself, dist means it can be copied to elsewhere to run, tracked by git
 
-### dist/home
-contains home page and server entry `nodejs dist/home/server.js`,
-change to server entry requires server restart, change to home page `index.html` requires admin script.
+### dist/main
+contains home page and server entry `nodejs dist/main/server.js`,
+change to server entry requires server restart, change to web pages requires admin script.
 
 ### dist/public
 contains not interesting things at `/*`, like `robots.txt` and `sitemap.xml`,
@@ -35,8 +35,8 @@ also include other dev tool configs like eslint.
 ### src/server-core
 server entry, environment setup, application hot reload support
 
-### src/home-page
-home page, home page is manual html, css and js
+### src/pages
+simple web pages html/ts/sass
 
 ### src/\<app\>
 application server and client, index.html is outside of client/server folder because it is just a placeholder (react root holder)

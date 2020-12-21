@@ -64,9 +64,11 @@ if (a1 == 'self') {
     buildAppClient('ak', false);
 
 } else if (a1 == 'shutdown') {
-    admin({ type: 'shutdown' }).then(() => process.exit(1));
+    admin({ type: 'shutdown' }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
 } else if (a1 == 'reload-static') {
-    admin({ type: 'reload-static', key: a2 == 'www' || a2 == 'login' ? a2 : validateApp(a2) }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
+    admin({ type: 'reload-static', key: a2 == 'home' || a2 == 'user' ? a2 : validateApp(a2) }).then(() => process.exit(1));
+} else if (a1 == 'source-map') {
+    admin({ type: 'source-map', enabled: a2 == 'enable' }).then(() => process.exit(1));
 } else if (a1 == 'reload-server') {
     admin({ type: 'reload-server', app: validateApp(a2) }).then(() => process.exit(1));
 } else if (a1 == 'expire-device') {

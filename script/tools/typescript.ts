@@ -33,11 +33,10 @@ const basicOptions: ts.CompilerOptions = {
     noImplicitThis: true,
     noUnusedLocals: true,
     noUnusedParameters: true,
-    // strict: true,
     strictFunctionTypes: true,
     strictBindCallApply: true,
+    // it proves to be too boring for strict null
     // strictNullChecks: true,
-    // strictPropertyInitialization: true,
     removeComments: true,
 };
 

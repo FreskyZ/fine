@@ -19,16 +19,15 @@
 1. regex input is `${method} /${subdomain}${path}`
 2. no subdomain is `${method} /www/${path}` (www.domain.com and domain.com is not same origin, but here is convenient and reasonable to regard them same)
 
+- GET /any/404 => dist/main/404.html  
+- GET /any/418 => dist/main/418.html
 
-- GET /any/404 => dist/home/404.html  
-- GET /any/418 => dist/home/418.html
-
-- GET /any/login => dist/home/login.html
-- GET /any/login.js => dist/home/login.js
-- GET /www/ => dist/home/index.html
+- GET /any/w => dist/main/user.html
+- GET /any/user.js => dist/main/user.js
+- GET /www/ => dist/main/index.html
 - GET /:app/ => dist/:app/index.html
-- GET /www/:path => known dist/home/ files, or else dist/public/:path except html 
-- GET /:app/:path => known dist/app/ files, or else dist/public/:path except html 
+- GET /www/:path => known dist/main/ files, or else dist/public/:path
+- GET /:app/:path => known dist/app/ files, or else dist/public/:path
 
 - POST /api/login
 - GET /api/user-credential

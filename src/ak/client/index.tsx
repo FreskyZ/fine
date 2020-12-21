@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import { Button, Checkbox, InputNumber } from 'antd';
 
+declare const HTMLTIME: number;
+
 interface SynthesizeFrom {
     itemName: string,
     count: number,
@@ -53,6 +55,10 @@ interface ItemRequirement {
 function App() {
     const [selectedLevels, setSelectedLevels] = React.useState<string[]>([]); // level names
     const [requirements, setRequirements] = React.useState<ItemRequirement[]>([]);
+
+    React.useEffect(() => {
+        console.log('html to react initial renderz: ' + (+new Date() - HTMLTIME));
+    }, []);
 
     return <>
         <header>ARK&#x2468;</header>

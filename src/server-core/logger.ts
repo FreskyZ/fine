@@ -98,6 +98,10 @@ function write(level: Level, content: any) {
 export function logInfo(content: any) { write('info', content); }
 export function logError(content: any) { write('error', content); }
 
+// this currently is simply add a switch to console.log, to be designed later
+const TRACE = 'TRACE' in process.env;
+export function logTrace(...args: any[]) { if (TRACE) { console.log(...args); } }
+
 function flushAll() {
     levels.map(level => flush(level));
 }
