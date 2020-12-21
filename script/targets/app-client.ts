@@ -1,13 +1,12 @@
-/// <reference path="antd-dayjs-plugin.d.ts" />
+/// <reference path="../types/antd-dayjs-plugin.d.ts" />
 import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
-import { admin } from './admin';
-import { projectDirectory, logInfo, logError } from './common';
+import { admin } from '../tools/admin';
+import { projectDirectory, logInfo, logError } from '../common';
 // import { generate } from './run-codegen';
-import { TypeScriptOptions, transpile } from './run-typescript';
-// import { MyPackOptions } from './run-mypack';
-import { WebpackConfiguration, bundleOnce } from './run-webpack';
+import { TypeScriptOptions, transpile } from '../tools/typescript';
+import { WebpackConfiguration, bundleOnce } from '../tools/webpack';
 import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 import * as AntdDayjsWebpackPlugin from 'antd-dayjs-webpack-plugin';
 import * as TerserPlugin from 'terser-webpack-plugin';
@@ -34,25 +33,25 @@ const getWebpackConfiguration = (app: string): WebpackConfiguration => ({
                     test: /node_modules\/(antd|rc)/,
                     priority: 20,
                     chunks: 'all',
-                    filename: 'antd.js',
+                    filename: 'client-ant.js',
                 },
                 antdIcon: {
                     test: /node_modules\/\@ant-design/,
                     priority: 20,
                     chunks: 'all',
-                    filename: 'antd-icon.js'
+                    filename: 'client-anticon.js'
                 },
                 reactDom: {
                     test: /node_modules\/react-dom/,
                     priority: 20,
                     chunks: 'all',
-                    filename: 'react-dom.js'
+                    filename: 'client-react-dom.js'
                 },
                 vender: {
                     test: /node_modules/,
                     priority: 10,
                     chunks: 'all',
-                    filename: 'vendor.js',
+                    filename: 'client-other.js',
                 },
             }
         },
@@ -79,6 +78,7 @@ const getWebpackConfiguration = (app: string): WebpackConfiguration => ({
 
 async function buildOnce(app: string) {
     logInfo('mka', chalk`{yellow ${app}-client}`);
+    await fs.promises.mkdir(`dist/${app}`, { recursive: true });
     
     // html
     logInfo('htm', chalk`copy {yellow src/${app}/index.html}`);

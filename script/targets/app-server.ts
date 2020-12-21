@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { admin } from './admin';
-import { logInfo, logError } from './common';
-import { generate } from './run-codegen';
-import { TypeScriptOptions, transpile } from './run-typescript';
-import { MyPackOptions, MyPackResult, pack } from './run-mypack';
+import { logInfo, logError } from '../common';
+import { admin } from '../tools/admin';
+import { generate } from '../tools/codegen';
+import { TypeScriptOptions, transpile } from '../tools/typescript';
+import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
 
-const getTypeScriptOptions = (app: string, watch: boolean,): TypeScriptOptions => ({
+const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     entry: `src/${app}/server/index.ts`,
     sourceMap: true,
     watch,
@@ -25,6 +25,7 @@ const getMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult
 
 async function buildOnce(app: string) {
     logInfo('mka', chalk`{yellow ${app}-server}`);
+    await fs.promises.mkdir(`dist/${app}`, { recursive: true });
 
     if (!await generate(app, 'server')) {
         logError('mka', chalk`{yellow ${app}-server} failed at code generation`);
@@ -57,6 +58,7 @@ async function buildOnce(app: string) {
 
 function buildWatch(app: string) {
     logInfo('mka', chalk`watch {yellow ${app}-server}`);
+    fs.mkdirSync(`dist/${app}`, { recursive: true });
 
     // watch api.xml
     fs.watchFile(`src/${app}/api.xml`, { persistent: false }, (currstat, prevstat) => {

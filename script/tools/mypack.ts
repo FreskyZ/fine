@@ -4,7 +4,7 @@ import { SHA256 as sha256 } from 'crypto-js';
 import * as filesize from 'filesize';
 import { SourceMapGenerator, SourceMapConsumer } from 'source-map';
 import { minify } from 'terser';
-import { logInfo, logError } from './common';
+import { logInfo, logError } from '../common';
 
 // my bundler, input list of name/content of js file/source map
 // output minified js and source map
@@ -139,7 +139,6 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         logInfo('mpk', 'completed with no change');
     } else {
         if (!options.lastResult) {
-            logInfo('mpk', 'completed with no error');
             if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }
         }
         logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);

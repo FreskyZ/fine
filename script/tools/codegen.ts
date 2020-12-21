@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as chalk from 'chalk';
 import { toJson as parseXml } from 'xml2json';
-import { logInfo, logError } from './common';
+import { logInfo, logError } from '../common';
 
 type PathComponent = {
     type: 'normal',

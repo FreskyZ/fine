@@ -57,7 +57,5 @@ typings/
 # dotenv environment variables file
 .env
 
-maka.config
-
-# update 2022/09/04: exclude some dist files for make repo public
 dist
+maka.config

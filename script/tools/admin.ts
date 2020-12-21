@@ -1,7 +1,7 @@
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
-import { AdminPayload } from '../src/shared/types/admin';
-import { logInfo, logError } from './common';
+import { AdminPayload } from '../../src/shared/types/admin';
+import { logInfo, logError } from '../common';
 
 async function impl(payload: AdminPayload): Promise<void> {
     const socket = net.createConnection('/tmp/fps.socket').ref();

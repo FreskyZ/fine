@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
-import { logError, logInfo, compileTimeConfig } from './common';
+import { logError, logInfo, compileTimeConfig } from '../common';
 
 export interface TypeScriptOptions {
     entry: string,
@@ -147,13 +147,12 @@ function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCall
                 fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
 
-            // ATTENTION ATTENTION TEMP DISABLE
-            // const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
-            // if (match) {
-            //     fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
-            // } else if (!fileContent.endsWith('\n')) {
-            //     fileContent += '\n'; // make sure LF before EOF
-            // }
+            const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
+            if (match) {
+                fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
+            } else if (!fileContent.endsWith('\n')) {
+                fileContent += '\n'; // make sure LF before EOF
+            }
         }
 
         // the `files` is closured when watch, so always check existance and splice

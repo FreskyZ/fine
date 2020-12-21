@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as sm from 'source-map';
-import { projectDirectory } from './common';
+import { projectDirectory } from '../common';
 
 // watch does not log output
 export async function mergeSourceMap(file: string, watch: boolean): Promise<void> {

@@ -26,7 +26,7 @@ button.onclick = async () => {
     inputUserName.disabled = inputPassword.disabled = button.disabled = true;
     span.innerText = 'login...';
     
-    const response = await fetch(`https://api.${DOMAIN_NAME}/login`, { method: 'POST', headers: { 'X-Name': username, 'X-Access-Token': password } });
+    const response = await fetch(`https://api.DOMAIN_NAME/login`, { method: 'POST', headers: { 'X-Name': username, 'X-Access-Token': password } });
     if (response.status == 400) {
         inputUserName.disabled = inputPassword.disabled = button.disabled = false;
         span.innerText = (await response.json()).message;
@@ -41,7 +41,7 @@ button.onclick = async () => {
 
 (async () => {
     if (localStorage['access-token']) {
-        const response = await fetch(`https://api.${DOMAIN_NAME}/user-credential`, { headers: { 'X-Access-Token': localStorage['access-token'] } });
+        const response = await fetch(`https://api.DOMAIN_NAME/user-credential`, { headers: { 'X-Access-Token': localStorage['access-token'] } });
         if (response.status == 200) {
             window.location.href = returnAddress;
         } else if (response.status == 401) {

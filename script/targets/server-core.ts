@@ -1,10 +1,10 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError } from './common';
-import { admin } from './admin';
-import { TypeScriptOptions, transpile } from './run-typescript';
-import { MyPackOptions, MyPackResult, pack } from './run-mypack';
+import { logInfo, logError } from '../common';
+import { admin } from '../tools/admin';
+import { TypeScriptOptions, transpile } from '../tools/typescript';
+import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     entry: 'src/server-core/index.ts',
@@ -36,6 +36,7 @@ function buildOnce() {
             process.exit(1);
         }
 
+        await fs.promises.mkdir('dist/home', { recursive: true });
         await Promise.all([
             fs.promises.writeFile('dist/home/server.js', packResult.jsContent),
             fs.promises.writeFile('dist/home/server.js.map', packResult.mapContent),
@@ -82,6 +83,7 @@ function buildWatch() {
             return;
         }
 
+        await fs.promises.mkdir('dist/home', { recursive: true });
         await Promise.all([
             fs.promises.writeFile('dist/home/server.js', currentResult.jsContent),
             fs.promises.writeFile('dist/home/server.js.map', currentResult.mapContent),

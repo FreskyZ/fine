@@ -1,12 +1,21 @@
-import { admin } from './admin';
-import { build as buildSelf } from './build-self';
-import { build as buildServerCore } from './build-server-core';
-import { build as buildSimplePage } from './build-simple-page';
-import { build as buildAppServer } from './build-app-server';
-import { build as buildAppClient } from './build-app-client';
+import { admin } from './tools/admin';
+import { build as buildSelf } from './targets/self';
+import { build as buildPublic, cleanAll } from './targets/public';
+import { build as buildServerCore } from './targets/server-core';
+import { build as buildSimplePage } from './targets/web-page';
+import { build as buildAppServer } from './targets/app-server';
+import { build as buildAppClient } from './targets/app-client';
 
+function validatePage(pagename: string) {
+    if (['home', 'user', '404', '418'].includes(pagename)) {
+        return pagename;
+    } else {
+        console.log('unknown page name');
+        process.exit(1);
+    }
+}
 function validateApp(appname: string) { 
-    if (APP_NAMES.includes(appname)) {
+    if (['cost', 'collect', 'ak'].includes(appname)) {
         return appname;
     } else {
         console.log('unknown app name');
@@ -14,33 +23,46 @@ function validateApp(appname: string) {
     }
 }
 
-const [a1, a2] = [process.argv[2], process.argv[3]]; // 0 is node, 2 is maka
+const [a1, a2] = [process.argv[2], process.argv[3]]; // 0 is node, 1 is maka
 if (a1 == 'self') {
     buildSelf();
+} else if (a1 == 'clean') {
+    cleanAll();
+} else if (a1 == 'public') {
+    buildPublic();
+
 } else if (a1 == 'server-core') {
     buildServerCore(false);
 } else if (a1 == 'watch' && a2 == 'server-core') {
     buildServerCore(true);
-} else if (a1 == 'index-page') {
-    buildSimplePage('index', false);
-} else if (a1 == 'watch' && a2 == 'index-page') {
-    buildSimplePage('index', true);
-} else if (a1 == 'login-page') {
-    buildSimplePage('login', false);
-} else if (a1 == 'watch' && a2 == 'login-page') {
-    buildSimplePage('login', true);
+
+} else if (a1.endsWith('-page')) {
+    buildSimplePage(validatePage(a1.slice(0, -5)), false);
+} else if (a1 == 'watch' && a2.endsWith('-page')) {
+    buildSimplePage(validatePage(a2.slice(0, -5)), true);
 } else if (a1.endsWith('-client')) {
     buildAppClient(validateApp(a1.slice(0, -7)), false);
-} else if (a1.endsWith('-server')) {
-    buildAppServer(validateApp(a1.slice(0, -7)), false);
 } else if (a1 == 'watch' && a2.endsWith('-client')) {
     buildAppClient(validateApp(a2.slice(0, -7)), true);
+} else if (a1.endsWith('-server')) {
+    buildAppServer(validateApp(a1.slice(0, -7)), false);
 } else if (a1 == 'watch' && a2.endsWith('-server')) {
     buildAppServer(validateApp(a2.slice(0, -7)), true);
-} else if (a1 == 'watch' && a2) {
-    // watch both
-    buildAppClient(validateApp(a2), true);
-    buildAppServer(validateApp(a2), true);
+
+} else if (a1 == 'watch' && a2.endsWith('-both')) { // both client and server
+    buildAppClient(validateApp(a2.slice(0, -5)), true);
+    buildAppServer(validateApp(a2.slice(0, -5)), true);
+
+} else if (a1 == 'all') {
+    buildPublic();
+    buildServerCore(false);
+    buildSimplePage('www', false);
+    buildSimplePage('user', false);
+    buildSimplePage('404', false);
+    buildSimplePage('418', false);
+    buildAppServer('cost', false);
+    buildAppClient('ak', false);
+
 } else if (a1 == 'shutdown') {
     admin({ type: 'shutdown' }).then(() => process.exit(1));
 } else if (a1 == 'reload-static') {

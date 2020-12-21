@@ -2,8 +2,8 @@
 import * as chalk from 'chalk';
 import * as filesize from 'filesize';
 import * as webpack from 'webpack';
-import { logInfo, logError } from './common';
-import { WebpackStat, WebpackStatModule } from './types';
+import { logInfo, logError } from '../common';
+import { WebpackStat, WebpackStatModule } from '../types/webpack';
 
 export type WebpackConfiguration = webpack.Configuration & {
     printStat?: boolean, 

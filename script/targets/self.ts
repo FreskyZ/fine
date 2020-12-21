@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError } from './common';
-import { TypeScriptOptions, transpile } from './run-typescript';
-import { MyPackOptions, pack } from './run-mypack';
+import { logInfo, logError } from '../common';
+import { TypeScriptOptions, transpile } from '../tools/typescript';
+import { MyPackOptions, pack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     entry: 'script/index.ts',
