@@ -9,7 +9,7 @@ export type SassResult = {
 }
 
 export async function transpile(options: Options): Promise<SassResult> {
-    logInfo('css', chalk`{yellow ${options.file}}`);
+    logInfo('css', chalk`once {yellow ${options.file}}`);
 
     return new Promise(resolve => {
         transpileStyle(options, (error, result) => {

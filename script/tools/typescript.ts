@@ -1,14 +1,17 @@
+import * as path from 'path';
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
 import { logError, logInfo, compileTimeConfig } from '../common';
 
-export interface TypeScriptOptions {
+export type TypeScriptOptions = {
+    base: 'normal',
     entry: string,
-    watch?: boolean, // default to false
+    watch?: boolean,     // default to false
     sourceMap?: boolean, // default ot false
     additionalLib?: string[],
-    jsx?: boolean, // react-jsx
-    importDefault?: boolean, // esModuleInterop
+} | {
+    base: 'jsx',
+    entry: string,
 }
 export interface TypeScriptHooks {
     readFile?: (fileName: string, originalReadFile: (fileName: string) => string) => string,
@@ -21,7 +24,6 @@ export interface TypeScriptResult {
 
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.es2020.d.ts'],
-    outDir: '/vbuild', // always write to memory, so give a virtual path is ok
     target: ts.ScriptTarget.ES2020,
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
@@ -41,12 +43,19 @@ const basicOptions: ts.CompilerOptions = {
 };
 
 function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
-    return {
+    return options.base == 'normal' ? {
         ...basicOptions,
+        outDir: '/vbuild', // git simply virtual path to normal config 
         sourceMap: options.sourceMap,
-        esModuleInterop: options.importDefault,
-        jsx: 'jsx' in options ? ts.JsxEmit.ReactJSX : undefined,
         lib: 'additionalLib' in options ? [...basicOptions.lib, ...options.additionalLib.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
+    } : {
+        ...basicOptions,
+        outDir: path.resolve('src'), // outdir should make output file look similar to original ts file to make webpack some path related things look proper
+        sourceMap: true,
+        esModuleInterop: true,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX,
+        lib: [...basicOptions.lib, 'lib.dom.d.ts'],
     };
 }
 
@@ -205,5 +214,5 @@ function transpileWatch(options: TypeScriptOptions, hooks: TypeScriptHooks) {
 }
 
 export function transpile(options: TypeScriptOptions, hooks: TypeScriptHooks) {
-    (options.watch ? transpileWatch : transpileOnce)(options, hooks);
+    (options.base == 'normal' && options.watch ? transpileWatch : transpileOnce)(options, hooks);
 }

@@ -125,11 +125,16 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
 
     let resultMap = generator?.toString();
     if (options.minify) {
-        const minifyResult = await minify(resultJs, { sourceMap: !options.sourceMap ? false: { 
-            content: resultMap,
-            filename: options.output,     // this is new SourceMapGenerator({ file }), which I do not use
-            url: options.output + '.map', // this is generated //#sourceMapURL, which I do not use
-        } });
+        const minifyResult = await minify(resultJs, { 
+            sourceMap: !options.sourceMap ? false: { 
+                content: resultMap,
+                filename: options.output,     // this is new SourceMapGenerator({ file }), which I do not use
+                url: options.output + '.map', // this is generated //#sourceMapURL, which I do not use
+            },
+            format: {
+                max_line_len: 'MAKA_SELF_MULTILINE' in process.env ? 120 : undefined,
+            }
+        });
         resultJs = minifyResult.code;
         resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
     }

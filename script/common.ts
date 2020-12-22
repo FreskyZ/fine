@@ -15,6 +15,10 @@ export function logInfo(header: string, message: string) {
 export function logError(header: string, message: string) {
     console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
 }
+export function logCritical(header: string, message: string) {
+    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+    return process.exit(1);
+}
 
 process.on('unhandledRejection', error => { 
     console.log('unhandled reject: ', error);

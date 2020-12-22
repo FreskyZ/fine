@@ -1,15 +1,17 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError } from '../common';
+import { logInfo, logError, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { TypeScriptOptions, transpile } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
 
-const typescriptOptions: TypeScriptOptions = {
+const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
+    base: 'normal',
     entry: 'src/server-core/index.ts',
     sourceMap: true,
-};
+    watch,
+});
 
 const mypackOptions: MyPackOptions = {
     type: 'app',
@@ -24,16 +26,14 @@ const mypackOptions: MyPackOptions = {
 function buildOnce() {
     logInfo('mka', chalk`{yellow server-core}`);
 
-    transpile(typescriptOptions, { afterEmit: async ({ success, files }) => {
+    transpile(getTypescriptOptions(false), { afterEmit: async ({ success, files }): Promise<void> => {
         if (!success) {
-            logError('mka', chalk`{yellow server-core} failed at transpile typescript`);
-            process.exit(1);
+            return logCritical('mka', chalk`{yellow server-core} failed at transpile typescript`);
         }
 
         const packResult = await pack({ ...mypackOptions, files });
         if (!packResult.success) {
-            logError('mka', chalk`{yellow server-core} failed at pack`);
-            process.exit(1);
+            return logCritical('mka', chalk`{yellow server-core} failed at pack`);
         }
 
         await fs.promises.mkdir('dist/main', { recursive: true });
@@ -77,7 +77,7 @@ function buildWatch() {
     process.on('exit', () => serverProcess?.kill()); // make sure
 
     let lastResult: MyPackResult = null;
-    transpile({ ...typescriptOptions, watch: true }, { afterEmit: async ({ files }) => {
+    transpile(getTypescriptOptions(true), { afterEmit: async ({ files }) => {
         const currentResult = await pack({ ...mypackOptions, files, lastResult });
         if (!currentResult.success) {
             return;

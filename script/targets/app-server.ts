@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError } from '../common';
+import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { generate } from '../tools/codegen';
 import { TypeScriptOptions, transpile } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
+    base: 'normal',
     entry: `src/${app}/server/index.ts`,
     sourceMap: true,
     watch,
@@ -23,25 +24,22 @@ const getMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult
     lastResult,
 });
 
-async function buildOnce(app: string) {
+async function buildOnce(app: string): Promise<void> {
     logInfo('mka', chalk`{yellow ${app}-server}`);
     await fs.promises.mkdir(`dist/${app}`, { recursive: true });
 
     if (!await generate(app, 'server')) {
-        logError('mka', chalk`{yellow ${app}-server} failed at code generation`);
-        process.exit(1);
+        return logCritical('mka', chalk`{yellow ${app}-server} failed at code generation`);
     }
 
-    transpile(getTypeScriptOptions(app, false), { afterEmit: async ({ success, files }) => {
+    transpile(getTypeScriptOptions(app, false), { afterEmit: async ({ success, files }): Promise<void> => {
         if (!success) {
-            logError('mka', chalk`{yellow ${app}-server} failed at transpile typescript`);
-            process.exit(1);
+            return logCritical('mka', chalk`{yellow ${app}-server} failed at transpile typescript`);
         }
 
         const packResult = await pack(getMyPackOptions(app, files));
         if (!packResult.success) {
-            logError('mka', chalk`{yellow ${app}-server} failed at pack`);
-            process.exit(1);
+            return logCritical('mka', chalk`{yellow ${app}-server} failed at pack`);
         }
     
         // do not sequential await when parallel available
@@ -52,7 +50,7 @@ async function buildOnce(app: string) {
 
         // cannot parallel because this should be after previous 2 finish
         await admin({ type: 'reload-server', app });
-        logInfo('mka', `${app}-server completed successfully`);
+        logInfo('mka', `${app}-server complete successfully`);
     } });
 }
 

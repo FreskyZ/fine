@@ -1,17 +1,38 @@
 <html>
-    <head>
-        <title>fps/ak</title>
-        <link rel="icon" type='image/x-icon' href="/favicon.ico">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" type="text/css" href="https://unpkg.com/antd@4.9.3/dist/antd.min.css">
-        <script type="text/javascript">window.HTMLTIME = +new Date();</script>
-    </head>
-    <body>
-        <div id='root'>loading...</div>
-        <script type="text/javascript" src="/client.js"></script>
-        <script type="text/javascript" src="/client-ant.js"></script>
-        <script type="text/javascript" src="/client-anticon.js"></script>
-        <script type="text/javascript" src="/client-other.js"></script>
-        <script type="text/javascript" src="/client-react-dom.js"></script>
-    </body>
+<head>
+  <title>fps/ak</title>
+  <link rel="icon" type='image/x-icon' href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" type="text/css" href="https://unpkg.com/antd@4.9.3/dist/antd.min.css">
+  <style>
+    div#before-react {width:320px;margin:calc(50vh - 40px) auto;}
+    div#before-react span.loading{font-size:20px;display:table;margin:0 auto;}
+    div#before-react footer{position:absolute;bottom:16px;width:320px}
+    div#before-react footer a{text-decoration:none}
+    div#before-react footer div#avatar-wrapper{display:flex;width:36px;margin:auto}
+    div#before-react footer img#my-avatar{width:16px;height:16px;margin-left:4px;border-radius:8px}
+    div#before-react footer span#mea-emoji{width:16px;height:16px}
+    div#before-react footer span.link-wrapper{display:block;width:100%;text-align:center;font-size:14px;margin-top:4px}
+    div#before-react footer span.link-wrapper:last-child{font-size:12px;margin-top:8px}
+  </style>
+  <script type="text/javascript">window.HTMLTIME = +new Date();</script>
+  <stylesheet-placeholder />
+</head>
+<body>
+  <div id='root'>
+    <div id='before-react'>
+      <span class="loading">Loading...</span>
+      <footer>
+        <div id="avatar-wrapper" title="All's right with the world">
+          <span id="mea-emoji">&#x1F365;</span>
+          <img id="my-avatar" src="/avatar.webp"></img>
+        </div>
+        <span class="link-wrapper"><a href='mailto:FreskyZ@outlook.com'>FreskyZ@outlook.com</a></span>
+        <span class="link-wrapper"><a href='https://github.com/FreskyZ' target="_blank">GitHub@FreskyZ</a></span>
+        <span class="link-wrapper"><a href="http://www.miitbeian.gov.cn" target=="_blank">浙ICP备 19005835号</a></span>
+      </footer>
+    </div>
+  </div>
+  <script-placeholder />
+</body>
 </html>

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logError } from '../common';
+import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { TypeScriptOptions, TypeScriptResult, transpile as transpileScript } from '../tools/typescript';
 import { SassOptions, transpile as transpileStyle } from '../tools/sass';
@@ -11,6 +11,7 @@ import { SassOptions, transpile as transpileStyle } from '../tools/sass';
 // 3. source file name is same as PageName, url path is not same as PageName
 
 const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptions => ({
+    base: 'normal',
     entry: `src/pages/${pagename}.ts`,
     additionalLib: ['dom'],
     watch,
@@ -21,30 +22,28 @@ const getSassOptions = (pagename: string): SassOptions => ({
     outputStyle: 'compressed',
 });
 
-async function buildOnce(pagename: string) {
+async function buildOnce(pagename: string): Promise<void> {
     logInfo('mka', chalk`{yellow ${pagename}-page}`);
     await fs.promises.mkdir('dist/main', { recursive: true });
     // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
 
     const typescriptOptions = getTypeScriptOptions(pagename, false);
     if (fs.existsSync(typescriptOptions.entry)) {
-        const files = await new Promise<TypeScriptResult['files']>(resolve => transpileScript(typescriptOptions, { afterEmit: ({ success, files }) => {
+        const files = await new Promise<TypeScriptResult['files']>(resolve => transpileScript(typescriptOptions, { afterEmit: ({ success, files }): void => {
             if (!success) {
-                logError('mka', chalk`{yellow ${pagename}-page} failed at transpile typescript`);
-                process.exit(1);
+                return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile typescript`);
             }
             resolve(files);
         } }));
         const code = files[0].content; // this ts config only generates one output file
-        await fs.promises.writeFile(`dist/main/${pagename}.js`, code); 
+        await fs.promises.writeFile(`dist/main/${pagename}.js`, code);
     }
 
     const sassOptions = getSassOptions(pagename);
     if (fs.existsSync(sassOptions.file)) {
         const { success, style } = await transpileStyle(sassOptions);
         if (!success) {
-            logError('mka', chalk`{yellow ${pagename}-page} failed at transpile stylesheet`);
-            process.exit(1);
+            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile stylesheet`);
         }
 
         await fs.promises.writeFile(`dist/main/${pagename}.css`, style);
@@ -55,7 +54,7 @@ async function buildOnce(pagename: string) {
     logInfo('htm', 'copy completed');
 
     await admin({ type: 'reload-static', key: pagename }); // unknown page name auto ignored
-    logInfo('mka', `build ${pagename}-page completed succesfully`);   
+    logInfo('mka', `build ${pagename}-page completed succesfully`);
 }
 
 async function buildWatch(pagename: string) {

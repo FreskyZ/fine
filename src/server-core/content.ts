@@ -218,25 +218,24 @@ export function handleAdminReloadStatic(key: string) {
                 }
             }
         }
+        // NOTE: this may be undefined if key not in reloadKeyToCache, when app reloaded from disabled to enabled
         const oldCachedFiles = reloadKeyToCache[key];
         delete reloadKeyToCache[key];
 
         const files = getAppFiles(key).map<FileCache>(file => {
             const realpath = path.join('WEBROOT', `${key}/${file}`);
-            const oldEntry = oldCachedFiles.find(c => c.realpath == realpath);
+            const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
             const newContent = fs.readFileSync(realpath);
-            const entry = oldEntry.content != null && Buffer.compare(oldEntry.content, newContent) == 0 
-                ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+            const entry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
             fileCache.push(entry);
             virtualToCache[`/${key}/${file}`] = entry;
             return entry;
         });
         if (files.length) {
             const realpath = path.join('WEBROOT', `${key}/index.html`);
-            const oldEntry = oldCachedFiles.find(c => c.realpath == realpath);
+            const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
             const newContent = fs.readFileSync(realpath);
-            const indexEntry = oldEntry.content != null && Buffer.compare(oldEntry.content, newContent) == 0 
-                ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+            const indexEntry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
             fileCache.push(indexEntry);
             virtualToCache[`/${key}/`] = indexEntry;
             files.push(indexEntry);
