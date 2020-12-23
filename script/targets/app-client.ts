@@ -33,17 +33,25 @@ const getSassOptions = (app: string): SassOptions => ({
 // 0 is not minify, 1 is fast minify, 2 is full minify, default to 2
 const sizeOptimizeLevel = 'MAKA_AC_OSIZE' in process.env ? (process.env['MAKA_AC_OSIZE'] === '0' ? 0 : parseInt(process.env['MAKA_AC_OSIZE']) || 2) : 2;
 const getWebpackConfiguration = (app: string): webpack.Configuration => ({
-    mode: 'production',
-    entry: path.resolve('src', app, 'client/index.js'),
-    module: {           // vvv typescript emit .js not .jsx for JsxEmit.ReactJsx
-        rules: [{ test: /\.js$/, exclude: /node_modules/, enforce: 'pre', use: ['source-map-loader'] }],
-    },
-    output: { filename: 'client.js', path: path.resolve(`dist/${app}`) },
-    devtool: false,
+    mode: 'development', // production force disable cache, so use development mode with production optimization settings
+    entry: { 'client': path.resolve('src', app, 'client/index.js') },
+    module: { rules: [{ test: /\.js$/, exclude: /node_modules/, enforce: 'pre', use: ['source-map-loader'] }] },
+    output: { filename: 'client.js', path: path.resolve(`dist/${app}`), pathinfo: false },
+    devtool: false, // use SourceMapDevToolPlugin instead of this
+    cache: { type: 'filesystem', name: `maka-webpack-${app}`, cacheDirectory: path.resolve('.cache') },
     performance: { hints: false }, // entry point size issue is handled by cache control and initial loading placeholder not your warning
     optimization: {
+        moduleIds: 'deterministic',
+        chunkIds: 'deterministic',
+        mangleExports: 'deterministic',
+        nodeEnv: 'production',
+        innerGraph: true,
+        usedExports: true,
         emitOnErrors: false,
+        flagIncludedChunks: true,
+        concatenateModules: true,
         splitChunks: {
+            hidePathInfo: true,
             cacheGroups: {
                 // NOTE: they are manually balanced for "min max size", rebalance them if they lost balance
                 '1': { test: /node_modules\/react\-dom/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
@@ -58,28 +66,26 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
             compress: sizeOptimizeLevel == 2,
         }, extractComments: false })],
     },
-    cache: { 
-        type: 'filesystem',
-        buildDependencies: { config: [path.resolve('script/index.ts')] },
-    },
     plugins: [
         new AntdDayjsWebpackPlugin(),
         new webpack.SourceMapDevToolPlugin({
             // NOTE: this plugin or the devtool option is about whether or how to put source map not whether generate source map when packing and minimizing
             // so the test/include/exclude is applied on asset name not module/chunk name
             exclude: /vendor/,
-            // it seems there is no way to auto follow output file name by "[name]",etc. helpers, so directly use this
-            filename: 'client.js.map',
+            filename: '[name].js.map',
         }),
     ],
+    // infrastructureLogging: { debug: 'webpack.cache.PackFileCacheStrategy', level: 'verbose' },
 });
 
-const CompilationAdditionalStatKey = Symbol.for('WebpackCompilationAdditionalStatKey');
-function createWebpackCompiler(app: string, files: TypeScriptResult['files']) {
-    const configuration = getWebpackConfiguration(app);
-    logInfo('wpk', chalk`once {yellow ${configuration.entry}}`);
+interface AdditionalStat { 
+    compressSizes: { [assetName: string]: number },
+}
+function createWebpackCompiler(app: string, files: TypeScriptResult['files']): [webpack.Compiler, AdditionalStat] {
+    logInfo('wpk', chalk`once {yellow src/${app}/client/index.js}`);
 
-    const compiler = webpack(configuration);
+    const compiler = webpack(getWebpackConfiguration(app));
+    const additional: AdditionalStat = { compressSizes: {} };
 
     // their type is very mismatch but they very can work at runtime
     (compiler as any).inputFileSystem = (new unionfs.Union() as any).use(fs)
@@ -87,32 +93,25 @@ function createWebpackCompiler(app: string, files: TypeScriptResult['files']) {
 
     // asset source is available when emitting and discarded sometime before compile callback, so compress size calculation should be here
     // put it in compilation custom property
-    compiler.hooks.emit.tap('MAKAPlugin', compilation => {
-        const sizes: { [name: string]: number } = (compilation as any)[CompilationAdditionalStatKey] = {};
+    compiler.hooks.emit.tap('CompressSizePlugin', compilation => {
         for (const asset of compilation.getAssets()) {
-            sizes[asset.name] = zlib.brotliCompressSync(asset.source.buffer()).length;
+            additional.compressSizes[asset.name] = zlib.brotliCompressSync(asset.source.buffer()).length;
         }
     });
 
-    // compiler.cache.hooks.store.tap('MakaPlugin', (identifier, etag, _data) => console.error(`store ${identifier} etag ${etag}`));
-    // compiler.cache.hooks.get.tap('MakaPlugin', (identifier, etag, _gotHandlers) => console.error(`get ${identifier} etag ${etag}`));
-
-    return compiler;
+    return [compiler, additional];
 }
 
 // for normal, print warning message and asset summary and all other things to file
 // for error, only print all things to file
-function printWebpackResult(statsObject: webpack.Stats) {
-    const [compilation, stats] = [statsObject.compilation, statsObject.toJson() as WebpackStat];
-    const reportFileName = `logs/stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
-
-    const compressSizes: { [name: string]: number } = (compilation as any)[CompilationAdditionalStatKey];
+function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
+    const reportFileName = `/tmp/stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
 
     const totalAssetSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.size, 0));
-    const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + compressSizes[a.name], 0));
+    const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + additional.compressSizes[a.name], 0) || 0);
     const [maxVendorSize, minVendorSize] = [
-        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, compressSizes[a.name]), 0)),
-        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.min(acc, compressSizes[a.name]), 10_000_000)),
+        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, additional.compressSizes[a.name]), 0) || 0),
+        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.min(acc, additional.compressSizes[a.name]), 10_000_000) || 0),
     ];
 
     if (stats.errorsCount == 0) {
@@ -149,7 +148,7 @@ function printWebpackResult(statsObject: webpack.Stats) {
         }
     }
     for (const asset of stats.assets) {
-        report += `asset ${asset.name} size ${filesize(asset.size)} compress ${(filesize(compressSizes[asset.name]))} chunks [${asset.chunks.join(',')}] chunkNames [${asset.chunkNames.join(',')}]\n`;
+        report += `asset ${asset.name} size ${filesize(asset.size)} compress ${(filesize(additional.compressSizes[asset.name] ?? 0))} chunks [${asset.chunks.join(',')}] chunkNames [${asset.chunkNames.join(',')}]\n`;
     }
     for (const chunk of stats.chunks) {
         report += `chunk ${chunk.id} files [${chunk.files.join(',')}] size ${filesize(chunk.size)} flags [${chunkFlags.filter(name => (chunk as any)[name]).join(',')}] ${chunk.modules.length} chunks\n`;
@@ -164,9 +163,8 @@ function printWebpackResult(statsObject: webpack.Stats) {
     }
 
     fs.writeFileSync(reportFileName, report);
-    return stats;
     // no human will want to read the file, even vscode don't want to syntatic parse or even lexical parse this file
-    // fs.writeFileSync('logs/stats.full.json', JSON.stringify(stats, undefined, 1));
+    // fs.writeFileSync('stats.full.json', JSON.stringify(stats, undefined, 1));
 }
 
 function renderHtmlTemplate(app: string, files: [css: string[], js: string[]]) {
@@ -187,7 +185,10 @@ function renderHtmlTemplate(app: string, files: [css: string[], js: string[]]) {
 
 async function buildOnce(app: string) {
     logInfo('mka', chalk`{yellow ${app}-client}`);
+
+    fs.mkdirSync('.cache', { recursive: true });
     fs.mkdirSync(`dist/${app}`, { recursive: true });
+
     // dependency: fcg -> tsc -> wpk; wpk + css -> htm -> adm
 
     const codegen = fs.existsSync(`src/${app}/api.xml`) ? generate(app, 'client').then((success): void => {
@@ -212,18 +213,27 @@ async function buildOnce(app: string) {
                 return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile script`);
             }
 
-            const compiler = createWebpackCompiler(app, files);
+            const [compiler, additional] = createWebpackCompiler(app, files);
             compiler.run((error, statsObject): void => {
                 if (error) {
-                    logError('wpk', error.message);
+                    logError('wpk', JSON.stringify(error, undefined, 1));
                     return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
                 }
+                const stats = statsObject.toJson() as WebpackStat;
 
-                const stats = printWebpackResult(statsObject);
+                printWebpackResult(stats, additional);
                 if (stats.errorsCount > 0) {
                     return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (2)`);
                 }
 
+                // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
+                // // the relationship between them is not described clearly in their own document
+                compiler.close((error) => {
+                    if (error) {
+                        logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
+                        // print error and ignore
+                    }
+                });
                 resolve(stats.assets.map(a => a.name));
             });
         } });
