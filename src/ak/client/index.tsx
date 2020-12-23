@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { Button, Checkbox, InputNumber, Form } from 'antd';
+import { Button, Checkbox, InputNumber } from 'antd';
 import * as myfetch from '../../shared/api-client'; // temp import shared to make output dir correct
 
 declare const HTMLTIME: number;
@@ -60,7 +60,6 @@ function App() {
     React.useEffect(() => {
         console.log('html to react initial render: ' + (+new Date() - HTMLTIME));
         console.log(myfetch);
-        console.log(Form);
     }, []);
 
     return <>

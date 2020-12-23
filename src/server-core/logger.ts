@@ -111,7 +111,11 @@ function cleanup() {
     for (const filename of fs.readdirSync(logsDirectory)) {
         const date = dayjs.utc(path.basename(filename).slice(0, 10), 'YYYY-MM-DD');
         if (date.isValid() && date.add(logReserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
-            fs.unlinkSync(filename);
+            try {
+                fs.unlinkSync(filename);
+            } catch {
+                // simply ignore what unexpected happens when deleting log
+            }
         }
     }
 }

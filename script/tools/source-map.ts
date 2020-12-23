@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as sm from 'source-map';
-import { projectDirectory } from '../common';
 
 // watch does not log output
 export async function mergeSourceMap(file: string, watch: boolean): Promise<void> {
@@ -16,7 +15,7 @@ export async function mergeSourceMap(file: string, watch: boolean): Promise<void
         if (!rawOriginalFile.startsWith('webpack://fps/build/')) continue;
         const originalFile = rawOriginalFile.slice(14);
 
-        const originalMap = path.join(projectDirectory, originalFile + '.map');
+        const originalMap = path.resolve(originalFile + '.map');
         if (!fs.existsSync(originalMap)) continue;
         
         if (!(originalMap in consumer1s)) {

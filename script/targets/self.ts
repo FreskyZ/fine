@@ -7,6 +7,8 @@ import { MyPackOptions, pack } from '../tools/mypack';
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
     entry: 'script/index.ts',
+    sourceMap: 'no',
+    watch: false,
 };
 
 const mypackOptions: MyPackOptions = {

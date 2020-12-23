@@ -6,12 +6,15 @@ import { logError, logInfo, compileTimeConfig } from '../common';
 export type TypeScriptOptions = {
     base: 'normal',
     entry: string,
-    watch?: boolean,     // default to false
-    sourceMap?: boolean, // default ot false
+    // no: no source map, normal: separated source map have source map url, hide: separated source map, no source map url
+    sourceMap: 'no' | 'normal' | 'hide',
+    watch: boolean,
     additionalLib?: string[],
 } | {
     base: 'jsx',
     entry: string,
+    sourceMap: 'normal', // only normal available for jsx
+    watch: boolean,
 }
 export interface TypeScriptHooks {
     readFile?: (fileName: string, originalReadFile: (fileName: string) => string) => string,
@@ -23,8 +26,8 @@ export interface TypeScriptResult {
 }
 
 const basicOptions: ts.CompilerOptions = {
-    lib: ['lib.es2020.d.ts'],
-    target: ts.ScriptTarget.ES2020,
+    lib: ['lib.esnext.d.ts'],
+    target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
     skipLibCheck: true,
@@ -46,7 +49,7 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
     return options.base == 'normal' ? {
         ...basicOptions,
         outDir: '/vbuild', // git simply virtual path to normal config 
-        sourceMap: options.sourceMap,
+        sourceMap: options.sourceMap != 'no',
         lib: 'additionalLib' in options ? [...basicOptions.lib, ...options.additionalLib.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
     } : {
         ...basicOptions,
@@ -130,7 +133,7 @@ function setupReadFileHook(hooks: TypeScriptHooks) {
 
         if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
             for (const configName in compileTimeConfig) {
-                fileContent = fileContent.split(configName).join(compileTimeConfig[configName]);
+                fileContent = fileContent.replaceAll(configName, compileTimeConfig[configName]);
             }
         }
         return fileContent;
@@ -138,7 +141,7 @@ function setupReadFileHook(hooks: TypeScriptHooks) {
 }
 
 // use ts.Program.emit second parameter
-function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCallback {
+function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult['files']): ts.WriteFileCallback {
     return (fileName, fileContent) => {
         // ignore .js.map
         if (fileName.endsWith('.js')) {
@@ -156,7 +159,7 @@ function createWriteFileHook(files: TypeScriptResult['files']): ts.WriteFileCall
             }
 
             const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
-            if (match) {
+            if (match && options.sourceMap == 'hide') {
                 fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
             } else if (!fileContent.endsWith('\n')) {
                 fileContent += '\n'; // make sure LF before EOF
@@ -181,7 +184,7 @@ function transpileOnce(options: TypeScriptOptions, hooks: TypeScriptHooks) {
     const program = ts.createProgram([options.entry], mergedOptions, ts.createCompilerHost(mergedOptions));
 
     const files: TypeScriptResult['files'] = [];
-    const emitResult = program.emit(undefined, createWriteFileHook(files));
+    const emitResult = program.emit(undefined, createWriteFileHook(options, files));
 
     const success = printEmitResult(emitResult);
     hooks.afterEmit({ success, files });
@@ -200,7 +203,7 @@ function transpileWatch(options: TypeScriptOptions, hooks: TypeScriptHooks) {
             const program = ts.createEmitAndSemanticDiagnosticsBuilderProgram(...createProgramArgs);
             const originalEmit = program.emit;
             program.emit = (targetSourceFile, _writeFile, ...restEmitArgs) => {
-                const emitResult = originalEmit(targetSourceFile, createWriteFileHook(files), ...restEmitArgs);
+                const emitResult = originalEmit(targetSourceFile, createWriteFileHook(options, files), ...restEmitArgs);
                 if (!emitResult.emitSkipped) {
                     hooks.afterEmit({ files });
                 }

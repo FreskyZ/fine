@@ -2,8 +2,7 @@ import * as fs from 'fs';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
 
-export const projectDirectory = '<PROJECTDIR>';
-export const nodePackage = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
 
 // this config is read runtime and replace for build normal things
 // so build script itself directly use this instead of replace it while building self

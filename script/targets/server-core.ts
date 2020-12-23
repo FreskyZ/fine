@@ -9,7 +9,7 @@ import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
 const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
     entry: 'src/server-core/index.ts',
-    sourceMap: true,
+    sourceMap: 'hide',
     watch,
 });
 

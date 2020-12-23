@@ -30,6 +30,7 @@ export interface WebpackStatAsset {
     chunks: number[],
     name: string,
     size: number,
+    compressSize: { gzip: number, deflate: number, br: number }, // ATTENTION: this is not webpack generated but me generated
 }
 
 export interface WebpackStat {

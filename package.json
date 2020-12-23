@@ -2,6 +2,11 @@
   "name": "fps",
   "version": "0.2.0",
   "description": "a personal website for fun",
+  "engines": { 
+    "//": "nodejs/node#35730 cause webpack config `optimization.splitChunks.cacheGroups.[cacheGroup].test` function to fail at runtime internally",
+    "//": "it is first included in non-lts version 15.5.0 currently (Dec 23 2020)",
+    "node": ">=15.5.0" 
+  },
   "scripts": {},
   "repository": {
     "type": "git",

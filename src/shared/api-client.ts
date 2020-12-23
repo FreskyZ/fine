@@ -1,7 +1,7 @@
 // front end call api common infrastructure, include authentication
 
 async function impl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: any): Promise<any> {
-    return fetch(`https://api.{__DOMAIN_NAME__}/${path}`, { method, body, headers: { 'X-Access-Token': 'token' } }).then(response => response.json());
+    return fetch(`https://api.DOMAIN_NAME/${path}`, { method, body, headers: { 'X-Access-Token': 'token' } }).then(response => response.json());
 }
 export async function get<Result, Body = void>(path: string, body?: Body): Promise<Result> { return await impl('GET',  path, body); }
 export async function post<Result, Body = void>(path: string, body?: Body): Promise<Result> { return await impl('POST',  path, body); }

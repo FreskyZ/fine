@@ -14,6 +14,7 @@ const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptio
     base: 'normal',
     entry: `src/pages/${pagename}.ts`,
     additionalLib: ['dom'],
+    sourceMap: 'hide',
     watch,
 });
 

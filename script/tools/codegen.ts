@@ -1,4 +1,4 @@
-import * as fs from 'fs/promises';
+import { promises as fs } from 'fs';
 import * as chalk from 'chalk';
 import { toJson as parseXml } from 'xml2json';
 import { logInfo, logError } from '../common';
@@ -167,7 +167,7 @@ async function generateServerDefinition(app: string): Promise<boolean> {
         resultJs += `    match = /^${method} `;
         for (const component of apiPath) {
             if (component.type == 'normal') {
-                resultJs += component.value.split('/').join('\\/');
+                resultJs += component.value.replaceAll('/', '\\/');
             } else {
                 resultJs += `(?<${component.parameterName}>${parameterTypeConfig[component.parameterType].pattern})`
             }

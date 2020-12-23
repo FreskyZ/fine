@@ -1,6 +1,7 @@
 /// <reference path="../types/antd-dayjs-plugin.d.ts" />
 import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import * as AntdDayjsWebpackPlugin from 'antd-dayjs-webpack-plugin';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
@@ -16,9 +17,11 @@ import { generate } from '../tools/codegen';
 import { SassOptions, transpile as transpileStyle } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, transpile as transpileScript } from '../tools/typescript';
 
-const getTypeScriptOptions = (app: string, _watch: boolean): TypeScriptOptions => ({
+const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'jsx',
     entry: `src/${app}/client/index.tsx`,
+    sourceMap: 'normal',
+    watch,
 });
 
 const getSassOptions = (app: string): SassOptions => ({
@@ -33,27 +36,29 @@ const getWebpackConfiguration = (app: string, watch: boolean): webpack.Configura
     mode: 'production',
     watch,
     entry: path.resolve('src', app, 'client/index.js'),
-    // module: {
-    //     rules: [{ test: /\.js$/, enforce: 'pre', use: ['source-map-loader'] }], // typescript emit .js not .jsx for JsxEmit.ReactJsx
-    // },
+    module: {           // vvv typescript emit .js not .jsx for JsxEmit.ReactJsx
+        rules: [{ test: /\.js$/, enforce: 'pre', use: ['source-map-loader'] }],
+    },
     output: { filename: 'client.js', path: path.resolve(`dist/${app}`) },
     devtool: 'source-map',
     performance: { hints: false }, // entry point size issue is handled by cache control and initial loading placeholder not your warning
-    cache: { type: 'filesystem', cacheDirectory: path.resolve('.cache'), name: `${app}-client-webpack-cache` },
+    cache: { type: 'filesystem', store: 'pack', cacheDirectory: path.resolve('.cache'), name: `${app}-client-webpack-cache` },
     optimization: {
         emitOnErrors: false,
         splitChunks: {
-            minSize: 10_000,
             cacheGroups: {
                 // NOTE: they are manually balanced for "min max size", rebalance them if they lost balance
-                '1': { test: /node_modules\/(antd|lodash)/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
+                '1': { test: /node_modules\/react\-dom/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
                 '2': { test: /node_modules\/(rc|\@ant-design)/, priority: 20, chunks: 'all', filename: 'client-vendor2.js' },
-                '3': { test: /node_modules\/(react|\@babel)/, priority: 20, chunks: 'all', filename: 'client-vendor3.js' },
+                '3': { test: /node_modules\/(antd|lodash)/, priority: 20, chunks: 'all', filename: 'client-vendor3.js' },
                 '4': { test: /node_modules/, priority: 10, chunks: 'all', filename: 'client-vendor4.js' },
             },
         },
         minimize: sizeOptimizeLevel != 0,
-        minimizer: [new TerserPlugin({ terserOptions: { format: { comments: false }, compress: sizeOptimizeLevel == 2 }, extractComments: false })],
+        minimizer: [new TerserPlugin({ terserOptions: { 
+            format: { comments: false }, 
+            compress: sizeOptimizeLevel == 2,
+        }, extractComments: false })],
     },
     plugins: [
         new AntdDayjsWebpackPlugin(),
@@ -65,7 +70,7 @@ function createInMemoryFileSystem(files: TypeScriptResult['files']) {
     volumn.fromJSON(files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {}));
     
     const ufs = new unionfs.Union();
-    (ufs.use(fs) as any).use(volumn);
+    (ufs.use(fs) as any).use(volumn); // their type is mismatch but can work at runtime
     return ufs;
 }
 
@@ -75,6 +80,7 @@ function printStats(stats: WebpackStat) {
     const statFileName = `logs/stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
 
     const totalAssetSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.size, 0));
+    const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.compressSize.gzip, 0));
     const [maxVendorSize, minVendorSize] = [
         stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, a.size), 0),
         stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.min(acc, a.size), 10_000_000),
@@ -82,7 +88,7 @@ function printStats(stats: WebpackStat) {
 
     if (stats.errorsCount == 0) {
         logInfo('wpk', chalk`completed with {yellow ${stats.assets.length}} assets in ${stats.time/1000}s`);
-        logInfo('wpk', chalk`total {yellow ${totalAssetSize}} min ${filesize(minVendorSize)} max {yellow ${filesize(maxVendorSize)}}`);
+        logInfo('wpk', chalk`total ${totalAssetSize} compress {yellow ${totalCompressSize}} range [${filesize(minVendorSize)}, ${filesize(maxVendorSize)}]`);
         if (stats.warningsCount > 0) {
             logInfo('wpk', chalk`{yellow ${stats.warningsCount}} warnings`);
             for (const { message } of stats.warnings) {
@@ -100,7 +106,7 @@ function printStats(stats: WebpackStat) {
     const chunkFlags = ['entry', 'rendered', 'initial', 'recorded'];
     const moduleFlags = ['built', 'codeGenerated', 'cached', 'cacheable', 'optional', 'prefetched'];
 
-    report += `hash ${stats.hash} time ${stats.time}ms total size ${totalAssetSize}\n`;
+    report += `hash ${stats.hash} time ${stats.time}ms total size ${totalAssetSize} (${totalCompressSize})\n`;
     if (stats.warningsCount) {
         report += `${stats.warningsCount} warnings:\n`;
         for (const warning of stats.warnings) {
@@ -114,7 +120,8 @@ function printStats(stats: WebpackStat) {
         }
     }
     for (const asset of stats.assets) {
-        report += `asset ${asset.name} size ${filesize(asset.size)} chunks [${asset.chunks.join(',')}] chunkNames [${asset.chunkNames.join(',')}]\n`;
+        const compressSizes = `gzip: ${filesize(asset.compressSize.gzip)} deflate: ${filesize(asset.compressSize.deflate)} br: ${filesize(asset.compressSize.br)}`;
+        report += `asset ${asset.name} size ${filesize(asset.size)} (${compressSizes}) chunks [${asset.chunks.join(',')}] chunkNames [${asset.chunkNames.join(',')}]\n`;
     }
     for (const chunk of stats.chunks) {
         report += `chunk ${chunk.id} files [${chunk.files.join(',')}] size ${filesize(chunk.size)} flags [${chunkFlags.filter(name => (chunk as any)[name]).join(',')}] ${chunk.modules.length} chunks\n`;
@@ -131,6 +138,41 @@ function printStats(stats: WebpackStat) {
     fs.writeFileSync(statFileName, report);
     // no human will want to read the file, even vscode don't want to syntatic parse or even lexical parse this file
     // fs.writeFileSync('logs/stats.full.json', JSON.stringify(stats, undefined, 1));
+}
+
+function excludeSourceMap(app: string, stats: WebpackStat) {
+    // NOTE: exclude source maps for vendor
+    // 1. Configuration.devtool does not have include/exclude option
+    // 2. webpack.SourceMapDevToolPlugin itself completely don't understand how to use its include/exclude option, especially when using optimization.splitChunks
+    // 3. TerserWebpackPlugin says it respects Configuration.devtool while its source code seems not getting this option, while SourceMapDevToolPlugin cannot work also cannot proof TerserWebpackPlugin can work
+    // 4. terser source map option does not have include/exclude option, also terser source map option seems to be ignored by TerserWebpackPlugin
+    // 5. google result will correctly find split chunk/no vendor source map result and copies and copies of copies, but not any these 2 questions combined
+    // concolusion is simply delete the source map file and remove the source mapping url line from vendors js
+    //    this seems to waste source map generating time, but it actually do not take much time compared to minify
+    // by the way because vendor js content is loaded for change, calculate their gzip size by they way for reporting stat
+    // by the way^2 entry js is very small so load it for calculating gzip size too
+
+    for (const asset of stats.assets) {
+        const filename = `dist/${app}/${asset.name}`;
+        const binaryContent = fs.readFileSync(filename);
+
+        asset.compressSize = { 
+            gzip: zlib.gzipSync(binaryContent).length, 
+            deflate: zlib.deflateSync(binaryContent).length, 
+            br: zlib.brotliCompressSync(binaryContent).length,
+        };
+
+        if (asset.name.includes('vendor')) {
+            const textContent = binaryContent.toString('utf-8');
+            const match = /\/\/#\s*sourceMappingURL/.exec(textContent);
+            const newTextContent = textContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
+            fs.writeFileSync(filename, newTextContent);
+            asset.size = newTextContent.length;
+
+            const mapFileName = `dist/${app}/${asset.name}.map`;
+            if (fs.existsSync(mapFileName)) { fs.unlinkSync(mapFileName); }
+        }
+    }
 }
 
 async function buildOnce(app: string) {
@@ -165,14 +207,18 @@ async function buildOnce(app: string) {
 
             const mfs = createInMemoryFileSystem(files);
             const compiler = webpack(configuration);
+
             (compiler.inputFileSystem as any) = mfs; // their type is mismatch but can work at runtime
+
             compiler.run((error, statsObject): void => {
                 if (error) {
                     logError('wpk', error.message);
                     return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
                 }
-                const stats = statsObject.toJson() as WebpackStat;
+                logInfo('wpk', 'finalizing'); // in case toJson/excludeSourceMap take too long time, use this to indicate that
 
+                const stats = statsObject.toJson() as WebpackStat;
+                excludeSourceMap(app, stats);
                 printStats(stats);
                 if (stats.errorsCount > 0) {
                     return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (2)`);
@@ -207,5 +253,4 @@ export function build(app: string, _watch: boolean) {
 
 // TODO
 // try cache in production, or else copy production settings in development
-// disable source map in vendor
 // watch
