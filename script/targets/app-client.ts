@@ -80,7 +80,7 @@ function printStats(stats: WebpackStat) {
     const statFileName = `logs/stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
 
     const totalAssetSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.size, 0));
-    const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.compressSize.gzip, 0));
+    const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.compressSize.br, 0));
     const [maxVendorSize, minVendorSize] = [
         stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, a.size), 0),
         stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.min(acc, a.size), 10_000_000),

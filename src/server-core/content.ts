@@ -150,7 +150,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         }
 
         ctx.vary('Accept-Encoding');
-        for (const encoding of ['gzip', 'deflate', 'br']) {
+        for (const encoding of ['br', 'gzip', 'deflate']) { // prefer brotli because it is smaller
             if (ctx.acceptsEncodings(encoding)) {
                 ctx.set('Content-Encoding', encoding);
                 if (!(encoding in file.encodedContent)) {
@@ -167,7 +167,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
             if (fs.existsSync(realpath)) {
                 const content = await fs.promises.readFile(realpath);
                 ctx.status = 200;
-                ctx.body = zlib.gzipSync(content);
+                ctx.body = zlib.gzipSync(content); // source map is more like a binary file, so use br do not improve much, *I think
                 ctx.type = 'json';
                 ctx.set('Content-Encoding', 'gzip');
                 ctx.set('Content-Length', ctx.body.length.toString());
