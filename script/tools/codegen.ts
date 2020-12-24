@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs';
+import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { toJson as parseXml } from 'xml2json';
 import { logInfo, logError } from '../common';
@@ -72,8 +72,10 @@ function parsePath(apiName: string, rawPath: string): PathComponent[] {
     return result;
 }
 
+const getDefinitionFile = (app: string) => `src/${app}/api.xml`;
+
 async function loadFile(app: string): Promise<APIDefinitionFile> {
-    const xml = await fs.readFile(`src/${app}/api.xml`, 'utf-8');
+    const xml = await fs.promises.readFile(getDefinitionFile(app), 'utf-8');
     const { version, api } = parseXml(xml, { object: true })[`${app}-api`] as { version: string, api: any[] };
 
     return {
@@ -117,8 +119,11 @@ async function loadFile(app: string): Promise<APIDefinitionFile> {
     };
 }
 
-// return true for success (emitted)
-async function generateServerDefinition(app: string): Promise<boolean> {
+export interface CodeGenerationResult {
+    success: boolean,
+}
+
+async function generateServerDefinition(app: string): Promise<CodeGenerationResult> {
     const filename = `src/${app}/server/index.ts`;
     logInfo('fcg', chalk`generate {yellow ${filename}}`);
 
@@ -127,7 +132,7 @@ async function generateServerDefinition(app: string): Promise<boolean> {
         definitionFile = await loadFile(app);
     } catch (ex) {
         logError('fcg', ex.message);
-        return false;
+        return { success: false };
     }
     const { version, definitions } = definitionFile;
 
@@ -136,9 +141,9 @@ async function generateServerDefinition(app: string): Promise<boolean> {
         + '// Changes to this file may cause incorrect behavior and will be lost if the code is regenerated.\n\n';
     if (definitions.length == 0) {
         resultJs += "// empty\n";
-        await fs.writeFile(filename, resultJs);
+        await fs.promises.writeFile(filename, resultJs);
         logInfo('fcg', 'generate completed with empty');
-        return true;
+        return { success: true };
     }
 
     // because colon is only used for capture type, so validators can be prepared by this
@@ -201,12 +206,12 @@ async function generateServerDefinition(app: string): Promise<boolean> {
     resultJs += `    throw new MyError('not-found', 'invalid invocation');\n`;
     resultJs += '}\n';
 
-    await fs.writeFile(filename, resultJs);
+    await fs.promises.writeFile(filename, resultJs);
     logInfo('fcg', 'generate completed');
-    return true;
+    return { success: true };
 }
 
-async function generateClientDefinition(app: string): Promise<boolean> {
+async function generateClientDefinition(app: string): Promise<CodeGenerationResult> {
     const filename = `src/${app}/client/api.ts`;
     logInfo('fcg', chalk`generate {yellow ${filename}}`);
 
@@ -215,7 +220,7 @@ async function generateClientDefinition(app: string): Promise<boolean> {
         definitionFile = await loadFile(app);
     } catch (ex) {
         logError('fcg', ex.message);
-        return false;
+        return { success: false };
     }
     const { version, definitions } = definitionFile;
 
@@ -224,9 +229,9 @@ async function generateClientDefinition(app: string): Promise<boolean> {
         + '// Changes to this file may cause incorrect behavior and will be lost if the code is regenerated.\n\n';
     if (definitions.length == 0) {
         resultJs += "// empty\n";
-        await fs.writeFile(filename, resultJs);
+        await fs.promises.writeFile(filename, resultJs);
         logInfo('fcg', 'generate completed with empty');
-        return true;
+        return { success: true };
     }
 
     if (definitions.some(d => d.apiPath.some(c => c.type == 'parameter' && ['date', 'time'].includes(c.parameterType)))) {
@@ -282,15 +287,53 @@ async function generateClientDefinition(app: string): Promise<boolean> {
         resultJs += `);\n`;
     }
 
-    await fs.writeFile(filename, resultJs);
+    await fs.promises.writeFile(filename, resultJs);
     logInfo('fcg', 'generate completed');
-    return true;
+    return { success: true };
 }
 
-export async function generate(app: string, target: 'server' | 'client'): Promise<boolean> {
-    if (target == 'server') {
-        return await generateServerDefinition(app);
-    } else {
-        return await generateClientDefinition(app);
+class CodeGenerator {
+    public readonly definitionFile: string;
+    public constructor(
+        private readonly app: string, 
+        private readonly target: 'server' | 'client') {
+        this.definitionFile = getDefinitionFile(this.app);
+    }
+
+    public generate(): Promise<CodeGenerationResult> {
+        if (this.target == 'server') {
+            return generateServerDefinition(this.app);
+        } else {
+            return generateClientDefinition(this.app);
+        }
+    }
+
+    public watch() {
+        const self = this;
+        logInfo('fcg', chalk`watch {yellow ${this.definitionFile}}`);
+
+        // prevent reentry: same state management like sass
+        // if running and a new watch event happens, it will find state is running and transfer state to pending
+        // then when run complete, it will find state is pending instead of running and trigger another run, or else it will transfer state to none
+        let state: 'none' | 'running' | 'pending' = 'none';
+        function wrapper() {
+            state = 'running';
+            self.generate();
+            if ((state as string) == 'pending') { // ts will regard state as 'running' here
+                wrapper();
+            } else if ((state as string) == 'running') {
+                state = 'none';
+            }
+        };
+
+        fs.watch(this.definitionFile, { persistent: false }, () => {
+            if (state == 'running') {
+                state = 'pending';
+            } else if (state == 'none') {
+                wrapper();
+            }
+        });
     }
 }
+
+export function codegen(app: string, target: 'server' | 'client') { return new CodeGenerator(app, target); }

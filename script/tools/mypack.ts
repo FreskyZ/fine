@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
 import { SHA256 as sha256 } from 'crypto-js';
@@ -9,27 +10,26 @@ import { logInfo, logError } from '../common';
 // my bundler, input list of name/content of js file/source map
 // output minified js and source map
 
-// pack .js, merge .js.map
+// // you will be amazing how these options are added from the very first version of mypack
 export interface MyPackOptions {
-    type: 'lib' | 'app', // lib will reexport entry
-    entry: string, // entry name should be in file list
+    type: 'lib' | 'app',       // lib will reexport entry
+    entry: string,             // entry name should be in file list
     files: { name: string, content: string }[],
-    sourceMap?: boolean, // default to false
-    output?: string, // this is for display and hint in source map, will not actually write to file
-    printModules?: boolean, // default to false
-    minify?: boolean, // default to false
+    sourceMap?: boolean,       // default to false
+    output: string,            // source map file is output + '.map'
+    printModules?: boolean,    // default to false
+    minify?: boolean,          // default to false
+    shebang?: boolean,         // default to false
     lastResult?: MyPackResult, // previous result when watch
 }
 
 export type MyPackResult = {
     success: boolean,
-    jsContent?: string,
-    mapContent?: string,
     hash?: string,
     modules?: { fileName: string, moduleName: string, contentLength: number, hash: string }[],
 }
 
-export async function pack(options : MyPackOptions): Promise<MyPackResult> {
+export async function mypack(options : MyPackOptions): Promise<MyPackResult> {
     if (options.lastResult) {
         logInfo('mpk', 'repack');
     } else {
@@ -55,10 +55,17 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         generator = new SourceMapGenerator({ file: options.output })
     }
 
-    let lineMovement = 3; // added lines to each module, used by source map
     const resultModules: MyPackResult['modules'] = [];
 
-    let resultJs = options.type == 'app'
+    let resultJs = '';
+    let lineMovement = 3; // added lines to each module, used by source map
+
+    if (options.shebang) {
+        resultJs += '#!/usr/bin/env node\n';
+        lineMovement += 1;
+    }
+
+    resultJs += options.type == 'app'
         ? "((modules) => { const mycache = {};\n"
             + "(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
         : "module.exports = ((modules) => { const mycache = {};\n"
@@ -168,5 +175,10 @@ export async function pack(options : MyPackOptions): Promise<MyPackResult> {
         }
     }
 
-    return { success: true, jsContent: resultJs, mapContent: resultMap, hash: hash, modules: resultModules };
+    await fs.promises.writeFile(options.output, resultJs);
+    if (options.sourceMap) {
+        await fs.promises.writeFile(options.output + '.map', resultMap);
+    }
+
+    return { success: true, hash: hash, modules: resultModules };
 }

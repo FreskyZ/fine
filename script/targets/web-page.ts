@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
-import { TypeScriptOptions, TypeScriptResult, transpile as transpileScript } from '../tools/typescript';
-import { SassOptions, transpile as transpileStyle } from '../tools/sass';
+import { TypeScriptOptions, typescript } from '../tools/typescript';
+import { SassOptions, sass } from '../tools/sass';
 
 // web page, not web app, they contains hand written html and at most one sass file and at most one ts file which transpiles into seems-hand-written javascript
 // 1. except the index page, others are available at all domains without the html extension,
@@ -19,35 +19,30 @@ const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptio
 });
 
 const getSassOptions = (pagename: string): SassOptions => ({
-    file: `src/pages/${pagename}.sass`,
-    outputStyle: 'compressed',
+    entry: `src/pages/${pagename}.sass`,
+    output: `dist/main/${pagename}.css`,
 });
 
 async function buildOnce(pagename: string): Promise<void> {
-    logInfo('mka', chalk`{yellow ${pagename}-page}`);
+    logInfo('mka', chalk`{cyan ${pagename}-page}`);
     await fs.promises.mkdir('dist/main', { recursive: true });
     // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
 
-    const typescriptOptions = getTypeScriptOptions(pagename, false);
-    if (fs.existsSync(typescriptOptions.entry)) {
-        const files = await new Promise<TypeScriptResult['files']>(resolve => transpileScript(typescriptOptions, { afterEmit: ({ success, files }): void => {
-            if (!success) {
-                return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile typescript`);
-            }
-            resolve(files);
-        } }));
-        const code = files[0].content; // this ts config only generates one output file
-        await fs.promises.writeFile(`dist/main/${pagename}.js`, code);
+    const checker = typescript(getTypeScriptOptions(pagename, false));
+    if (fs.existsSync(checker.options.entry)) {
+        const checkResult = checker.check();
+        if (!checkResult.success) {
+            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile typescript`);
+        }
+        await fs.promises.writeFile(`dist/main/${pagename}.js`, checkResult.files[0].content);
     }
 
-    const sassOptions = getSassOptions(pagename);
-    if (fs.existsSync(sassOptions.file)) {
-        const { success, style } = await transpileStyle(sassOptions);
-        if (!success) {
+    const transpiler = sass(getSassOptions(pagename));
+    if (fs.existsSync(transpiler.options.entry)) {
+        const transpileResult = await transpiler.transpile();
+        if (!transpileResult.success) {
             return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile stylesheet`);
         }
-
-        await fs.promises.writeFile(`dist/main/${pagename}.css`, style);
     }
 
     logInfo('htm', chalk`copy {yellow ${pagename}.html}`);
@@ -55,55 +50,68 @@ async function buildOnce(pagename: string): Promise<void> {
     logInfo('htm', 'copy completed');
 
     await admin({ type: 'reload-static', key: pagename }); // unknown page name auto ignored
-    logInfo('mka', `build ${pagename}-page completed succesfully`);
+    logInfo('mka', chalk`{cyan ${pagename}-page} completed succesfully`);
+}
+
+function watchHtml(pagename: string, callback: () => any) {
+    const entry = `src/pages/${pagename}.html`;
+    logInfo('htm', chalk`watch {yellow ${entry}}`);
+
+    // fs.watch unexpectedly triggers 2 events on html edit, use same strategy as admin reload to prevent frequent call
+    let recopyRequested = false;
+    fs.watch(entry, { persistent: false }, () => {
+        recopyRequested = true;
+    });
+
+    const actualCopy = () => {
+        fs.copyFileSync(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
+        logInfo('htm', 'copy completed');
+        callback();
+    }
+
+    setInterval(() => {
+        if (recopyRequested) {
+            recopyRequested = false;
+            logInfo('htm', 'recopy');
+            actualCopy();
+        }
+    }, 3001);
+
+    actualCopy(); // initial copy
 }
 
 async function buildWatch(pagename: string) {
-    logInfo('mka', chalk`watch {yellow ${pagename}-page}`);
+    logInfo('mka', chalk`watch {cyan ${pagename}-page}`);
     await fs.promises.mkdir('dist/main', { recursive: true });
 
-    const typescriptOptions = getTypeScriptOptions(pagename, true);
-    if (fs.existsSync(typescriptOptions.entry)) {
-        transpileScript(typescriptOptions, { afterEmit: async ({ files }) => {
-            const code = files[0].content; // this ts config only generates one output file
-            await fs.promises.writeFile(`dist/main/${pagename}.js`, code);
-            admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
-        } });
-    }
+    // prevent frequent reload
+    let reloadRequested = false;
 
-    const sassOptions = getSassOptions(pagename);
-    if (fs.existsSync(sassOptions.file)) {
-        fs.watchFile(sassOptions.file, { persistent: false }, async (currstat, prevstat) => {
-            if (currstat.mtime == prevstat.mtime) {
-                return;
-            }
-            const { success, style } = await transpileStyle(getSassOptions(pagename));
-            if (success) {
-                fs.writeFileSync(`dist/main/${pagename}.css`, style);
-                admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
-            }
+    const checker = typescript(getTypeScriptOptions(pagename, true));
+    if (fs.existsSync(checker.options.entry)) {
+        checker.watch(checkResult => {
+            // tsc does not print watched message because in backend targets it will be directly followed by a mypack 'repack' message, so add one here
+            logInfo('tsc', `completed with no diagnostics`);
+            fs.writeFileSync(`dist/main/${pagename}.js`, checkResult.files[0].content);
+            reloadRequested = true;
         });
     }
 
-    fs.watchFile(`src/pages/${pagename}.html`, { persistent: false }, (currstat, prevstat) => {
-        if (currstat.mtime == prevstat.mtime) {
-            return;
-        }
-        logInfo('htm', chalk`copy {yellow ${pagename}.html}`);
-        fs.copyFileSync(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
-        logInfo('htm', 'copy completed');
-        admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
-    });
+    const transpiler = sass(getSassOptions(pagename));
+    if (fs.existsSync(transpiler.options.entry)) {
+        transpiler.watch(() => {
+            reloadRequested = true;
+        });
+    }
 
-    process.on('SIGINT', () => {
-        fs.unwatchFile(`src/pages/${pagename}.html`);
-        if (fs.existsSync(sassOptions.file)) {
-            fs.unwatchFile(sassOptions.file);
-        }
-        process.exit(0);
-    });
+    watchHtml(pagename, () => reloadRequested = true);
 
-    logInfo('mka', `tsc watch and fs watch setup`);
+    setInterval(() => {
+        if (reloadRequested) {
+            reloadRequested = false;
+            admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
+        }
+    }, 3002).unref();
 }
 
 export function build(pagename: string, watch: boolean) {

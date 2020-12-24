@@ -2,10 +2,13 @@
   "name": "fps",
   "version": "0.2.0",
   "description": "a personal website for fun",
-  "engines": { 
-    "//": "nodejs/node#35730 cause webpack config `optimization.splitChunks.cacheGroups.[cacheGroup].test` function to fail at runtime internally",
-    "//": "it is first included in non-lts version 15.5.0 currently (Dec 23 2020)",
-    "node": ">=15.5.0" 
+  "engines": {
+    "//": [
+      "// this is how you multiple line comment in json",
+      "nodejs/node#35730 cause webpack config `optimization.splitChunks.cacheGroups.[cacheGroup].test` function to fail at runtime internally",
+      "it is first included in non-lts version 15.5.0 currently (Dec 23 2020)"
+    ],
+    "node": ">=15.5.0"
   },
   "scripts": {},
   "repository": {
@@ -35,10 +38,10 @@
     "@types/koa-bodyparser": "^4.3.0",
     "@types/mysql": "^2.15.16",
     "@types/node": "^14.14.13",
-    "@types/node-sass": "^4.11.1",
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0",
     "@types/rimraf": "^3.0.0",
+    "@types/sass": "^1.16.0",
     "@types/terser-webpack-plugin": "^5.0.2",
     "@types/xml2json": "^0.11.3",
     "@typescript-eslint/eslint-plugin": "^4.10.0",
@@ -53,16 +56,16 @@
     "filesize": "^6.1.0",
     "fs-extra": "^9.0.1",
     "memfs": "^3.2.0",
-    "node-sass": "^5.0.0",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "rimraf": "^3.0.2",
+    "sass": "^1.30.0",
     "source-map-loader": "^1.1.3",
     "terser": "^5.5.1",
     "terser-webpack-plugin": "^5.0.3",
     "typescript": "^4.1.3",
     "unionfs": "^4.4.0",
-    "webpack": "^5.10.2",
+    "webpack": "^5.11.0",
     "webpack-bundle-analyzer": "^4.3.0",
     "xml2json": "^0.12.0"
   }

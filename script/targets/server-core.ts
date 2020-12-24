@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logError, logCritical } from '../common';
 import { admin } from '../tools/admin';
-import { TypeScriptOptions, transpile } from '../tools/typescript';
-import { MyPackOptions, MyPackResult, pack } from '../tools/mypack';
+import { TypeScriptOptions, typescript } from '../tools/typescript';
+import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -13,41 +13,37 @@ const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     watch,
 });
 
-const mypackOptions: MyPackOptions = {
+const getMyPackOptions = (files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
     type: 'app',
+    files,
     entry: '/vbuild/server-core/index.js',
-    files: [],
     sourceMap: true,
     output: 'dist/main/server.js',
     printModules: true,
     minify: true,
-}
+    lastResult,
+});
 
-function buildOnce() {
-    logInfo('mka', chalk`{yellow server-core}`);
+async function buildOnce(): Promise<void> {
+    logInfo('mka', chalk`{cyan server-core}`);
+    await fs.promises.mkdir('dist/main', { recursive: true });
 
-    transpile(getTypescriptOptions(false), { afterEmit: async ({ success, files }): Promise<void> => {
-        if (!success) {
-            return logCritical('mka', chalk`{yellow server-core} failed at transpile typescript`);
-        }
+    const checkResult = typescript(getTypescriptOptions(false)).check();
+    if (!checkResult.success) {
+        return logCritical('mka', chalk`{cyan server-core} failed at transpile typescript`);
+    }
 
-        const packResult = await pack({ ...mypackOptions, files });
-        if (!packResult.success) {
-            return logCritical('mka', chalk`{yellow server-core} failed at pack`);
-        }
+    const packResult = await mypack(getMyPackOptions(checkResult.files));
+    if (!packResult.success) {
+        return logCritical('mka', chalk`{cyan server-core} failed at pack`);
+    }
 
-        await fs.promises.mkdir('dist/main', { recursive: true });
-        await Promise.all([
-            fs.promises.writeFile('dist/main/server.js', packResult.jsContent),
-            fs.promises.writeFile('dist/main/server.js.map', packResult.mapContent),
-        ]);
-        logInfo('mka', 'server-core completed successfully');
-    }});
+    logInfo('mka', chalk`{cyan server-core} completed successfully`);
 }
 
 // only watch server-core require restart server process
 let serverProcess: ChildProcessWithoutNullStreams = null;
-export function startOrRestartServer() {
+function startOrRestartServer() {
     function start() {
         // mds: my dev server
         logInfo('mds', 'start server');
@@ -73,26 +69,21 @@ export function startOrRestartServer() {
 }
 
 function buildWatch() {
-    logInfo('mka', chalk`watch {yellow server-core}`);
+    logInfo('mka', chalk`watch {cyan server-core}`);
     process.on('exit', () => serverProcess?.kill()); // make sure
+    fs.mkdirSync('dist/main', { recursive: true });  // maka sure 2
 
     let lastResult: MyPackResult = null;
-    transpile(getTypescriptOptions(true), { afterEmit: async ({ files }) => {
-        const currentResult = await pack({ ...mypackOptions, files, lastResult });
+    typescript(getTypescriptOptions(true)).watch(async ({ files }) => {
+        const currentResult = await mypack(getMyPackOptions(files, lastResult));
         if (!currentResult.success) {
             return;
         }
-
-        await fs.promises.mkdir('dist/main', { recursive: true });
-        await Promise.all([
-            fs.promises.writeFile('dist/main/server.js', currentResult.jsContent),
-            fs.promises.writeFile('dist/main/server.js.map', currentResult.mapContent),
-        ]);
         if (currentResult.hash != lastResult?.hash) {
             startOrRestartServer();
         }
         lastResult = currentResult;
-    }});
+    });
 }
 
 export function build(watch: boolean) {

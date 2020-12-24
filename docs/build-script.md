@@ -107,3 +107,7 @@ also, server-core-shared, app-server-shared border, app-client-shared border was
    have same signature as app server's `getValue` function except server side have additional `ctx` parameter to hold some context values
 2. this is also implemented by code generation and calling helper wrapper over `fetch` with authentication token (see auth.md), 
    after 2 side code generation and type sharing (any app/api.d.ts), they have same experience as calling function in one executable file
+
+## Extend watch limit
+
+add to `/etc/sysctl.conf`: `fs.inotify.max_user_watches = 524288`, run `sudo sysctl -p`, note that `sudo` is required even if you are root

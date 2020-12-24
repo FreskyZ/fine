@@ -1,8 +1,7 @@
-import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
-import { TypeScriptOptions, transpile } from '../tools/typescript';
-import { MyPackOptions, pack } from '../tools/mypack';
+import { TypeScriptOptions, typescript } from '../tools/typescript';
+import { MyPackOptions, mypack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
@@ -11,28 +10,27 @@ const typescriptOptions: TypeScriptOptions = {
     watch: false,
 };
 
-const mypackOptions: MyPackOptions = {
+const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
     entry: '/vbuild/index.js',
-    files: [],
+    files,
     output: 'maka',
     minify: true,
-}
+    shebang: true,
+});
 
-export function build() {
-    logInfo('mka', chalk`{yellow self}`);
+export async function build(): Promise<void> {
+    logInfo('mka', chalk`{cyan self}`);
 
-    transpile(typescriptOptions, { afterEmit: async ({ success, files }): Promise<void> => {
-        if (!success) {
-            return logCritical('mka', chalk`{yellow self} failed at transpile`);
-        }
+    const checkResult = typescript(typescriptOptions).check();
+    if (!checkResult.success) {
+        return logCritical('mka', chalk`{cyan self} failed at transpile`);
+    }
 
-        const packResult = await pack({ ...mypackOptions, files });
-        if (!packResult.success) {
-            return logCritical('mka', chalk`{yellow self} failed at pack`);
-        }
+    const packResult = await mypack(getMyPackOptions(checkResult.files));
+    if (!packResult.success) {
+        return logCritical('mka', chalk`{cyan self} failed at pack`);
+    }
 
-        fs.writeFileSync('maka', '#!/usr/bin/env node\n' + packResult.jsContent);
-        logInfo('mka', 'self completed successfully');
-    } });
+    logInfo('mka', chalk`{cyan self} completed successfully`);
 }

@@ -13,9 +13,9 @@ import * as webpack from 'webpack';
 import { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical } from '../common';
 import { admin } from '../tools/admin';
-import { generate } from '../tools/codegen';
-import { SassOptions, transpile as transpileStyle } from '../tools/sass';
-import { TypeScriptOptions, TypeScriptResult, transpile as transpileScript } from '../tools/typescript';
+import { codegen } from '../tools/codegen';
+import { SassOptions, sass } from '../tools/sass';
+import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'jsx',
@@ -25,8 +25,8 @@ const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions =>
 });
 
 const getSassOptions = (app: string): SassOptions => ({
-    file: `src/${app}/client/index.sass`,
-    outputStyle: 'compressed',
+    entry: `src/${app}/client/index.sass`,
+    output: `dist/${app}/index.css`,
 });
 
 // MAKA_AC_OSIZE: maka-app-client-optimize-size-level
@@ -78,6 +78,10 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
     // infrastructureLogging: { debug: 'webpack.cache.PackFileCacheStrategy', level: 'verbose' },
 });
 
+interface WebpackResult {
+    error: Error,
+    statsObject: webpack.Stats,
+}
 interface AdditionalStat { 
     compressSizes: { [assetName: string]: number },
 }
@@ -167,90 +171,171 @@ function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
     // fs.writeFileSync('stats.full.json', JSON.stringify(stats, undefined, 1));
 }
 
-function renderHtmlTemplate(app: string, files: [css: string[], js: string[]]) {
+async function renderHtmlTemplate(app: string, files: [css: string[], js: string[]]) {
     const templateEntry = `src/${app}/index.html`;
     logInfo('htm', chalk`read {yellow ${templateEntry}}`);
-
-    const htmlTemplate = fs.readFileSync(templateEntry, 'utf-8');
+    const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
 
     let html = htmlTemplate
         .replace('<stylesheet-placeholder />', 
             files[0].map(cssFile => `<link rel="stylesheet" type="text/css" href="/${cssFile}">`).join('\n  '))
         .replace('<script-placeholder />', 
             files[1].map(jsFile => `<script type="text/javascript" src="/${jsFile}"></script>`).join('\n  '));
-    fs.writeFileSync(`dist/${app}/index.html`, html);
 
+    await fs.promises.writeFile(`dist/${app}/index.html`, html);
     logInfo('htm', 'template rendered');
 }
 
 async function buildOnce(app: string) {
-    logInfo('mka', chalk`{yellow ${app}-client}`);
-
-    fs.mkdirSync('.cache', { recursive: true });
+    logInfo('mka', chalk`{cyan ${app}-client}`);
     fs.mkdirSync(`dist/${app}`, { recursive: true });
 
-    // dependency: fcg -> tsc -> wpk; wpk + css -> htm -> adm
-
-    const codegen = fs.existsSync(`src/${app}/api.xml`) ? generate(app, 'client').then((success): void => {
-        if (!success) {
-            return logCritical('mka', chalk`{yellow ${app}-client} failed at code generation`);
-        }
-    }) : Promise.resolve();
-
-    const packcss = transpileStyle(getSassOptions(app)).then(({ success, style }) => {
-        if (!success) {
-            return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile style`);
-        }
-        fs.writeFileSync(`dist/${app}/index.css`, style);
-        return ['index.css'];
-    });
-
-    // if promise(a).then fullfill handler returns a promise(b), the next .then on promise(a) will receive result of promise(b) include fullfilled/rejected
-    // failures directly exit(1) for once, so no need to reject
-    const packjs = codegen.then(() => new Promise<string[]>(resolve => {
-        transpileScript(getTypeScriptOptions(app, false), { afterEmit: ({ success, files }): void => {
-            if (!success) {
-                return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile script`);
+    // promise 1: fcg -> tsc -> wpk, return js file list
+    const p1 = (async (): Promise<string[]> => {
+        const generator = codegen(app, 'client');
+        if (fs.existsSync(generator.definitionFile)) {
+            const generateResult = await generator.generate();
+            if (!generateResult.success) {
+                return logCritical('mka', chalk`{cyan ${app}-client} failed at codegen`);
             }
+        }
 
-            const [compiler, additional] = createWebpackCompiler(app, files);
-            compiler.run((error, statsObject): void => {
-                if (error) {
-                    logError('wpk', JSON.stringify(error, undefined, 1));
-                    return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
-                }
-                const stats = statsObject.toJson() as WebpackStat;
+        const checkResult = typescript(getTypeScriptOptions(app, false)).check();
+        if (!checkResult.success) {
+            return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile script`);
+        }
+        
+        const [compiler, additional] = createWebpackCompiler(app, checkResult.files);
+        const packResult = await new Promise<WebpackResult>(resolve => compiler.run((error, statsObject) => resolve({ error, statsObject })));
+        if (packResult.error) {
+            logError('wpk', JSON.stringify(packResult.error, undefined, 1));
+            return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
+        }
+        const stats = packResult.statsObject.toJson() as WebpackStat;
 
-                printWebpackResult(stats, additional);
-                if (stats.errorsCount > 0) {
-                    return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (2)`);
-                }
+        printWebpackResult(stats, additional);
+        if (stats.errorsCount > 0) {
+            return logCritical('mka', chalk`{cyan ${app}-client} failed at pack (2)`);
+        }
 
-                // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
-                // // the relationship between them is not described clearly in their own document
-                compiler.close((error) => {
-                    if (error) {
-                        logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
-                        // print error and ignore
-                    }
-                });
-                resolve(stats.assets.map(a => a.name));
-            });
-        } });
-    }));
-
-    Promise.all([packcss, packjs]).then(files => {
-        renderHtmlTemplate(app, files);
-        admin({ type: 'reload-static', key: app }).then(() => {
-            logInfo('mka', `${app}-client complete successfully`);
+        // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
+        // // the relationship between them is not described clearly in their own document
+        compiler.close((error) => {
+            if (error) {
+                logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
+                // print error and ignore
+            }
         });
-    });
+        return stats.assets.map(a => a.name);
+    })();
+
+    // promise 2: css, return css file list
+    const p2 = (async (): Promise<string[]> => {
+        const transpileResult = await sass(getSassOptions(app)).transpile();
+        if (!transpileResult) {
+            return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile style`);
+        }
+        return ['index.css'];
+    })();
+
+    await renderHtmlTemplate(app, await Promise.all([p1, p2]));
+    await admin({ type: 'reload-static', key: app });
+    logInfo('mka', chalk`{cyan ${app}-client} complete successfully`);
 }
 
-export function build(app: string, _watch: boolean) {
-    buildOnce(app);
+function buildWatch(app: string) {
+    logInfo('mka', chalk`watch {yellow ${app}-client}`);
+    fs.mkdirSync(`dist/${app}`, { recursive: true });
+
+    codegen(app, 'client').watch(); // no callback watch is this simple
+    
+    // typescript(getTypeScriptOptions(app, true)).watch(({ files }) => {
+
+    // });
+    
+    // // watch strategy:
+    // // fcg watch api.xml and write to api.ts
+    // // tsc watch index.tsx and depdendencies and write to memfs
+    // // wpk watch memfs and write to dist and triggers html render
+    // // css watch index.sass and write to dist and triggers html render
+
+    // // TODO: css list and js list is actually fixed so html is not rerendered in watch
+
+
+    // const apiEntry = `src/${app}/api.xml`;
+    // if (fs.existsSync(apiEntry)) {
+    //     fs.watchFile(apiEntry, { persistent: false }, (currstat, prevstat) => {
+    //         if (currstat.mtime == prevstat.mtime) {
+    //             return;
+    //         }
+    //         generate(app, 'client'); // if error, no emit and tsc watch retranspile will not be triggered
+    //     });
+    // }
+
+    // const sassOptions = getSassOptions(app);
+    // if (fs.existsSync(sassOptions.file)) {
+    //     fs.watchFile(sassOptions.file, { persistent: false }, async (currstat, prevstat) => {
+    //         if (currstat.mtime == prevstat.mtime) {
+    //             return;
+    //         }
+    //         const { success, style } = await transpileStyle(getSassOptions(app));
+    //         if (success) {
+    //             fs.writeFileSync(`dist/${app}/index.css`, style);
+    //             admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
+    //         }
+    //     });
+    // }
+
+    // const packcss = transpileStyle(getSassOptions(app)).then(({ success, style }) => {
+    //     if (!success) {
+    //         return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile style`);
+    //     }
+    //     fs.writeFileSync(`dist/${app}/index.css`, style);
+    //     return ['index.css'];
+    // });
+
+    // // if promise(a).then fullfill handler returns a promise(b), the next .then on promise(a) will receive result of promise(b) include fullfilled/rejected
+    // // failures directly exit(1) for once, so no need to reject
+    // const packjs = codegen.then(() => new Promise<string[]>(resolve => {
+    //     transpileScript(getTypeScriptOptions(app, false), { afterEmit: ({ success, files }): void => {
+    //         if (!success) {
+    //             return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile script`);
+    //         }
+
+    //         const [compiler, additional] = createWebpackCompiler(app, files);
+    //         compiler.run((error, statsObject): void => {
+    //             if (error) {
+    //                 logError('wpk', JSON.stringify(error, undefined, 1));
+    //                 return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
+    //             }
+    //             const stats = statsObject.toJson() as WebpackStat;
+
+    //             printWebpackResult(stats, additional);
+    //             if (stats.errorsCount > 0) {
+    //                 return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (2)`);
+    //             }
+
+    //             // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
+    //             // // the relationship between them is not described clearly in their own document
+    //             compiler.close((error) => {
+    //                 if (error) {
+    //                     logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
+    //                     // print error and ignore
+    //                 }
+    //             });
+    //             resolve(stats.assets.map(a => a.name));
+    //         });
+    //     } });
+    // }));
+
+    // Promise.all([packcss, packjs]).then(files => {
+    //     renderHtmlTemplate(app, files);
+    //     admin({ type: 'reload-static', key: app }).then(() => {
+    //         logInfo('mka', `${app}-client complete successfully`);
+    //     });
+    // });
 }
 
-// TODO
-// try cache in production, or else copy production settings in development
-// watch
+export function build(app: string, watch: boolean) {
+    (watch ? buildWatch : buildOnce)(app);
+}

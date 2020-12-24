@@ -16,10 +16,7 @@ export type TypeScriptOptions = {
     sourceMap: 'normal', // only normal available for jsx
     watch: boolean,
 }
-export interface TypeScriptHooks {
-    readFile?: (fileName: string, originalReadFile: (fileName: string) => string) => string,
-    afterEmit: (result: TypeScriptResult) => any,
-}
+
 export interface TypeScriptResult {
     success?: boolean, // not used when watch, because watch retranspile error will not call callback
     files: { name: string, content: string }[],
@@ -69,7 +66,7 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
         return; 
     } else if (code == 6032) {
         // original message is 'TS6032: File change detected. Starting incremental compilation
-        logInfo('tsc', 'retranspile');
+        logInfo('tsc', 'recheck');
     } else if (code == 6194) {
         // originaL message is 'TS6194: Found 0 errors. Watching for file changes'
         // because this is already checked by emit hook's !emitResult.emitSkipped, and this actually fires after that, which will make output message not in order, so ignore
@@ -121,16 +118,10 @@ function printEmitResult(emitResult: ts.EmitResult): boolean {
 }
 
 // install on ts.sys, already replace by maka.config, call additional hook if exists
-function setupReadFileHook(hooks: TypeScriptHooks) {
+function setupReadFileHook() {
     const originalReadFile = ts.sys.readFile;
     ts.sys.readFile = (fileName, encoding) => {
-        let fileContent: string;
-        if (hooks.readFile) {
-            fileContent = hooks.readFile(fileName, fileName => originalReadFile(fileName, encoding));
-        } else {
-            fileContent = originalReadFile(fileName, encoding);
-        }
-
+        let fileContent = originalReadFile(fileName, encoding);
         if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
             for (const configName in compileTimeConfig) {
                 fileContent = fileContent.replaceAll(configName, compileTimeConfig[configName]);
@@ -176,46 +167,54 @@ function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult
     };
 }
 
-function transpileOnce(options: TypeScriptOptions, hooks: TypeScriptHooks) {
-    logInfo('tsc', chalk`once {yellow ${options.entry}}`);
+class TypeScriptChecker {
+    private readonly compilerOptions: ts.CompilerOptions;
+    public constructor(public readonly options: TypeScriptOptions) {
+        this.compilerOptions = mergeOptions(options);
+    }
 
-    setupReadFileHook(hooks);
-    const mergedOptions = mergeOptions(options);
-    const program = ts.createProgram([options.entry], mergedOptions, ts.createCompilerHost(mergedOptions));
+    public check(): TypeScriptResult {
+        logInfo('tsc', chalk`once {yellow ${this.options.entry}}`);
+    
+        setupReadFileHook();
+        const program = ts.createProgram([this.options.entry], this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
+    
+        const files: TypeScriptResult['files'] = [];
+        const emitResult = program.emit(undefined, createWriteFileHook(this.options, files));
+    
+        const success = printEmitResult(emitResult);
+        return { success, files };
+    }
 
-    const files: TypeScriptResult['files'] = [];
-    const emitResult = program.emit(undefined, createWriteFileHook(options, files));
-
-    const success = printEmitResult(emitResult);
-    hooks.afterEmit({ success, files });
+    // callback only called when watch recheck success
+    public watch(callback: (result: TypeScriptResult) => any) {
+        logInfo('tsc', chalk`watch {yellow ${this.options.entry}}`);
+    
+        setupReadFileHook();
+        const files: TypeScriptResult['files'] = [];
+        // amazingly this blocks until first check and emit completes and continue
+        setImmediate(() => {
+            ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
+                [this.options.entry], 
+                this.compilerOptions,
+                ts.sys,
+                (...createProgramArgs) => {
+                    const program = ts.createEmitAndSemanticDiagnosticsBuilderProgram(...createProgramArgs);
+                    const originalEmit = program.emit;
+                    program.emit = (targetSourceFile, _writeFile, ...restEmitArgs) => {
+                        const emitResult = originalEmit(targetSourceFile, createWriteFileHook(this.options, files), ...restEmitArgs);
+                        if (!emitResult.emitSkipped) {
+                            callback({ files });
+                        }
+                        return emitResult;
+                    }
+                    return program;
+                },
+                printDiagnostic,
+                printDiagnostic,
+            ));
+        });
+    }
 }
 
-function transpileWatch(options: TypeScriptOptions, hooks: TypeScriptHooks) {
-    logInfo('tsc', chalk`watch {yellow ${options.entry}}`);
-
-    setupReadFileHook(hooks);
-    const files: TypeScriptResult['files'] = [];
-    ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
-        [options.entry], 
-        mergeOptions(options),
-        ts.sys,
-        (...createProgramArgs) => {
-            const program = ts.createEmitAndSemanticDiagnosticsBuilderProgram(...createProgramArgs);
-            const originalEmit = program.emit;
-            program.emit = (targetSourceFile, _writeFile, ...restEmitArgs) => {
-                const emitResult = originalEmit(targetSourceFile, createWriteFileHook(options, files), ...restEmitArgs);
-                if (!emitResult.emitSkipped) {
-                    hooks.afterEmit({ files });
-                }
-                return emitResult;
-            }
-            return program;
-        },
-        printDiagnostic,
-        printDiagnostic,
-    ));
-}
-
-export function transpile(options: TypeScriptOptions, hooks: TypeScriptHooks) {
-    (options.base == 'normal' && options.watch ? transpileWatch : transpileOnce)(options, hooks);
-}
+export function typescript(options: TypeScriptOptions) { return new TypeScriptChecker(options); }
