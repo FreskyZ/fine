@@ -1,7 +1,18 @@
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
+import * as chalk from 'chalk';
 import { AdminPayload } from '../../src/shared/types/admin';
 import { logInfo, logError } from '../common';
+
+function formatPayload(payload: AdminPayload) {
+    switch (payload.type) {
+        case 'shutdown': return 'shutdown';
+        case 'reload-static': return `reload-static ${payload.key}`;
+        case 'reload-server': return `reload-server ${payload.app}`;
+        case 'expire-device': return `expire-device ${payload.deviceId}`;
+        case 'source-map': return `source-map ${payload.enabled}`;
+    }
+}
 
 async function impl(payload: AdminPayload): Promise<void> {
     const socket = net.createConnection('/tmp/fps.socket').ref();
@@ -25,11 +36,12 @@ async function impl(payload: AdminPayload): Promise<void> {
         });
         socket.once('data', data => {
             if (data.toString('utf-8') == 'ACK') {
-                logInfo('adm', `command ${serialized} acknowledged`);
-                setTimeout(() => {
+                // strange method to shorten message by extract `type` part
+                logInfo('adm', chalk`ACK {blue ${formatPayload(payload)}}`);
+                setImmediate(() => {
                     socket.destroy();
                     resolve();
-                }, 0);
+                });
             }
         });
         socket.write(serialized);

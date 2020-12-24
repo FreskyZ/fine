@@ -60,7 +60,7 @@ function buildWatch(app: string) {
             return;
         }
         if (currentResult.hash != lastResult?.hash) {
-            await admin({ type: 'reload-server', app });
+            await admin({ type: 'reload-server', app }).catch(() => { /* ignore */});
         }
         lastResult = currentResult;
     });

@@ -189,9 +189,18 @@ class TypeScriptChecker {
     // callback only called when watch recheck success
     public watch(callback: (result: TypeScriptResult) => any) {
         logInfo('tsc', chalk`watch {yellow ${this.options.entry}}`);
-    
+
         setupReadFileHook();
+    
+        // NOTE: the following hooked emit will only write changed files, so this list is in this scope instead of that hook scope
+        // ATTENTION: not used files (deleted and not imported) is not calling any delete, 
+        //            so I (maka) cannot remove the entry by any typescript functions or hooks, related: microsoft/TypeScript#30602
+        // TODO: mypack will include the unused file, I should collect all imports and remove the file from **this** array, 
+        //       so there should be mechanism to let tools/mypack tell target/*.ts or this tools/typescript this thing
+        // NOTE: webpack will parse entry javascript file and recursive include imported javascript files and auto ignore the removed file,
+        //       so result module list is filtered and collected to cleanup **this** array
         const files: TypeScriptResult['files'] = [];
+        
         // amazingly this blocks until first check and emit completes and continue
         setImmediate(() => {
             ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(

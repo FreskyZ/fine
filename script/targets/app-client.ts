@@ -85,15 +85,16 @@ interface WebpackResult {
 interface AdditionalStat { 
     compressSizes: { [assetName: string]: number },
 }
-function createWebpackCompiler(app: string, files: TypeScriptResult['files']): [webpack.Compiler, AdditionalStat] {
-    logInfo('wpk', chalk`once {yellow src/${app}/client/index.js}`);
+
+// watching only for display
+function createWebpackCompiler(app: string, mfs: any, watching: boolean): [webpack.Compiler, AdditionalStat] {
+    logInfo('wpk', chalk`${watching ? 'watch' : 'once'} {yellow src/${app}/client/index.js}`);
 
     const compiler = webpack(getWebpackConfiguration(app));
     const additional: AdditionalStat = { compressSizes: {} };
 
     // their type is very mismatch but they very can work at runtime
-    (compiler as any).inputFileSystem = (new unionfs.Union() as any).use(fs)
-        .use(memfs.Volume.fromJSON(files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {})));
+    compiler.inputFileSystem = (new unionfs.Union() as any).use(fs).use(mfs);
 
     // asset source is available when emitting and discarded sometime before compile callback, so compress size calculation should be here
     // put it in compilation custom property
@@ -109,18 +110,15 @@ function createWebpackCompiler(app: string, files: TypeScriptResult['files']): [
 // for normal, print warning message and asset summary and all other things to file
 // for error, only print all things to file
 function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
-    const reportFileName = `/tmp/stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
+    const reportFileName = `/tmp/maka-stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
 
     const totalAssetSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.size, 0));
     const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + additional.compressSizes[a.name], 0) || 0);
-    const [maxVendorSize, minVendorSize] = [
-        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, additional.compressSizes[a.name]), 0) || 0),
-        filesize(stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.min(acc, additional.compressSizes[a.name]), 10_000_000) || 0),
-    ];
+    const maxVendorSize = stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, additional.compressSizes[a.name]), 0);
 
     if (stats.errorsCount == 0) {
-        logInfo('wpk', chalk`completed with {yellow ${stats.assets.length}} assets in ${stats.time/1000}s`);
-        logInfo('wpk', chalk`total ${totalAssetSize} compress {yellow ${totalCompressSize}} range [${minVendorSize}, ${maxVendorSize}]`);
+        logInfo('wpk', chalk`completed with {yellow ${stats.assets.length}} assets in ${stats.time/1000}s, `
+            + chalk`{yellow ${totalCompressSize}} ({${maxVendorSize > 300_000 ? 'red' : 'black'} max ${filesize(maxVendorSize || 0)}})`);
         if (stats.warningsCount > 0) {
             logInfo('wpk', chalk`{yellow ${stats.warningsCount}} warnings`);
             for (const { message } of stats.warnings) {
@@ -158,7 +156,7 @@ function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
         report += `chunk ${chunk.id} files [${chunk.files.join(',')}] size ${filesize(chunk.size)} flags [${chunkFlags.filter(name => (chunk as any)[name]).join(',')}] ${chunk.modules.length} chunks\n`;
         for (const $module of chunk.modules) {
             report += `  module ${$module.id} size ${filesize($module.size)} flags [${moduleFlags.filter(name => ($module as any)[name]).join(',')}] name "${$module.name}" identifier "${$module.identifier}"\n`;
-            if (/\+ \d+ modules/.test($module.name) && $module.modules) {
+            if (/\+ \d+ modules/.test($module.name) && $module.modules) { // concated modules
                 for (const submodule of $module.modules) {
                     report += `    submodule ${submodule.name} size ${filesize(submodule.size)}\n`;
                 }
@@ -171,9 +169,43 @@ function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
     // fs.writeFileSync('stats.full.json', JSON.stringify(stats, undefined, 1));
 }
 
-async function renderHtmlTemplate(app: string, files: [css: string[], js: string[]]) {
+// see TypeScriptChecker.watch, cleanup unused modules
+function cleanupMemoryFile(stats: WebpackStat, files: TypeScriptResult['files'], mfs: memfs.IFs) {
+    // this is used js file absolute path, the files parameter contains js/map file absolute path
+    const mycodeModules: string[] = [];
+    const mycodePrefix = path.resolve('src');
+    for (const $module of stats.modules) {
+        if (/\+ \d+ modules/.test($module.name) && $module.modules) {
+            for (const submodule of $module.modules) {
+                const fullpath = path.resolve(submodule.name);
+                if (fullpath.startsWith(mycodePrefix)) {
+                    mycodeModules.push(fullpath);
+                }
+            }
+        } else {
+            const fullpath = path.resolve($module.name);
+            if (fullpath.startsWith(mycodePrefix)) {
+                mycodeModules.push(fullpath);
+            }
+        }
+    }
+
+    const unusedFiles = files.filter(f => !mycodeModules.includes(f.name) && !mycodeModules.some(m => m + '.map' == f.name));
+    for (const unusedFile of unusedFiles) {
+        files.splice(files.indexOf(unusedFile), 1);
+        mfs.unlinkSync(unusedFile.name);
+        if (!unusedFile.name.endsWith('.map')) {
+            console.log(chalk`   {gray - ${unusedFile.name}}`);
+        }
+    }
+}
+
+// watching only means less info
+async function renderHtmlTemplate(app: string, files: [css: string[], js: string[]], watching: boolean) {
     const templateEntry = `src/${app}/index.html`;
-    logInfo('htm', chalk`read {yellow ${templateEntry}}`);
+    if (!watching) {
+        logInfo('htm', chalk`read {yellow ${templateEntry}}`);
+    }
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
 
     let html = htmlTemplate
@@ -205,7 +237,9 @@ async function buildOnce(app: string) {
             return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile script`);
         }
         
-        const [compiler, additional] = createWebpackCompiler(app, checkResult.files);
+        // their type is very mismatch but they very can work at runtime
+        const mfs = memfs.Volume.fromJSON(checkResult.files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {}));
+        const [compiler, additional] = createWebpackCompiler(app, mfs, false);
         const packResult = await new Promise<WebpackResult>(resolve => compiler.run((error, statsObject) => resolve({ error, statsObject })));
         if (packResult.error) {
             logError('wpk', JSON.stringify(packResult.error, undefined, 1));
@@ -238,102 +272,88 @@ async function buildOnce(app: string) {
         return ['index.css'];
     })();
 
-    await renderHtmlTemplate(app, await Promise.all([p1, p2]));
+    await renderHtmlTemplate(app, await Promise.all([p1, p2]), false);
     await admin({ type: 'reload-static', key: app });
     logInfo('mka', chalk`{cyan ${app}-client} complete successfully`);
 }
 
 function buildWatch(app: string) {
-    logInfo('mka', chalk`watch {yellow ${app}-client}`);
+    logInfo('mka', chalk`watch {cyan ${app}-client}`);
     fs.mkdirSync(`dist/${app}`, { recursive: true });
 
-    codegen(app, 'client').watch(); // no callback watch is this simple
+    let rerenderRequested = false;
+
+    const generator = codegen(app, 'client');
+    if (fs.existsSync(generator.definitionFile)) {
+        generator.watch(); // no callback watch is this simple
+    }
+ 
+    const mfs = new memfs.Volume();
+    const [compiler, additional] = createWebpackCompiler(app, mfs, true);
+
+    // Attention: this is *the* array inside TypeScriptChecker.watch, to be clean up by webpack result
+    let typescriptResultFiles: TypeScriptResult['files'] = [];
+    let webpackResultFiles: string[] = [];
+    let webpackResultHash: string = null; // last hash
+    typescript(getTypeScriptOptions(app, true)).watch(async ({ files }) => {
+        // no need to delete file here because it will not happen in typescript write file hook while correct delete file happen in cleanupMemoryFile
+        for (const { name: fileName, content: fileContent } of files) {
+            if (!mfs.existsSync(fileName) && !fileName.endsWith('.map')) {
+                console.log(chalk`   + ${fileName}`);
+            }
+            await mfs.promises.mkdir(path.dirname(fileName), { recursive: true });
+            await mfs.promises.writeFile(fileName, fileContent);
+        }
+        typescriptResultFiles = files;
+
+        // use compiler.run instead of compiler.watch because 
+        // webpack seems to be very unstable watching in memory file system 
+        // and output message order is a mess and I cannot figure out what happens
+        logInfo('wpk', 'repack');
+        compiler.run((error, statsObject) => {
+            if (error) {
+                logError('wpk', JSON.stringify(error, undefined, 1));
+                return;
+            }
+            const stats = statsObject.toJson() as WebpackStat;
+        
+            printWebpackResult(stats, additional);
+            cleanupMemoryFile(stats, typescriptResultFiles, mfs as memfs.IFs); // this writer still cannot write his type clearly, again
     
-    // typescript(getTypeScriptOptions(app, true)).watch(({ files }) => {
-
-    // });
+            if (stats.errorsCount != 0) { return; }
     
-    // // watch strategy:
-    // // fcg watch api.xml and write to api.ts
-    // // tsc watch index.tsx and depdendencies and write to memfs
-    // // wpk watch memfs and write to dist and triggers html render
-    // // css watch index.sass and write to dist and triggers html render
+            if (stats.hash != webpackResultHash) {
+                webpackResultFiles = stats.assets.map(a => a.name);
+                webpackResultHash = stats.hash;
+                rerenderRequested = true;
+            } else {
+                logInfo('wpk', chalk`repack {blue no change}`);
+            }
+            
+            // see buildOnce compiler.close
+            compiler.close((error) => {
+                if (error) {
+                    logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
+                    // print error and ignore
+                }
+            });
+        })
+    });
 
-    // // TODO: css list and js list is actually fixed so html is not rerendered in watch
+    let cssFiles = ['index.css'];
+    sass(getSassOptions(app)).watch(() => {
+        // css file list will not change, for now
+        rerenderRequested = true;
+    });
 
-
-    // const apiEntry = `src/${app}/api.xml`;
-    // if (fs.existsSync(apiEntry)) {
-    //     fs.watchFile(apiEntry, { persistent: false }, (currstat, prevstat) => {
-    //         if (currstat.mtime == prevstat.mtime) {
-    //             return;
-    //         }
-    //         generate(app, 'client'); // if error, no emit and tsc watch retranspile will not be triggered
-    //     });
-    // }
-
-    // const sassOptions = getSassOptions(app);
-    // if (fs.existsSync(sassOptions.file)) {
-    //     fs.watchFile(sassOptions.file, { persistent: false }, async (currstat, prevstat) => {
-    //         if (currstat.mtime == prevstat.mtime) {
-    //             return;
-    //         }
-    //         const { success, style } = await transpileStyle(getSassOptions(app));
-    //         if (success) {
-    //             fs.writeFileSync(`dist/${app}/index.css`, style);
-    //             admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
-    //         }
-    //     });
-    // }
-
-    // const packcss = transpileStyle(getSassOptions(app)).then(({ success, style }) => {
-    //     if (!success) {
-    //         return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile style`);
-    //     }
-    //     fs.writeFileSync(`dist/${app}/index.css`, style);
-    //     return ['index.css'];
-    // });
-
-    // // if promise(a).then fullfill handler returns a promise(b), the next .then on promise(a) will receive result of promise(b) include fullfilled/rejected
-    // // failures directly exit(1) for once, so no need to reject
-    // const packjs = codegen.then(() => new Promise<string[]>(resolve => {
-    //     transpileScript(getTypeScriptOptions(app, false), { afterEmit: ({ success, files }): void => {
-    //         if (!success) {
-    //             return logCritical('mka', chalk`{yellow ${app}-client} failed at transpile script`);
-    //         }
-
-    //         const [compiler, additional] = createWebpackCompiler(app, files);
-    //         compiler.run((error, statsObject): void => {
-    //             if (error) {
-    //                 logError('wpk', JSON.stringify(error, undefined, 1));
-    //                 return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (1)`);
-    //             }
-    //             const stats = statsObject.toJson() as WebpackStat;
-
-    //             printWebpackResult(stats, additional);
-    //             if (stats.errorsCount > 0) {
-    //                 return logCritical('mka', chalk`{yellow ${app}-client} failed at pack (2)`);
-    //             }
-
-    //             // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
-    //             // // the relationship between them is not described clearly in their own document
-    //             compiler.close((error) => {
-    //                 if (error) {
-    //                     logError('wpk', `failed to close compiler: ${JSON.stringify(error)}`);
-    //                     // print error and ignore
-    //                 }
-    //             });
-    //             resolve(stats.assets.map(a => a.name));
-    //         });
-    //     } });
-    // }));
-
-    // Promise.all([packcss, packjs]).then(files => {
-    //     renderHtmlTemplate(app, files);
-    //     admin({ type: 'reload-static', key: app }).then(() => {
-    //         logInfo('mka', `${app}-client complete successfully`);
-    //     });
-    // });
+    setInterval(() => {
+        if (rerenderRequested) {
+            rerenderRequested = false;
+            renderHtmlTemplate(app, [cssFiles, webpackResultFiles], true).then(() => {
+                admin({ type: 'reload-static', key: app }).catch(() => { /* ignore */});
+            });
+        }
+    }, 3003);
 }
 
 export function build(app: string, watch: boolean) {

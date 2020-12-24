@@ -10,6 +10,10 @@ import { logInfo, logError } from '../common';
 // my bundler, input list of name/content of js file/source map
 // output minified js and source map
 
+// TODO FAR: 
+// collect all used modules and remove not used modules, 
+//   because typescript watch api is not able to remove unused files, this requires my 1 pass generation become 2 pass 
+
 // // you will be amazing how these options are added from the very first version of mypack
 export interface MyPackOptions {
     type: 'lib' | 'app',       // lib will reexport entry
@@ -49,7 +53,7 @@ export async function mypack(options : MyPackOptions): Promise<MyPackResult> {
             jsContent: content,
             mapContent: options.files.find(f => f.name == name + '.map').content, // let it die if sourcemap missing
         }));
-        
+
     let generator: SourceMapGenerator = null;
     if (options.sourceMap) {
         generator = new SourceMapGenerator({ file: options.output })
@@ -148,7 +152,7 @@ export async function mypack(options : MyPackOptions): Promise<MyPackResult> {
 
     const hash = sha256(resultJs).toString();
     if (hash === options.lastResult?.hash) {
-        logInfo('mpk', 'completed with no change');
+        logInfo('mpk', chalk`completed with {blue no change}`);
     } else {
         if (!options.lastResult) {
             if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }

@@ -8,6 +8,11 @@ declare global { interface String { replaceAll(searchValue: string | RegExp, rep
 // so build script itself directly use this instead of replace it while building self
 export const compileTimeConfig = JSON.parse(fs.readFileSync('maka.config', 'utf-8'));
 
+// current color schema
+// error: red
+// target name: cyan
+// watching (the long displayed long message): blue 
+
 export function logInfo(header: string, message: string) {
     console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} ${header}] ${message}`);
 }
