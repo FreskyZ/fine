@@ -5,7 +5,7 @@ import type { Change } from '../api';
 import * as api from './api';
 
 function ChangeRow({ change }: { change: Change }) {
-    return <span className='change-row'>
+    return <div className='change-row'>
         <Select className='change-type' value={change.type}>
             <Select.Option value='expend'>Expend</Select.Option>
             <Select.Option value='income'>Income</Select.Option>
@@ -13,7 +13,7 @@ function ChangeRow({ change }: { change: Change }) {
         <Input className='change-name' value={change.name} />
         <InputNumber className='change-value' value={change.value} />
         <span className='change-time'>{change.time}</span>
-    </span>;
+    </div>;
 }
 
 function App() {

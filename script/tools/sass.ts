@@ -47,6 +47,8 @@ class SassTranspiler {
         // if running and a new watch event happens, it will find state is running and transfer state to pending
         // then when run complete, it will find state is pending instead of running and trigger another run, or else it will transfer state to none
         let state: 'none' | 'running' | 'pending' = 'none';
+        // use previous file list if error happens
+        let previousFiles: string[] = [this.options.entry];
         (function impl() {
             state = 'running';
             for (const watcher of watchers) {
@@ -61,9 +63,10 @@ class SassTranspiler {
                     fs.writeFileSync(self.options.output, result.css);
                     logInfo('css', `completed in ${result.stats.duration}ms`);
                     callback();
+                    previousFiles = result.stats.includedFiles;
                 }
                 
-                for (const file of result.stats.includedFiles) {
+                for (const file of previousFiles) {
                     watchers.push(fs.watch(file, { persistent: false }, () => {
                         if (state == 'running') {
                             logInfo('css', 'retranspile waiting');

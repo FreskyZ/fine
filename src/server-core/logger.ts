@@ -33,7 +33,7 @@ const lazyFlushInterval = 600_000; // 10 minutes to flush normal
 const cleanupInterval = 3600_000;  // 1 hour to cleanup outdated logs
 const logReserveDays = 7;          // reserve log for 1 week
 
-const logsDirectory = path.join(process.cwd(), 'logs');
+const logsDirectory = path.resolve('logs');
 function getLogFileName(date: dayjs.Dayjs, level: Level) {
     return path.join(logsDirectory, `${date.format('YYYY-MM-DD')}-${level}.log`);
 }
@@ -82,7 +82,13 @@ function flush(level: Level): void {
 function write(level: Level, content: any) {
     const { entries, notFlushedCount } = state[level];
 
-    entries.push({ t: dayjs.utc().toJSON(), c: content });
+    if (typeof content != 'object') {
+        content = { content };
+    }
+
+    // simply add time to content, to decrease content deepness
+    content.$$t = dayjs.utc().toJSON();
+    entries.push(content);
 
     if (policies[level] == 'lazy') {
         if (notFlushedCount == lazyFlushCount) {
@@ -112,9 +118,9 @@ function cleanup() {
         const date = dayjs.utc(path.basename(filename).slice(0, 10), 'YYYY-MM-DD');
         if (date.isValid() && date.add(logReserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
             try {
-                fs.unlinkSync(filename);
+                fs.unlinkSync(path.resolve(logsDirectory, filename));
             } catch {
-                // simply ignore what unexpected happens when deleting log
+                // ignore
             }
         }
     }

@@ -32,15 +32,20 @@ admin.on('expire-device', handleAdminExpireDevice);
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
-// admin server
-const socketServer = net.createServer();
-socketServer.on('error', error => {
-    console.log(`admin: server error: ${error.message}`);
-});
+// redirect to secure server from insecure server
+function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
+    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
+}
 
+// admin server
 if (fs.existsSync('/tmp/fps.socket')) {
     fs.unlinkSync('/tmp/fps.socket');
 }
+
+const socketServer = net.createServer();
+const handleSocketServerError = (error: Error) => {
+    console.log(`admin server error: ${error.message}`);
+};
 
 const socketConnections: net.Socket[] = [];
 socketServer.on('connection', connection => {
@@ -50,7 +55,7 @@ socketServer.on('connection', connection => {
         socketConnections.splice(socketConnections.indexOf(connection), 1);
     });
     connection.on('error', error => {
-        console.log(`admin: connection error: ${error.message}`);
+        console.log(`admin connection error: ${error.message}`);
     });
     connection.on('data', data => {
         const payload = data.toString('utf-8');
@@ -58,9 +63,10 @@ socketServer.on('connection', connection => {
         try {
             message = JSON.parse(payload);
         } catch {
-            logError('failed to parse admin socket payload as json, raw: ' + payload);
+            logError({ type: 'parse admin payload', payload });
         }
-        connection.write('ACK'); // ACK after data decoded
+        // ACK after data decoded or else data seems to be discarded after that end closed
+        connection.write('ACK');
 
         if (message.type == 'shutdown') {
             admin.emit('shutdown');
@@ -76,17 +82,20 @@ socketServer.on('connection', connection => {
     });
 });
 
-// redirect to secure server from insecure server
-function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
-    response.writeHead(301, { 'Location': 'https://' + request.headers['host'] + request.url }).end();
-}
-
-// servers create, start, close
+// http server
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = http2.createSecureServer({ 
     key: fs.readFileSync("SSL_KEY", 'utf-8'), 
     cert: fs.readFileSync("SSL_CERT", 'utf-8'),
 }, app.callback());
+
+const handleHttpServerError = (error: Error) => {
+    if (error.message == 'read ECONNRESET') {
+        logError({ type: 'http server read connection reset', error });
+    } else {
+        throw error; // rethrow to uncaughtexception
+    }
+}
 
 const httpConnections: { [key: string]: net.Socket } = {};
 httpServer.on('connection', socket => {
@@ -100,25 +109,50 @@ http2Server.on('connection', socket => {
     socket.on('close', () => delete httpConnections[key]);
 });
 
-// wait all server started to print only one line
+// servers start and close // that's how they are implemented braceful
 Promise.all([
     new Promise<void>((resolve, reject) => {
-        socketServer.once('error', () => reject());
-        socketServer.listen('/tmp/fps.socket', resolve);
-    }),
-    new Promise<void>((resolve, reject) => { 
-        httpServer.once('error', error => { console.log(`http server error: ${error.message}`); reject(); }); 
-        httpServer.listen(80, resolve); 
+        const handleListenError = (error: Error) => { 
+            console.log(`admin server error: ${error.message}`); 
+            reject(); 
+        };
+        socketServer.once('error', handleListenError);
+        socketServer.listen('/tmp/fps.socket', () => {
+            socketServer.removeListener('error', handleListenError);
+            socketServer.on('error', handleSocketServerError); // install normal error handler after listen success
+            resolve();
+        });
     }),
     new Promise<void>((resolve, reject) => {
-        http2Server.once('error', error => { console.log(`http2 server error: ${error.message}`); reject(); });
-        http2Server.listen(443, resolve);
+        const handleListenError = (error: Error) => { 
+            console.log(`http server error: ${error.message}`); 
+            reject(); 
+        };
+        httpServer.once('error', handleListenError); 
+        httpServer.listen(80, () => {
+            httpServer.removeListener('error', handleListenError);
+            httpServer.on('error', handleHttpServerError);
+            resolve();
+        });
+    }),
+    new Promise<void>((resolve, reject) => {
+        const handleListenError = (error: Error) => { 
+            console.log(`http2 server error: ${error.message}`); 
+            reject(); 
+        };
+        http2Server.once('error', handleListenError);
+        http2Server.listen(443, () => {
+            http2Server.removeListener('error', handleListenError);
+            http2Server.on('error', handleHttpServerError);
+            resolve();
+        });
     }),
 ]).then(() => {
-    console.log('socket server, http server and http2 server started');
+    logInfo('server core started');
+    console.log('server core started');
 }).catch(() => {
-    console.error('failed to start some server');
-    process.exit(201);
+    console.error('server core start failed');
+    process.exit(101);
 });
 
 let shuttingdown = false;
@@ -148,16 +182,14 @@ function shutdown() {
             else { resolve(); } 
         })),
     ]).then(() => {
-        logInfo('finalization completed');
-        console.log('socket server, http server and http2 server closed');
+        logInfo('server core shutdown');
+        console.log('server core shutdown');
         process.exit(0);
     }, () => {
-        console.log('failed to close some server');
-        process.exit(202);
+        console.log('server core shutdown with error');
+        process.exit(102);
     });
 }
 
 process.on('SIGINT', shutdown);
 admin.on('shutdown', shutdown);
-
-logInfo('initialization completed');

@@ -166,7 +166,7 @@ export async function handleProcessException(error: Error) {
     } catch {
         console.log(error);
     } finally {
-        process.exit(101);
+        process.exit(103);
     }
 }
 
@@ -186,6 +186,6 @@ export async function handleProcessRejection(reason: any) {
     } catch {
         console.log(reason);
     } finally {
-        process.exit(102);
+        process.exit(104);
     }
 }
