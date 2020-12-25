@@ -234,7 +234,7 @@ async function buildOnce(app: string) {
 
         const checkResult = typescript(getTypeScriptOptions(app, false)).check();
         if (!checkResult.success) {
-            return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile script`);
+            return logCritical('mka', chalk`{cyan ${app}-client} failed at check`);
         }
         
         // their type is very mismatch but they very can work at runtime
@@ -267,12 +267,12 @@ async function buildOnce(app: string) {
     const p2 = (async (): Promise<string[]> => {
         const transpileResult = await sass(getSassOptions(app)).transpile();
         if (!transpileResult) {
-            return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile style`);
+            return logCritical('mka', chalk`{cyan ${app}-client} failed at transpile`);
         }
         return ['index.css'];
     })();
 
-    await renderHtmlTemplate(app, await Promise.all([p1, p2]), false);
+    await renderHtmlTemplate(app, await Promise.all([p2, p1]), false);
     await admin({ type: 'reload-static', key: app });
     logInfo('mka', chalk`{cyan ${app}-client} complete successfully`);
 }

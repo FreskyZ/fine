@@ -30,7 +30,7 @@ async function buildOnce(): Promise<void> {
 
     const checkResult = typescript(getTypescriptOptions(false)).check();
     if (!checkResult.success) {
-        return logCritical('mka', chalk`{cyan server-core} failed at transpile typescript`);
+        return logCritical('mka', chalk`{cyan server-core} failed at check`);
     }
 
     const packResult = await mypack(getMyPackOptions(checkResult.files));

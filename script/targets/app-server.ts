@@ -35,7 +35,7 @@ async function buildOnce(app: string): Promise<void> {
 
     const checkResult = typescript(getTypeScriptOptions(app, false)).check();
     if (!checkResult.success) {
-        return logCritical('mka', chalk`{cyan ${app}-server} failed at transpile typescript`);
+        return logCritical('mka', chalk`{cyan ${app}-server} failed at check`);
     }
 
     const packResult = await mypack(getMyPackOptions(app, checkResult.files));
@@ -44,7 +44,7 @@ async function buildOnce(app: string): Promise<void> {
     }
 
     await admin({ type: 'reload-server', app });
-    logInfo('mka', `{cyan ${app}-server} complete successfully`);
+    logInfo('mka', chalk`{cyan ${app}-server} complete successfully`);
 }
 
 function buildWatch(app: string) {

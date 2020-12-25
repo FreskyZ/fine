@@ -309,30 +309,20 @@ class CodeGenerator {
     }
 
     public watch() {
-        const self = this;
         logInfo('fcg', chalk`watch {yellow ${this.definitionFile}}`);
 
-        // prevent reentry: same state management like sass
-        // if running and a new watch event happens, it will find state is running and transfer state to pending
-        // then when run complete, it will find state is pending instead of running and trigger another run, or else it will transfer state to none
-        let state: 'none' | 'running' | 'pending' = 'none';
-        function wrapper() {
-            state = 'running';
-            self.generate();
-            if ((state as string) == 'pending') { // ts will regard state as 'running' here
-                wrapper();
-            } else if ((state as string) == 'running') {
-                state = 'none';
-            }
-        };
-
+        // prevent reentry like web-page html
+        let regenerateRequested = false;
         fs.watch(this.definitionFile, { persistent: false }, () => {
-            if (state == 'running') {
-                state = 'pending';
-            } else if (state == 'none') {
-                wrapper();
-            }
+            regenerateRequested = true;
         });
+
+        setInterval(() => {
+            if (regenerateRequested) {
+                regenerateRequested = false;
+                this.generate();
+            }
+        }, 3007);
     }
 }
 

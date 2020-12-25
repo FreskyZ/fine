@@ -14,7 +14,7 @@ const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptio
     base: 'normal',
     entry: `src/pages/${pagename}.ts`,
     additionalLib: ['dom'],
-    sourceMap: 'hide',
+    sourceMap: 'no',
     watch,
 });
 
@@ -32,7 +32,7 @@ async function buildOnce(pagename: string): Promise<void> {
     if (fs.existsSync(checker.options.entry)) {
         const checkResult = checker.check();
         if (!checkResult.success) {
-            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile typescript`);
+            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at check`);
         }
         await fs.promises.writeFile(`dist/main/${pagename}.js`, checkResult.files[0].content);
     }
@@ -41,7 +41,7 @@ async function buildOnce(pagename: string): Promise<void> {
     if (fs.existsSync(transpiler.options.entry)) {
         const transpileResult = await transpiler.transpile();
         if (!transpileResult.success) {
-            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile stylesheet`);
+            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile`);
         }
     }
 
