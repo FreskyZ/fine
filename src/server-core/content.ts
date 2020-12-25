@@ -63,7 +63,7 @@ const knownFiles: ReadonlyArray<KnownFile> = (() => {
     for (const any of ['www'].concat(APP_NAMES)) {
         result.push({ virtual: `/${any}/404`, real: 'main/404.html', reloadKey: false });
         result.push({ virtual: `/${any}/418`, real: 'main/418.html', reloadKey: false });
-        result.push({ virtual: `/${any}/w`, real: 'main/user.html', reloadKey: 'user' }); // w: wo, me, my space, my account setting, sign in/sign up
+        result.push({ virtual: `/${any}/m`, real: 'main/user.html', reloadKey: 'user' }); // m: me, my space, my account setting, sign in/sign up
         result.push({ virtual: `/${any}/user.js`, real: 'main/user.js', reloadKey: 'user' });
         result.push({ virtual: `/${any}/user.css`, real: 'main/user.css', reloadKey: 'user' });
     }

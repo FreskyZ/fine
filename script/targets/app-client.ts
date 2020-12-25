@@ -16,6 +16,7 @@ import { admin } from '../tools/admin';
 import { codegen } from '../tools/codegen';
 import { SassOptions, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
+import { wswatch, wsadmin } from '../tools/wsadmin';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'jsx',
@@ -200,6 +201,11 @@ function cleanupMemoryFile(stats: WebpackStat, files: TypeScriptResult['files'],
     }
 }
 
+const websocketClientScript = `<script type="text/javascript">\n`
+    + `    const websocket = new WebSocket(\`wss://\${window.location.host}:8001/socket\`);\n`
+    + `    websocket.onmessage = e => { websocket.send('ACK ' + e.data); if (e.data == 'reload') { window.location.reload(); } };\n`
+    + `  </script>`;
+
 // watching only means less info
 async function renderHtmlTemplate(app: string, files: [css: string[], js: string[]], watching: boolean) {
     const templateEntry = `src/${app}/index.html`;
@@ -209,10 +215,10 @@ async function renderHtmlTemplate(app: string, files: [css: string[], js: string
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
 
     let html = htmlTemplate
-        .replace('<stylesheet-placeholder />', 
-            files[0].map(cssFile => `<link rel="stylesheet" type="text/css" href="/${cssFile}">`).join('\n  '))
-        .replace('<script-placeholder />', 
-            files[1].map(jsFile => `<script type="text/javascript" src="/${jsFile}"></script>`).join('\n  '));
+        .replace('<stylesheet-placeholder />', files[0].map(cssFile => `<link rel="stylesheet" type="text/css" href="/${cssFile}">`).join('\n  '))
+        .replace('<script-placeholder />', files[1].map(jsFile => `<script type="text/javascript" src="/${jsFile}"></script>`)
+            // append additional websocket script when watching
+            .concat(!watching ? [] : [websocketClientScript]).join('\n  '));
 
     await fs.promises.writeFile(`dist/${app}/index.html`, html);
     logInfo('htm', 'template rendered');
@@ -280,6 +286,7 @@ async function buildOnce(app: string) {
 function buildWatch(app: string) {
     logInfo('mka', chalk`watch {cyan ${app}-client}`);
     fs.mkdirSync(`dist/${app}`, { recursive: true });
+    wswatch();
 
     let rerenderRequested = false;
 
@@ -351,6 +358,7 @@ function buildWatch(app: string) {
             rerenderRequested = false;
             renderHtmlTemplate(app, [cssFiles, webpackResultFiles], true).then(() => {
                 admin({ type: 'reload-static', key: app }).catch(() => { /* ignore */});
+                wsadmin('reload');
             });
         }
     }, 3003);

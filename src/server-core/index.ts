@@ -148,10 +148,10 @@ Promise.all([
         });
     }),
 ]).then(() => {
-    logInfo('server core started');
-    console.log('server core started');
+    logInfo('server core startup');
+    console.log('server core startup');
 }).catch(() => {
-    console.error('server core start failed');
+    console.error('server core startup failed');
     process.exit(101);
 });
 

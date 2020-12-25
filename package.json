@@ -43,6 +43,7 @@
     "@types/rimraf": "^3.0.0",
     "@types/sass": "^1.16.0",
     "@types/terser-webpack-plugin": "^5.0.2",
+    "@types/ws": "^7.4.0",
     "@types/xml2json": "^0.11.3",
     "@typescript-eslint/eslint-plugin": "^4.10.0",
     "@typescript-eslint/parser": "^4.10.0",
@@ -67,6 +68,7 @@
     "unionfs": "^4.4.0",
     "webpack": "^5.11.0",
     "webpack-bundle-analyzer": "^4.3.0",
+    "ws": "^7.4.1",
     "xml2json": "^0.12.0"
   }
 }

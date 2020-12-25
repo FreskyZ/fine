@@ -51,6 +51,7 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
     } : {
         ...basicOptions,
         outDir: path.resolve('src'), // outdir should make output file look similar to original ts file to make webpack some path related things look proper
+        // target: ts.ScriptTarget.ES2018, // edge chromium android is not supporting es2020
         sourceMap: true,
         esModuleInterop: true,
         module: ts.ModuleKind.ESNext,
