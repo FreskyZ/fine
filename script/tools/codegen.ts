@@ -241,8 +241,10 @@ async function generateClientDefinition(app: string): Promise<CodeGenerationResu
     const usedMethods = methods.filter(m => definitions.some(d => d.method == m)).map(m => myfetchMethods[m]); // use all methods.filter to keep them in order
     resultJs += `import { ${usedMethods.join(', ')} } from '../../shared/api-client';\n`;
 
-    const bodyTypes = definitions.filter(d => !!d.bodyType).map(d => d.bodyType).filter((t, index, array) => array.indexOf(t) == index);
-    resultJs += `import type { ${bodyTypes.join(',')} } from '../api';\n`;
+    const bodyTypes = definitions.filter(d => !!d.bodyType).map(d => d.bodyType);
+    const returnTypes = definitions.filter(d => d.returnType != 'void').map(d => d.returnType.endsWith('[]') ? d.returnType.slice(0, -2) : d.returnType);
+    const usedTypes = bodyTypes.concat(returnTypes).filter((t, index, array) => array.indexOf(t) == index);
+    resultJs += `import type { ${usedTypes.join(', ')} } from '../api';\n`;
 
     resultJs += '\n';
     for (const definition of definitions) {
@@ -312,7 +314,7 @@ class CodeGenerator {
         logInfo('fcg', chalk`watch {yellow ${this.definitionFile}}`);
 
         // prevent reentry like web-page html
-        let regenerateRequested = false;
+        let regenerateRequested = true; // init to true for initial codegen
         fs.watch(this.definitionFile, { persistent: false }, () => {
             regenerateRequested = true;
         });

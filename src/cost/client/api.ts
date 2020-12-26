@@ -3,10 +3,11 @@
 // Changes to this file may cause incorrect behavior and will be lost if the code is regenerated.
 
 import { get, post, put, del } from '../../shared/api-client';
-import type { Change } from '../api';
+import type { Record, Account } from '../api';
 
-export const getChanges = (): Promise<Change[]> => get(`/cost/v1/changes`);
-export const createChange = (changeId: number, change: Change): Promise<Change> => post(`/cost/v1/changes/${changeId}`, change);
-export const getChange = (changeId: number): Promise<Change> => get(`/cost/v1/changes/${changeId}`);
-export const updateChange = (changeId: number, change: Change): Promise<Change> => put(`/cost/v1/changes/${changeId}`, change);
-export const deleteChange = (changeId: number): Promise<void> => del(`/cost/v1/changes/${changeId}`);
+export const getRecords = (): Promise<Record[]> => get(`/cost/v1/records`);
+export const addRecord = (record: Record): Promise<Record> => post(`/cost/v1/records`, record);
+export const getRecord = (recordId: number): Promise<Record> => get(`/cost/v1/records/${recordId}`);
+export const updateRecord = (recordId: number, record: Record): Promise<Record> => put(`/cost/v1/records/${recordId}`, record);
+export const deleteRecord = (recordId: number): Promise<void> => del(`/cost/v1/records/${recordId}`);
+export const getAccounts = (): Promise<Account[]> => get(`/cost/v1/accounts`);

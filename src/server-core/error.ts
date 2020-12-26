@@ -129,12 +129,15 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
     } catch (error) {
         const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
 
-        if (error instanceof MyError) {
-            const message = error.type == 'unreachable' ? 'unreachable code reached' 
-                : error.type == 'method-not-allowed' ? 'method not allowed' : error.message;
-            ctx.status = ErrorCodes[error.type];
+        // NOTE: after included by server-core and app-server, the definition of MyError will be duplicated and with different reference at runtime
+        // so need to check error.name and type assertion
+        if (error instanceof MyError || (error instanceof Error && error.name == 'MyError')) {
+            const myerror = error as MyError;
+            const message = myerror.type == 'unreachable' ? 'unreachable code reached' 
+                : myerror.type == 'method-not-allowed' ? 'method not allowed' : myerror.message;
+            ctx.status = ErrorCodes[myerror.type];
             ctx.body = { message };
-            logError({ type: error.type, request: summary, error: message });
+            logError({ type: myerror.type, request: summary, error: message });
         } else {
             ctx.status = 500;
             const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';

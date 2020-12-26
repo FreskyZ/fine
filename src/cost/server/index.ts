@@ -4,33 +4,37 @@
 
 import { WebContext, validateId, validateBody } from '../../shared/api-server';
 import { MyError } from '../../shared/error';
-import { getChanges, createChange, getChange, updateChange, deleteChange } from './default';
+import { getRecords, addRecord, getRecord, updateRecord, deleteRecord, getAccounts } from './default';
 
 export async function dispatch(ctx: WebContext) {
     let match: RegExpExecArray;
     if (!ctx.path.startsWith('/cost/v1')) { throw new MyError('not-found', 'invalid invocation version'); }
     const methodPath = `${ctx.method} ${ctx.path.slice(8)}`;
 
-    match = /^GET \/changes$/.exec(methodPath); if (match) {
-        ctx.body = await getChanges(ctx.state);
+    match = /^GET \/records$/.exec(methodPath); if (match) {
+        ctx.body = await getRecords(ctx.state);
         return;
     }
-    match = /^POST \/changes\/(?<changeId>\d+)$/.exec(methodPath); if (match) {
-        ctx.body = await createChange(ctx.state, validateId('changeId', match.groups['changeId']), validateBody(ctx.request.body));
+    match = /^POST \/records$/.exec(methodPath); if (match) {
+        ctx.body = await addRecord(ctx.state, validateBody(ctx.request.body));
         ctx.status = 201;
         return;
     }
-    match = /^GET \/changes\/(?<changeId>\d+)$/.exec(methodPath); if (match) {
-        ctx.body = await getChange(ctx.state, validateId('changeId', match.groups['changeId']));
+    match = /^GET \/records\/(?<recordId>\d+)$/.exec(methodPath); if (match) {
+        ctx.body = await getRecord(ctx.state, validateId('recordId', match.groups['recordId']));
         return;
     }
-    match = /^PUT \/changes\/(?<changeId>\d+)$/.exec(methodPath); if (match) {
-        ctx.body = await updateChange(ctx.state, validateId('changeId', match.groups['changeId']), validateBody(ctx.request.body));
+    match = /^PUT \/records\/(?<recordId>\d+)$/.exec(methodPath); if (match) {
+        ctx.body = await updateRecord(ctx.state, validateId('recordId', match.groups['recordId']), validateBody(ctx.request.body));
         return;
     }
-    match = /^DELETE \/changes\/(?<changeId>\d+)$/.exec(methodPath); if (match) {
-        await deleteChange(ctx.state, validateId('changeId', match.groups['changeId']));
+    match = /^DELETE \/records\/(?<recordId>\d+)$/.exec(methodPath); if (match) {
+        await deleteRecord(ctx.state, validateId('recordId', match.groups['recordId']));
         ctx.status = 204;
+        return;
+    }
+    match = /^GET \/accounts$/.exec(methodPath); if (match) {
+        ctx.body = await getAccounts(ctx.state);
         return;
     }
 

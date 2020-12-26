@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <cost-api version="1">
-    <api name="getChanges" method="GET" path="/changes" return-type="Change[]" />
-    <api name="createChange" method="POST" path="/changes/{changeId:id}" body-type="Change" body-name="change" return-type="Change" />
-    <api name="getChange" method="GET" path="/changes/{changeId:id}" return-type="Change" />
-    <api name="updateChange" method="PUT" path="/changes/{changeId:id}" body-type="Change" body-name="change" return-type="Change" />
-    <api name="deleteChange" method="DELETE" path="/changes/{changeId:id}" />
+    <api name="getRecords" method="GET" path="/records" return-type="Record[]" />
+    <api name="addRecord" method="POST" path="/records" body-type="Record" body-name="record" return-type="Record" />
+    <api name="getRecord" method="GET" path="/records/{recordId:id}" return-type="Record" />
+    <api name="updateRecord" method="PUT" path="/records/{recordId:id}" body-type="Record" body-name="record" return-type="Record" />
+    <api name="deleteRecord" method="DELETE" path="/records/{recordId:id}" />
+    <api name="getAccounts" method="GET" path="/accounts" return-type="Account[]" />
 </cost-api>
