@@ -4,7 +4,7 @@ const inputUserName = document.querySelector('input#username') as HTMLInputEleme
 const inputPassword = document.querySelector('input#password') as HTMLInputElement;
 const button = document.querySelector('button#login') as HTMLButtonElement;
 const span = document.querySelector('span#message') as HTMLSpanElement;
-const returnAddress = new URLSearchParams(window.location.search).get('return') ?? '/'; // this already decodeURIComponent
+const returnAddress = new URLSearchParams(window.location.search).get('return') || '/'; // this already decodeURIComponent
 
 inputUserName.onkeydown = inputPassword.onkeydown = (e) => {
     if (e.key != 'Enter') {

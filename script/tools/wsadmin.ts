@@ -27,12 +27,12 @@ wsServer.on('error', error => {
 });
 wsServer.on('connection', (connection, request) => {
     const clientAddress = request.socket.remoteAddress;
-    logInfo('wsa', `connection from ${clientAddress} setup`);
+    // logInfo('wsa', `connection from ${clientAddress} setup`);
     connection.on('error', error => {
         logError('wsa', `connection from ${clientAddress} error ${error.message}\n${JSON.stringify(error)}`);
     });
     connection.on('close', () => {
-        logInfo('wsa', `connection from ${clientAddress} close`);
+        // logInfo('wsa', `connection from ${clientAddress} close`);
     });
     connection.on('message', (message: string) => {
         if (message.startsWith('ACK ')) {
@@ -56,20 +56,23 @@ process.on('exit', () => {
     }
 });
 
-export function wswatch() {
-    httpServer.listen(8001, () => { started = true; logInfo('wsa', chalk`watch {yellow :8001}`) });
+export function wswatch(port: number) {
+    httpServer.listen(port, () => { started = true; logInfo('wsa', chalk`watch {yellow :${port}}`) });
 }
 
 export function wsadmin(command: string) {
     if (!started || errored) { return; }
 
-    for (const client of wsServer.clients) {
-        if (client.readyState == WebSocket.OPEN) {
-            client.send(command, (error) => {
-                if (error) {
-                    logError('wsa', `send error ${error.message}\n${JSON.stringify(error)}`);
-                }
-            });
-        }
+    const clients = Array.from(wsServer.clients).filter(c => c.readyState == WebSocket.OPEN);
+    if (clients.length == 0) {
+        logInfo('wsa', chalk`{gray no client}`);
+        return;
+    }
+    for (const client of clients) {
+        client.send(command, (error) => {
+            if (error) {
+                logError('wsa', `send error ${error.message}\n${JSON.stringify(error)}`);
+            }
+        });
     }
 }

@@ -153,6 +153,16 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
 
 // log and abort for all uncaught exceptions
 export async function handleProcessException(error: Error) {
+    if (error.message == 'read ECONNRESET') {
+        // ignore read connection reset beceause it does not corrupt state while it seems to be not catchable by many on('error')s
+        logError({ type: 'uncaught read connection reset', error });
+        return;
+    } else if (error.message.includes('deps/openssl/openssl')) {
+        // ignore openssl error because I guess it does not corrupt state while it seems to be not catchable by many on('error')s
+        logError({ type: 'openssl error, I guess', error });
+        return;
+    }
+
     try {
         if (error.stack) {
             const stack = await parseStack(error.stack);

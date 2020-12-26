@@ -5,7 +5,7 @@ export async function getChanges(_: Context): Promise<Change[]> {
     return [
         { type: 'expend', name: 'fan', value: 20, time: '!+10' },
         { type: 'expend', name: 'fan2', value: 25, time: '!*100' },
-        { type: 'expend', name: 'fan3', value: 35, time: '123' },
+        { type: 'expend', name: 'fan3', value: 38, time: '123' },
     ];
 }
 

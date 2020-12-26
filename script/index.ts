@@ -67,8 +67,8 @@ if (a1 == 'self') {
     admin({ type: 'shutdown' }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
 } else if (a1 == 'reload-static') {
     admin({ type: 'reload-static', key: a2 == 'home' || a2 == 'user' ? a2 : validateApp(a2) }).then(() => process.exit(1));
-} else if (a1 == 'source-map') {
-    admin({ type: 'source-map', enabled: a2 == 'enable' }).then(() => process.exit(1));
+} else if (a1 == 'source-map') { // only source map is available in command line, because websocket server is opened by watch app-client, where auto enables and sends port
+    admin({ type: 'config-devmod', sourceMap: a2 == 'enable' }).then(() => process.exit(1));
 } else if (a1 == 'reload-server') {
     admin({ type: 'reload-server', app: validateApp(a2) }).then(() => process.exit(1));
 } else if (a1 == 'expire-device') {

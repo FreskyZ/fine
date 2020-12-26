@@ -4,4 +4,5 @@ export interface Change {
     name: string,
     value: number,
     time: string,
+    something?: string,
 }

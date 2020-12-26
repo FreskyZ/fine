@@ -111,3 +111,14 @@ also, server-core-shared, app-server-shared border, app-client-shared border was
 ## Extend watch limit
 
 add to `/etc/sysctl.conf`: `fs.inotify.max_user_watches = 524288`, run `sudo sysctl -p`, note that `sudo` is required even if you are root
+
+## Auto Refresh Page
+
+when watching app-client, a websocket is trying to setup and refresh page when backend rebuild complete, it is implement by
+
+1. add 'x/x.js' to asset list and insert into rendered html, the kind of magic is the intermediate slash,
+   the script tag is formated as `src="/${filename}"`, normal asset name does not contain any slash character
+2. reload-static will read html and match script tag to get content list, the ref part is `/\/[\w\-\.]+/` so this name is not matched
+3. a `config-devmod` admin command requires content to return some `new WebSocket` code for `ctx.path == '/x/x.js'`
+4. the script executed at front end connects with backend websocket server, which is started by build script not server core
+5. rebuild complete sends `reload-static` to server-core and `refresh` to front end page websocket and refresh the page

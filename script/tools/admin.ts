@@ -10,7 +10,7 @@ function formatPayload(payload: AdminPayload) {
         case 'reload-static': return `reload-static ${payload.key}`;
         case 'reload-server': return `reload-server ${payload.app}`;
         case 'expire-device': return `expire-device ${payload.deviceId}`;
-        case 'source-map': return `source-map ${payload.enabled}`;
+        case 'config-devmod': return `config-devmod ${payload.sourceMap} ${payload.websocketPort}`;
     }
 }
 

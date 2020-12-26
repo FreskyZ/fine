@@ -8,7 +8,7 @@ import * as bodyParser from 'koa-bodyparser';
 import type { AdminEventEmitter, AdminPayload } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleRequestContent, handleAdminReloadStatic, handleAdminSwitchSourceMap } from './content';
+import { handleRequestContent, handleAdminReloadStatic, handleAdminConfigDevMod } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
 import type { ContextState } from './auth';
 import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
@@ -26,7 +26,7 @@ app.use(handleApplications);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
 admin.on('reload-static', handleAdminReloadStatic);
-admin.on('source-map', handleAdminSwitchSourceMap);
+admin.on('config-devmod', handleAdminConfigDevMod);
 admin.on('reload-server', handleAdminReloadServer);
 admin.on('expire-device', handleAdminExpireDevice);
 process.on('uncaughtException', handleProcessException);
@@ -72,8 +72,8 @@ socketServer.on('connection', connection => {
             admin.emit('shutdown');
         } else if (message.type == 'reload-static') {
             admin.emit('reload-static', message.key);
-        } else if (message.type == 'source-map') {
-            admin.emit('source-map', message.enabled);
+        } else if (message.type == 'config-devmod') {
+            admin.emit('config-devmod', message.sourceMap, message.websocketPort);
         } else if (message.type == 'reload-server') {
             admin.emit('reload-server', message.app);
         } else if (message.type == 'expire-device') {
@@ -89,23 +89,22 @@ const http2Server = http2.createSecureServer({
     cert: fs.readFileSync("SSL_CERT", 'utf-8'),
 }, app.callback());
 
-const handleHttpServerError = (error: Error) => {
-    if (error.message == 'read ECONNRESET') {
-        logError({ type: 'http server read connection reset', error });
-    } else {
-        throw error; // rethrow to uncaughtexception
-    }
-}
-
 const httpConnections: { [key: string]: net.Socket } = {};
 httpServer.on('connection', socket => {
     const key = `http:${socket.remoteAddress}:${socket.remotePort}`;
     httpConnections[key] = socket;
+    socket.on('error', error => {
+        // // this is also a try of catch read ECONNRESET
+        logError({ type: 'http socket error', error });
+    });
     socket.on('close', () => delete httpConnections[key]);
 });
-http2Server.on('connection', socket => {
+http2Server.on('connection', (socket: net.Socket) => {
     const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
     httpConnections[key] = socket;
+    socket.on('error', error => {
+        logError({ type: 'http2 socket error', error });
+    });
     socket.on('close', () => delete httpConnections[key]);
 });
 
@@ -131,7 +130,11 @@ Promise.all([
         httpServer.once('error', handleListenError); 
         httpServer.listen(80, () => {
             httpServer.removeListener('error', handleListenError);
-            httpServer.on('error', handleHttpServerError);
+            httpServer.on('error', error => {
+                // wrap and goto uncaught exception 
+                // // currently this is never reached
+                throw new Error('http server error: ' + error.message);
+            });
             resolve();
         });
     }),
@@ -143,7 +146,9 @@ Promise.all([
         http2Server.once('error', handleListenError);
         http2Server.listen(443, () => {
             http2Server.removeListener('error', handleListenError);
-            http2Server.on('error', handleHttpServerError);
+            http2Server.on('error', error => {
+                throw new Error('http2 server error: ' + error.message);
+            }); 
             resolve();
         });
     }),
