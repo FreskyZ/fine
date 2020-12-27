@@ -1,17 +1,15 @@
-# /home/fresky
+# freskyz.com
 
-a simple personal website for fun
+Nianqinren's first personal website
 
-## features (in design)
+A website with a few kind of useful web apps while mainly focus on
 
-- some web applications
-- native or browser application backend provider
-- blogs (maybe)
+### DevOps
+- mono repo with no various `tsconfig.xxx.json` and `webpack.config.xxx.js` config files but one unified build script
+- what does `webpack`/`ts-loader`/`webpack-dev-server` (and many other familiar names) actually do and try to implement a full or subset of them
+- deployment and maintenance process
 
-## other things
-
-- this name comes from little thinking, just because I don't want to see my 
-  name from page tab, address box, webpage title and webpage bottom contact 
-  information which includes name, email and github homepage that all 
-  contains my name
-
+### Isomorphic Web App
+- what can be shared, what can be omitted
+- how is it affecting devops
+- comparing to isomerism web apps

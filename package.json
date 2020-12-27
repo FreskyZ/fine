@@ -6,7 +6,7 @@
     "//": [
       "// this is how you multiple line comment in json",
       "nodejs/node#35730 cause webpack config `optimization.splitChunks.cacheGroups.[cacheGroup].test` function to fail at runtime internally",
-      "it is first included in non-lts version 15.5.0 currently (Dec 23 2020)"
+      "the fix is first included in non-lts version 15.5.0 currently (Dec 23 2020)"
     ],
     "node": ">=15.5.0"
   },
@@ -22,7 +22,6 @@
   },
   "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
-    "@types/webpack-bundle-analyzer": "^3.9.0",
     "dayjs": "^1.9.7",
     "koa": "^2.13.0",
     "koa-bodyparser": "^4.3.0",
@@ -43,6 +42,7 @@
     "@types/rimraf": "^3.0.0",
     "@types/sass": "^1.16.0",
     "@types/terser-webpack-plugin": "^5.0.2",
+    "@types/webpack-bundle-analyzer": "^3.9.0",
     "@types/ws": "^7.4.0",
     "@types/xml2json": "^0.11.3",
     "@typescript-eslint/eslint-plugin": "^4.10.0",
