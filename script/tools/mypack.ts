@@ -10,10 +10,6 @@ import { logInfo, logError } from '../common';
 // my bundler, input list of name/content of js file/source map
 // output minified js and source map
 
-// TODO FAR: 
-// collect all used modules and remove not used modules, 
-//   because typescript watch api is not able to remove unused files, this requires my 1 pass generation become 2 pass 
-
 // // you will be amazing how these options are added from the very first version of mypack
 export interface MyPackOptions {
     type: 'lib' | 'app',       // lib will reexport entry
@@ -24,165 +20,285 @@ export interface MyPackOptions {
     printModules?: boolean,    // default to false
     minify?: boolean,          // default to false
     shebang?: boolean,         // default to false
-    lastResult?: MyPackResult, // previous result when watch
+    cleanupFiles?: boolean,    // see tools/typescript:TypeScriptChecker::watch, default to true, should be false for multi entry targets like self
 }
 
 export type MyPackResult = {
     success: boolean,
-    hash?: string,
-    modules?: { fileName: string, moduleName: string, contentLength: number, hash: string }[],
+    hasChange?: boolean, // this hash = last hash
 }
 
-export async function mypack(options : MyPackOptions): Promise<MyPackResult> {
-    if (options.lastResult) {
-        logInfo('mpk', 'repack');
-    } else {
-        logInfo('mpk', chalk`pack {yellow ${options.entry}}`);
+interface Source { 
+    filename: string, 
+    jsContent: string,
+    mapContent: string, // can be missing even if source map is on
+}
+
+interface ModuleRequest {
+    index: number, // index in source content
+    raw: string,   // require parameterr value
+    resolvedFileName: string,
+    resolvedModuleName: string,
+}
+interface Module {
+    name: string,  // module name is relative path to entry, omit .js and index
+    source: Source,
+    requests: ModuleRequest[],
+    content: string, // content after updating require to myrequire
+    hash: string,    // hash of previous content
+}
+
+interface EmitHost {
+    sb: string, // string builder
+    generator: SourceMapGenerator,
+    lineOffset: number, // offset from generated line to original line, because column will not be change in this packing process
+}
+
+class MyPacker {
+
+    private lastHash: string = null;
+    private lastModules: Module[] = null;
+
+    public constructor(public readonly options: MyPackOptions) {
     }
 
-    if (!options.files.some(f => f.name == options.entry)) {
-        logError('mpk', 'invalid entry');
-        return { success: false };
-    }
-    const entryFolder = path.dirname(options.entry);
-
-    const sources: { name: string, jsContent: string, mapContent: string }[] = !options.sourceMap 
-        ? options.files.map(({ name, content }) => ({ name, jsContent: content, mapContent: null }))
-        : options.files.filter(f => f.name.endsWith('.js')).map(({ name, content }) => ({
-            name: name,
+    private sources: Source[];
+    private getSources() {
+        this.sources = this.options.files.filter(f => f.name.endsWith('.js')).map(({ name, content }) => ({
+            filename: name,
             jsContent: content,
-            mapContent: options.files.find(f => f.name == name + '.map').content, // let it die if sourcemap missing
+            mapContent: this.options.files.find(f => f.name == name + '.map')?.content,
         }));
-
-    let generator: SourceMapGenerator = null;
-    if (options.sourceMap) {
-        generator = new SourceMapGenerator({ file: options.output })
     }
 
-    const resultModules: MyPackResult['modules'] = [];
-
-    let resultJs = '';
-    let lineMovement = 3; // added lines to each module, used by source map
-
-    if (options.shebang) {
-        resultJs += '#!/usr/bin/env node\n';
-        lineMovement += 1;
-    }
-
-    resultJs += options.type == 'app'
-        ? "((modules) => { const mycache = {};\n"
-            + "(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
-        : "module.exports = ((modules) => { const mycache = {};\n"
-            + "return (function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('.'); })({\n"
-    for (let { name: fileName, jsContent, mapContent } of sources) {
-        // myrequire module name is always path relative to entry, so entry itself is '.'
-        let moduleName = path.relative(entryFolder, fileName);
+    private processModule(source: Source): Module {
+        let moduleName = path.relative(path.dirname(this.options.entry), source.filename);
         if (moduleName.endsWith('.js')) { moduleName = moduleName.slice(0, -3); }
         if (moduleName.endsWith('index')) { moduleName = moduleName.slice(0, -5); }
-        if (moduleName.length == 0) { moduleName = '.'; } // entry will be empty string after previous operations
+        if (moduleName.length == 0) { moduleName = '.'; } // entry index.js will be empty string after previous operations
     
-        // processes replace all "require('."
-        let moduleContent = jsContent;
-        while (true) {
-            const pattern = /require\("(?<moduleName>\.[\.\w\-\/]*)"\);/;
-            const match = pattern.exec(moduleContent);
-            if (!match) {
-                break;
-            }
+        // find all usage of 'require(".', which resolves to my code
+        const requests: ModuleRequest[] = [];
+        const pattern = /require\("(?<request>\.[\.\w\-\/]*)"\);/g; // rest part length 12
+        do {
+            const match = pattern.exec(source.jsContent);
+            if (!match) { break; }
 
-            // this require name may have .js, may miss index
-            // so more options are searched
-            const requiredName = path.join(path.dirname(fileName), match.groups['moduleName']);
-            let requiredModuleName = 
-                sources.some(s => s.name == requiredName) ? requiredName
-                : sources.some(s => s.name == requiredName + '.js') ? requiredName + '.js'
-                : sources.some(s => s.name == requiredName + '/index.js') ? requiredName + '/index.js' 
+            const raw = match.groups['request'];
+            const fullRequest = path.resolve(path.dirname(source.filename), raw);
+            const requiredFileName = 
+                this.sources.some(s => s.filename == fullRequest) ? fullRequest
+                : this.sources.some(s => s.filename == fullRequest + '.js') ? fullRequest + '.js'
+                : this.sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
                 : null;
-            if (requiredModuleName === null) {
-                logError('mpk', `${fileName}: invalid module name ${match.groups['moduleName']} at ${match.index}`);
-                return { success: false };
+            if (!requiredFileName) {
+                logError('mpk', `${source.filename}: invalid module name ${raw} at ${match.index}`);
+                return null;
             }
 
             // similar to previous moduleName
-            requiredModuleName = path.relative(entryFolder, requiredModuleName);
+            let requiredModuleName = path.relative(path.dirname(this.options.entry), requiredFileName);
             requiredModuleName = requiredModuleName.slice(0, -3); // required module name is name in sources list, so it must end with .js
             if (requiredModuleName.endsWith('index')) { requiredModuleName = requiredModuleName.slice(0, -5); }
             if (requiredModuleName.length == 0) { requiredModuleName = '.'; } // entry
 
-            moduleContent = moduleContent.replace(pattern, `__myrequire__("${requiredModuleName}");`); // if replace by `myrequire("${}")`, it will be found again
+            requests.push({ index: match.index, raw, resolvedFileName: requiredFileName, resolvedModuleName: requiredModuleName });
+        } while (true);
+
+        let previousEndIndex = 0; // previous request end index in source content
+        let moduleContent = '';
+        for (const { index, raw, resolvedModuleName } of requests) {
+            moduleContent += source.jsContent.slice(previousEndIndex, index);
+            moduleContent += `myimport("${resolvedModuleName}");`;
+            previousEndIndex = index + raw.length + 12;
+        }
+        moduleContent += source.jsContent.slice(previousEndIndex); // also correct for no request
+
+        return { name: moduleName, source, requests, content: moduleContent, hash: sha256(moduleContent).toString() };
+    }
+
+    // return true for has circular reference and should abort
+    private checkCircularReference(modules: Module[]): boolean {
+        // this is actually similar to runtime initialize process
+
+        const loadings: Module[] = [];
+        function load($module: Module) {
+            loadings.push($module);
+            for (const request of $module.requests) {
+                const requestedModule = modules.find(m => m.name == request.resolvedModuleName);
+                if (loadings.some(o => o.name == requestedModule.name)) { // this also checks self references, but how and why will anyone write self reference?
+                    throw new Error('circular reference');
+                }
+                load(requestedModule);
+            }
+            loadings.pop();
         }
 
-        resultJs += `'${moduleName}': (exports, __myrequire__) => {\n${moduleContent}}, `;
-        resultModules.push({ fileName, moduleName, contentLength: moduleContent.length, hash: sha256(moduleContent).toString() });
+        try {
+            load(modules[0]); // modules[0] is entry
+            return false;
+        } catch (ex) {
+            if (ex.message == 'circular reference') {
+                logInfo('mpk', 'circular reference');
+                return true;
+            }
+            throw ex;
+        }
+    }
 
-        if (options.sourceMap) {            
+    private emitRuntimePrefix(host: EmitHost, entryModuleName: string) {
+        if (this.options.shebang) {
+            host.sb += '#!/usr/bin/env node\n';
+            host.lineOffset += 1;
+        }
+
+        host.sb += this.options.type == 'app'
+            ? `((modules) => { const mycache = {};\n`
+                + `(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('${entryModuleName}'); })({\n`
+            : `module.exports = ((modules) => { const mycache = {};\n`
+                + `return (function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('${entryModuleName}'); })({\n`
+        host.lineOffset += 2;
+    }
+    private async emitModule(host: EmitHost, $module: Module) {
+        host.sb += `'${$module.name}': (exports, myimport) => {\n${$module.content}}, `;
+        host.lineOffset += 1;
+
+        if (host.generator) {
             let firstMappingLine: number = null; // first mapping line is 3/4 (diff by whether have export) which maps to packed js line `lineMovement + 1`
-            const consumer = await new SourceMapConsumer(JSON.parse(mapContent));
+            const consumer = await new SourceMapConsumer(JSON.parse($module.source.mapContent));
             consumer.eachMapping(mapping => {
                 if (firstMappingLine === null) {
                     firstMappingLine = mapping.generatedLine;
                 }
 
-                generator.addMapping({ 
+                host.generator.addMapping({ 
                     source: path.resolve(mapping.source), 
                     original: { line: mapping.originalLine, column: mapping.originalColumn },
-                    generated: { line: mapping.generatedLine - firstMappingLine + lineMovement + 1, column: mapping.generatedColumn },
+                    generated: { line: mapping.generatedLine - firstMappingLine + host.lineOffset + 1, column: mapping.generatedColumn },
                 });
             });
+            host.lineOffset += $module.content.split('\n').length - 1;
         }
-        lineMovement += moduleContent.split('\n').length;
     }
-    resultJs += '})\n';
-
-    let resultMap = generator?.toString();
-    if (options.minify) {
-        const minifyResult = await minify(resultJs, { 
-            sourceMap: !options.sourceMap ? false: { 
-                content: resultMap,
-                filename: options.output,     // this is new SourceMapGenerator({ file }), which I do not use
-                url: options.output + '.map', // this is generated //#sourceMapURL, which I do not use
-            },
-            format: {
-                max_line_len: 'MAKA_SELF_MULTILINE' in process.env ? 120 : undefined,
+    private emitRuntimePostfix(host: EmitHost) {
+        // although this is small, but this is for do not add any sb+= in main function
+        host.sb += '})\n';
+    }
+    
+    private cleanupMemoryFile(modules: Module[], files: MyPackOptions['files']) {
+        const unusedFiles = files.filter(f => !modules.some(m => m.source.filename == f.name) && !modules.some(m => m.source.filename + '.map' == f.name));
+        for (const unusedFile of unusedFiles) {
+            files.splice(files.indexOf(unusedFile), 1);
+            if (!unusedFile.name.endsWith('.map')) {
+                console.log(chalk`   {gray - ${unusedFile.name}}`);
             }
-        });
-        resultJs = minifyResult.code;
-        resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
+        }
     }
 
-    const hash = sha256(resultJs).toString();
-    if (hash === options.lastResult?.hash) {
-        logInfo('mpk', chalk`completed with {blue no change}`);
-    } else {
-        if (!options.lastResult) {
-            if (options.output) { logInfo('mpk', chalk`asset {yellow ${options.output}}`); }
-        }
-        logInfo('mpk', chalk`asset size {gray ${filesize(resultJs.length)}} compression rate {gray ${(resultJs.length / sources.reduce<number>((acc, s) => acc + s.jsContent.length, 0) * 100).toFixed(2)}%}`);
-        if (options.printModules) {
-            if (options.lastResult) {
-                for (const addedModule of resultModules.filter(n => !options.lastResult.modules.some(p => p.fileName == n.fileName))) {
-                    console.log(chalk`  {gray +} ${addedModule.fileName} {cyan ${addedModule.moduleName}} {gray size ${filesize(addedModule.contentLength)}}`);
+    private printResult(assetSize: number, modules: Module[]) {
+        logInfo('mpk', chalk`completed with {yellow 1} asset {yellow ${filesize(assetSize)}}`);
+        if (this.options.printModules) {
+            if (this.lastModules) {
+                for (const addedModule of modules.filter(n => !this.lastModules.some(p => p.source.filename == n.source.filename))) {
+                    console.log(chalk`  {gray +} ${addedModule.name} ({gray ${addedModule.source.filename}}) ${filesize(addedModule.content.length)}`);
                 }
-                for (const [updatedModule] of resultModules
-                    .map(n => [n, options.lastResult.modules.find(p => p.fileName == n.fileName)])
+                for (const [updatedModule] of modules
+                    .map(n => [n, this.lastModules.find(p => p.source.filename == n.source.filename)])
                     .filter(([currentModule, previousModule]) => previousModule && currentModule.hash != previousModule.hash)) {
-                    console.log(chalk`  {gray *} ${updatedModule.fileName} {cyan ${updatedModule.moduleName}} {gray size ${filesize(updatedModule.contentLength)}}`);
+                    console.log(chalk`  {gray *} ${updatedModule.name} ({gray ${updatedModule.source.filename}}) ${filesize(updatedModule.content.length)}`);
                 }
-                for (const removedModule of options.lastResult.modules.filter(p => !resultModules.some(n => n.fileName == p.fileName))) {
-                    console.log(chalk`  {gray - removed ${removedModule.fileName}} {cyan ${removedModule.moduleName}}`);
+                for (const removedModule of this.lastModules.filter(p => !modules.some(n => n.source.filename == p.source.filename))) {
+                    console.log(chalk`  {gray - removed} ${removedModule.name} ({gray ${removedModule.source.filename}})`);
                 }
             } else {
-                for (const { fileName, moduleName, contentLength } of resultModules) {
-                    console.log(chalk`   {gray +} ${fileName} {cyan ${moduleName}} {gray size ${filesize(contentLength)}}`);
+                for (const { name, source, content } of modules) {
+                    console.log(chalk`   {gray +} ${name} ({gray ${source.filename}}) ${filesize(content.length)}`);
                 }
             }
         }
     }
 
-    await fs.promises.writeFile(options.output, resultJs);
-    if (options.sourceMap) {
-        await fs.promises.writeFile(options.output + '.map', resultMap);
-    }
+    public async run(): Promise<MyPackResult> {
+        const entry = this.options.entry; // entry file name
+        logInfo('mpk', this.lastHash ? 'repack' : chalk`pack {yellow ${entry.startsWith('/vbuild/') ? entry.slice(8) : entry}}`);
 
-    return { success: true, hash: hash, modules: resultModules };
+        this.getSources();
+        if (!this.sources.some(s => s.filename == entry)) {
+            logError('mpk', 'invalid entry');
+            return { success: false };
+        }
+
+        // bfs require
+        const modules: Module[] = [];
+        const requiredFileNames: string[] = [entry]; // items already checked in this.sources
+        for (let moduleIndex = 0; moduleIndex < requiredFileNames.length; ++moduleIndex) {
+            const $module = this.processModule(this.sources.find(s => s.filename == requiredFileNames[moduleIndex]));
+            if (!$module) { return { success: false }; }
+            requiredFileNames.push(...$module.requests.map(r => r.resolvedFileName).filter(f => !requiredFileNames.includes(f)));
+            modules.push($module);
+        }
+
+        if (this.checkCircularReference(modules)) {
+            return { success: false };
+        }
+
+        const emitHost: EmitHost = { sb: '', lineOffset: 0, generator: !this.options.sourceMap ? null : new SourceMapGenerator({ file: this.options.output }) }
+        this.emitRuntimePrefix(emitHost, modules[0].name);
+        for (const $module of modules) {
+            await this.emitModule(emitHost, $module);
+        }
+        this.emitRuntimePostfix(emitHost);
+
+        let resultJs = emitHost.sb;
+        let resultMap = emitHost.generator?.toString();
+        if (this.options.minify) {
+            const minifyResult = await minify(resultJs, { 
+                sourceMap: !this.options.sourceMap ? false: { 
+                    content: resultMap,
+                    filename: this.options.output,     // this is new SourceMapGenerator({ file }), which I do not use
+                    url: this.options.output + '.map', // this is generated //#sourceMapURL, which I do not use
+                },
+                format: {
+                    max_line_len: 'MAKA_SELF_MULTILINE' in process.env ? 120 : undefined,
+                }
+            });
+            resultJs = minifyResult.code;
+            resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
+        }
+
+        const hash = sha256(resultJs).toString();
+        const hasChange = hash != this.lastHash;
+        this.lastHash = hash;
+
+        if (!hasChange) {
+            logInfo('mpk', chalk`completed with {blue no change}`);
+        } else {
+            this.printResult(resultJs.length, modules);
+        }
+        
+        if (!('cleanupFiles' in this.options) || this.options.cleanupFiles) {
+            this.cleanupMemoryFile(modules, this.options.files);
+        }
+
+        // remove content to reduce memory usage
+        for (const $module of modules) {
+            $module.content = null;
+            $module.source.jsContent = null;
+            $module.source.mapContent = null;
+        }
+        this.lastModules = modules;
+
+        await fs.promises.writeFile(this.options.output, resultJs);
+        if (this.options.sourceMap) {
+            await fs.promises.writeFile(this.options.output + '.map', resultMap);
+        }
+
+        return { success: true, hasChange };
+    }
 }
+
+export function mypack(options: MyPackOptions) { return new MyPacker(options); }
+
+// TODO: check removed file actually removed
+// TODO: check circular reference checker
+// TODO: check source map mapped correctly

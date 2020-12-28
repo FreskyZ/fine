@@ -1,10 +1,12 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as chalk from 'chalk';
+import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { codegen } from '../tools/codegen';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
+import { MyPackOptions, mypack } from '../tools/mypack';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -13,7 +15,7 @@ const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions =>
     watch,
 });
 
-const getMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult?: MyPackResult): MyPackOptions => ({
+const getMyPackOptions = (app: string, files: MyPackOptions['files']): MyPackOptions => ({
     type: 'lib',
     entry: `/vbuild/${app}/server/index.js`,
     files,
@@ -21,7 +23,6 @@ const getMyPackOptions = (app: string, files: MyPackOptions['files'], lastResult
     output: `dist/${app}/server.js`,
     printModules: true,
     minify: true,
-    lastResult,
 });
 
 async function buildOnce(app: string): Promise<void> {
@@ -38,12 +39,24 @@ async function buildOnce(app: string): Promise<void> {
         return logCritical('mka', chalk`{cyan ${app}-server} failed at check`);
     }
 
-    const packResult = await mypack(getMyPackOptions(app, checkResult.files));
+    const packResult = await mypack(getMyPackOptions(app, checkResult.files)).run();
     if (!packResult.success) {
         return logCritical('mka', chalk`{cyan ${app}-server} failed at pack`);
     }
 
-    await admin({ type: 'reload-server', app });
+    try {
+        logInfo('ssh', 'deploy assets');
+        const sftp = new SFTPClient();
+        await sftp.connect({ host: 'domain.com', username: 'root', privateKey: await fs.promises.readFile('SSH_KEY'), passphrase: 'SSH_PASSPHRASE' });
+        await sftp.fastPut(path.resolve(`dist/${app}/server.js`), `WEBROOT/${app}/server.js`);
+        await sftp.fastPut(path.resolve(`dist/${app}/server.js.map`), `WEBROOT/${app}/server.js.map`);
+        await sftp.end();
+        logInfo('ssh', 'completed successfully');
+    } catch (ex) {
+        console.log(ex);
+        logCritical('ssh', 'failed to connect or put file, try later');
+    }
+
     logInfo('mka', chalk`{cyan ${app}-server} complete successfully`);
 }
 
@@ -53,16 +66,16 @@ function buildWatch(app: string) {
 
     codegen(app, 'server').watch(); // no callback watch is this simple
 
-    let lastResult: MyPackResult = null;
+    const packer = mypack(getMyPackOptions(app, null));
     typescript(getTypeScriptOptions(app, true)).watch(async ({ files }) => {
-        const currentResult = await mypack(getMyPackOptions(app, files, lastResult));
-        if (!currentResult.success) {
+        packer.options.files = files; // this usage is correct but unexpected, change this later
+        const packResult = await packer.run();
+        if (!packResult.success) {
             return;
         }
-        if (currentResult.hash != lastResult?.hash) {
+        if (packResult.hasChange) {
             await admin({ type: 'reload-server', app }).catch(() => { /* ignore */});
         }
-        lastResult = currentResult;
     });
 }
 

@@ -93,8 +93,16 @@ const httpConnections: { [key: string]: net.Socket } = {};
 httpServer.on('connection', socket => {
     const key = `http:${socket.remoteAddress}:${socket.remotePort}`;
     httpConnections[key] = socket;
-    socket.on('error', error => {
-        // // this is also a try of catch read ECONNRESET
+    socket.on('error', (error: any) => {
+        // according to log, these 2 errors happens kind of frequently (several times a day) while **only** on http socket
+        // I guess they are sent by some bad guys or auto guys which supprised by my 301 reponse or http2 server (which are both not very normal behavior)
+        // like many tries to connect to something like notebook/admin interface logged in this site Jan 2019 version
+        // ignore them 
+        if (error.code == 'ECONNRESET' && error.syscall == 'read') {
+            // ignore
+        } else if (error.code == 'HPE_INVALID_METHOD') {
+            // ignore
+        }
         logError({ type: 'http socket error', error });
     });
     socket.on('close', () => delete httpConnections[key]);

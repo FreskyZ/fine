@@ -5,14 +5,14 @@ import { MyPackOptions, mypack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
-    entry: 'script/index.ts',
+    entry: 'script/maka.ts',
     sourceMap: 'no',
     watch: false,
 };
 
 const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: '/vbuild/index.js',
+    entry: '/vbuild/maka.js',
     files,
     output: 'maka',
     minify: true,
@@ -27,7 +27,7 @@ export async function build(): Promise<void> {
         return logCritical('mka', chalk`{cyan self} failed at transpile`);
     }
 
-    const packResult = await mypack(getMyPackOptions(checkResult.files));
+    const packResult = await mypack(getMyPackOptions(checkResult.files)).run();
     if (!packResult.success) {
         return logCritical('mka', chalk`{cyan self} failed at pack`);
     }
