@@ -1,8 +1,12 @@
 # Build Script
 
-build script entry is called `maka`, which is combination of `make` and 'admin', not mutation of MAGA!
+build script entry is called `maka`, which is combination of `make` and `admin`, not mutation of MAGA!
+
+build script is invoked directly, this is **8** letters less then `npm run maka target` and **5** letters less than `node maka target`
 
 ```shell
+$ maka self
+$ maka public
 $ maka server-core
 $ maka watch server-core
 $ maka home-page
@@ -13,15 +17,8 @@ $ maka watch cost-server
 $ maka watch cost-client
 $ maka watch cost
 $
-$ maka self
-$ maka public
 $ maka clean
-$
-$ maka shutdown
-$ maka reload-static www
-$ maka reload-static cost
-$ maka reload-server collect
-$ maka expire-token 1
+$ maka all
 ```
 
 ## MyPack Bundler
@@ -35,7 +32,6 @@ and source map is simply merged together with `generatedLine += currentLine`
 This bundler together with functions in build script actually implements `webpack + ts-loader`, with watch, source map and split chunk feature, 
 and additional features like no-intermediate-file, no-tsconfig-file, no-webpack-config-file, etc., in about 1k lines of code and 4.9 bundled compressed size,
 another reason that webpack is bad or webpack is too difficult to learn and understand
-
 
 ## Target Border
 
@@ -65,7 +61,7 @@ also, server-core-shared, app-server-shared border, app-client-shared border was
 
 2. so it actually uses a node dynamic import (actually `require` function is always dynamic), which works like
     ```js
-    require(`..\${app}\server`).dispatch(ctx)
+    require(`../${app}/server`).dispatch(ctx)
     ```
     1. for tsc, it only processes es6 `import` statement, it recognize `require` as a known function (in `lib.node.d.ts`) and pass by
     2. for mypack, I only recognize `require(".` while this expression requires a string template, so it pass by
@@ -107,18 +103,3 @@ also, server-core-shared, app-server-shared border, app-client-shared border was
    have same signature as app server's `getValue` function except server side have additional `ctx` parameter to hold some context values
 2. this is also implemented by code generation and calling helper wrapper over `fetch` with authentication token (see auth.md), 
    after 2 side code generation and type sharing (any app/api.d.ts), they have same experience as calling function in one executable file
-
-## Extend watch limit
-
-add to `/etc/sysctl.conf`: `fs.inotify.max_user_watches = 524288`, run `sudo sysctl -p`, note that `sudo` is required even if you are root
-
-## Auto Refresh Page
-
-when watching app-client, a websocket is trying to setup and refresh page when backend rebuild complete, it is implement by
-
-1. add 'x/x.js' to asset list and insert into rendered html, the kind of magic is the intermediate slash,
-   the script tag is formated as `src="/${filename}"`, normal asset name does not contain any slash character
-2. reload-static will read html and match script tag to get content list, the ref part is `/\/[\w\-\.]+/` so this name is not matched
-3. a `config-devmod` admin command requires content to return some `new WebSocket` code for `ctx.path == '/x/x.js'`
-4. the script executed at front end connects with backend websocket server, which is started by build script not server core
-5. rebuild complete sends `reload-static` to server-core and `refresh` to front end page websocket and refresh the page

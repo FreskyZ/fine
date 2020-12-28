@@ -14,13 +14,13 @@ export const compileTimeConfig = JSON.parse(fs.readFileSync('maka.config', 'utf-
 // watching (the long displayed long message): blue 
 
 export function logInfo(header: string, message: string) {
-    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} ${header}] ${message}`);
+    console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
 }
 export function logError(header: string, message: string) {
-    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+    console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
 }
 export function logCritical(header: string, message: string) {
-    console.log(chalk`[{blueBright ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+    console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     return process.exit(1);
 }
 

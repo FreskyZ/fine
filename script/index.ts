@@ -56,11 +56,12 @@ if (a1 == 'self') {
 } else if (a1 == 'all') {
     buildPublic();
     buildServerCore(false);
-    buildSimplePage('www', false);
+    buildSimplePage('home', false);
     buildSimplePage('user', false);
     buildSimplePage('404', false);
     buildSimplePage('418', false);
     buildAppServer('cost', false);
+    buildAppClient('cost', false);
     buildAppClient('ak', false);
 
 } else if (a1 == 'shutdown') {

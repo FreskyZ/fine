@@ -11,8 +11,8 @@ import { MyError } from '../shared/error';
 // handle all kinds of file requests, include html/js/css/image and not interesting files like robots.txt, sitemap.xml, etc.
 // 
 // public files does not cache in server memory and use simple weak cache key
-// html/js/css files (or build script results) are cached in server memory and browser cache key is strong
-// for content list, because html file contains js/css file list, regex it to get current file list when reloading requested
+// app client files are cached in server memory and browser cache key is strong
+// for content list, because html file contains exactly js/css file list, regex it to get current file list when reloading requested
 // for e-tag source,
 //   - hash digest file may be slow for large file
 //   - file stat is a file operation and may be slow

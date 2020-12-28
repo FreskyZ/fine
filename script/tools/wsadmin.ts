@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as https from 'https';
 import * as net from 'net';
 import * as chalk from 'chalk';
@@ -7,7 +6,7 @@ import { logInfo, logError } from '../common';
 
 // websocket server to indicate client to refresh
 
-const httpServer = https.createServer({ key: fs.readFileSync('SSL_KEY'), cert: fs.readFileSync('SSL_CERT') });
+const httpServer = https.createServer({ /*key: fs.readFileSync('SSL_KEY'), cert: fs.readFileSync('SSL_CERT')*/ });
 
 const httpConnections: { [key: string]: net.Socket } = {};
 httpServer.on('connection', socket => {

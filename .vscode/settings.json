@@ -10,5 +10,6 @@
         ".cache": true,
         "node_modules": true
     },
-    "emmet.showExpandedAbbreviation": "never"
+    "emmet.showExpandedAbbreviation": "never",
+    "typescript.tsdk": "node_modules/typescript/lib"
 }

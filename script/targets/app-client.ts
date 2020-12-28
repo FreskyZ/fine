@@ -119,7 +119,7 @@ function printWebpackResult(stats: WebpackStat, additional: AdditionalStat) {
 
     if (stats.errorsCount == 0) {
         logInfo('wpk', chalk`completed with {yellow ${stats.assets.length}} assets in ${stats.time/1000}s, `
-            + chalk`{yellow ${totalCompressSize}} ({${maxVendorSize > 300_000 ? 'red' : 'black'} max ${filesize(maxVendorSize || 0)}})`);
+            + chalk`{yellow ${totalCompressSize}} ({${maxVendorSize > 300_000 ? 'red' : 'white'} max ${filesize(maxVendorSize || 0)}})`);
         if (stats.warningsCount > 0) {
             logInfo('wpk', chalk`{yellow ${stats.warningsCount}} warnings`);
             for (const { message } of stats.warnings) {
