@@ -23,5 +23,3 @@ rules:
   semi:
     - error
     - always
-  overrides:
-    excludedFiles: '*.js'
