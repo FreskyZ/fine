@@ -50,6 +50,8 @@ export function formatAdminPayload(payload: AdminPayload) {
         }
         case 'auth': switch(payload.data.type) {
             case 'reload-server': return `reload-server ${payload.data.app}`;
+            case 'enable-signup': return `enable-signup`;
+            case 'disable-signup': return `disable-signup`;
             default: return JSON.stringify(payload.data); // TODO
         }
         default: return JSON.stringify(payload);

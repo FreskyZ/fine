@@ -2,8 +2,8 @@
 // this is payload from fpsd to server-core
 export type AdminAuthCommand = 
     | { type: 'reload-server', app: string }
-    | { type: 'enable-feature', featureName: string }
-    | { type: 'disable-feature', featureName: string }
+    | { type: 'enable-signup' }
+    | { type: 'disable-signup' }
     | { type: 'enable-user', userId: number }
     | { type: 'disable-user', userId: number }
     | { type: 'expire-device', deviceId: number }

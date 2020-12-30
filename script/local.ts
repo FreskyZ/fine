@@ -64,10 +64,11 @@ if (a1 == 'self') {
     buildAppClient('cost', false);
     buildAppClient('ak', false);
 
+} else if (a1 == 'test') {
+    admin({ type: 'webpage', data: { type: 'reload-css' } });
 } else {
     console.log('unknown command');
-    admin({ type: 'auth', data: { type: 'reload-server', app: 'cost' } }).then(() => process.exit(1));
-    // process.exit(1);
+    process.exit(1);
 }
 
 // this is moved from common because it seems not suitable for fpsd
@@ -77,7 +78,7 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// test send command, test send encrypted command, test download encryption key to encrypt command
+// implement systemd commands start/stop/restart/is-active and pipe to http response and pipe to akari (local) stdout
 // integrite server-core, web-page, app-server, app-client with new deployment and reload feature
 // public target direct to deploy, remove clean target, remove dist folder from local, remove dist from gitignore
 // new client-dev script, integrite and test with app-client, try the reload css machenism

@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import type * as http from 'http';
 import * as https from 'https';
@@ -10,6 +11,12 @@ import { logInfo, logError, formatAdminPayload } from './common';
 
 // akari (server) entry
 // log headers: uxs: unix socket, wbs: websocket, htt: https server
+
+// random port, scrypt password and scrypt salt and store
+const port = Math.floor(Math.random() * 98 + 8001);
+const scryptPasswordIndex = Math.floor(Math.random() * 899_900 + 99);
+const scryptSaltIndex = Math.floor(Math.random() * 899_900 + 99);
+fs.writeFileSync('akariv', `${port}:${scryptPasswordIndex}:${scryptSaltIndex}`);
 
 const httpsServer = https.createServer({ key: fs.readFileSync('SSL_KEY'), cert: fs.readFileSync('SSL_FULLCHAIN') }, handleCommand);
 const wsServer = new WebSocket.Server({ server: httpsServer });
@@ -44,7 +51,7 @@ async function sendToServerCore(payload: AdminPayload): Promise<boolean> {
             socket.once('data', data => {
                 if (data.toString('utf-8') == 'ACK') {
                     // strange method to shorten message by extract `type` part
-                    logInfo('uxs', chalk`acknowledge {blue ${formatAdminPayload(payload)}}`);
+                    logInfo('uxs', chalk`ack (server-core) {blue ${formatAdminPayload(payload)}}`);
                     setImmediate(() => {
                         socket.destroy();
                         resolve(true);
@@ -94,7 +101,7 @@ async function sendToWebPage(command: string): Promise<boolean> {
         });
     }))).then(results => {
         if (results.some(r => r)) {
-            logInfo('wbs', chalk`acknowledge (webpages ${results.filter(r => r).length}/${results.length}) {blue ${command}}`);
+            logInfo('wbs', chalk`ack (pages ${results.filter(r => r).length}/${results.length}) {blue ${command}}`);
             return true;
         } else {
             logError('wbs', `broadcast no success (0/${results.length})`);
@@ -107,12 +114,33 @@ async function sendToWebPage(command: string): Promise<boolean> {
 }
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {
-    let fulldata = ''; // I don't know when this small request will be splitted, but collect full data in case
-    request.on('data', data => { fulldata += Buffer.isBuffer(data) ? data.toString() : data; });
+    let encryptedData = ''; // I don't know when this small request will be splitted, but collect full data in case
+    request.on('data', data => { encryptedData += Buffer.isBuffer(data) ? data.toString() : data; });
     request.on('end', () => {
+        if (encryptedData.length <= 32) { // smaller than initial vector
+            response.statusCode = 400;
+            response.end();
+            return;
+        } 
+
+        let decryptedData: string;
+        try {
+            const key = crypto.scryptSync(CODEBOOK.slice(scryptPasswordIndex, 32), CODEBOOK.slice(scryptSaltIndex, 32), 32);
+            const decipher = crypto.createDecipheriv('aes-256-cbc', key, Buffer.from(encryptedData.slice(0, 32), 'hex'));
+            const decryptedChunks: Buffer[] = [];
+            decipher.on('data', chunk => decryptedChunks.push(Buffer.from(chunk)));
+            decipher.write(encryptedData.slice(32), 'hex');
+            decipher.end();
+            decryptedData = Buffer.concat(decryptedChunks).toString();
+        } catch {
+            response.statusCode = 400;
+            response.end();
+            return;
+        }
+
         let payload: AdminPayload;
         try {
-            payload = JSON.parse(fulldata) as AdminPayload;
+            payload = JSON.parse(decryptedData) as AdminPayload;
         } catch {
             response.statusCode = 400;
             response.end();
@@ -121,12 +149,12 @@ function handleCommand(request: http.IncomingMessage, response: http.ServerRespo
 
         (payload.type == 'webpage' ? sendToWebPage(payload.data.type) : sendToServerCore(payload)).then(result => {
             if (result) {
-                response.write('ACK ' + fulldata);
+                response.write('ACK ' + decryptedData);
                 response.statusCode = 200;
             } else {
                 response.statusCode = 400;
             }
-            response.end()
+            response.end();
         });
     });
 }
@@ -173,7 +201,7 @@ function startup() {
         process.exit(101);
     };
     httpsServer.once('error', handleListenError); 
-    httpsServer.listen(8001, () => {
+    httpsServer.listen(port, () => {
         httpsServer.removeListener('error', handleListenError);
         httpsServer.on('error', error => {
             // currently this is never reached
@@ -194,6 +222,12 @@ function shutdown() {
     }
     for (const key in httpsConnections) {
         httpsConnections[key].destroy();
+    }
+
+    try {
+        fs.unlinkSync('akariv');
+    } catch {
+        // ignore
     }
 
     // wait all server close
@@ -217,4 +251,4 @@ function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-startup();
+console.log(startup) // startup();
