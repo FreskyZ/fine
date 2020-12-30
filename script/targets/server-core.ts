@@ -2,9 +2,10 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
+import { admin } from '../tools/admin';
+import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
-import { Asset, upload } from '../tools/ssh';
 
 const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -48,11 +49,11 @@ async function buildOnce(): Promise<void> {
         return logCritical('akr', chalk`{cyan server-core} failed at upload`);
     }
 
-    logInfo('mka', chalk`{cyan server-core} completed successfully`);
+    logInfo('akr', chalk`{cyan server-core} completed successfully`);
 }
 
-function buildWatch() {
-    logInfo('mka', chalk`watch {cyan server-core}`);
+async function buildWatch() {
+    logInfo('akr', chalk`watch {cyan server-core}`);
     fs.mkdirSync('dist/main', { recursive: true });
 
     const packer = mypack(getMyPackOptions(null));
@@ -61,8 +62,10 @@ function buildWatch() {
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
             await upload(getUploadAssets(packResult));
+            admin({ type: 'watchsc', data: 'start' }); // will be restart if started
         }
     });
+    process.on('SIGINT', () => { admin({ type: 'watchsc', data: 'stop' }).then(() => process.exit()); });
 }
 
 export function build(watch: boolean) {

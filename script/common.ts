@@ -37,7 +37,7 @@ export function formatAdminPayload(payload: AdminPayload) {
     switch (payload.type) {
         case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
-        case 'webpage': switch (payload.data.type) {
+        case 'webpage': switch (payload.data) {
             case 'reload-js': return 'reload-js';
             case 'reload-css': return 'reload-css';
         } 
@@ -46,13 +46,23 @@ export function formatAdminPayload(payload: AdminPayload) {
             case 'reload-page': return `reload-page ${payload.data.pagename}`;
             case 'enable-source-map': return `source-map enable`;
             case 'disable-source-map': return `source-map disable`;
-            case 'set-websocket-port': return `websocket-port ${payload.data.port}`;
         }
-        case 'auth': switch(payload.data.type) {
+        case 'auth': switch (payload.data.type) {
             case 'reload-server': return `reload-server ${payload.data.app}`;
             case 'enable-signup': return `enable-signup`;
             case 'disable-signup': return `disable-signup`;
             default: return JSON.stringify(payload.data); // TODO
+        }
+        case 'service': switch (payload.data) {
+            case 'start': return `systemctl start`;
+            case 'status': return `systemctl status`;
+            case 'stop': return `systemctl stop`;
+            case 'restart': return `systemctl restart`;
+            case 'is-active': return `systemctl is-active`;
+        }
+        case 'watchsc': switch (payload.data) {
+            case 'start': return 'start watch server-core';
+            case 'stop': return 'stop watch server-core';
         }
         default: return JSON.stringify(payload);
     }

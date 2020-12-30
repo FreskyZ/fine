@@ -162,7 +162,7 @@ webpack-dev-server is able to refresh page when js changes and reload css when c
 
 ## Other Commands
 
-currently they are all about authenticate issues, to be implemented
+about authenticate, to be implemented
 
 ```shell
 $ akari enable-signup
@@ -170,6 +170,16 @@ $ akari disable-signup
 $ akari disable-user 3
 $ akari enable-user 3
 $ akari expire-device 3
+```
+
+about systemd service
+
+```shell
+$ akari service start
+$ akari service status
+$ akari service stop
+$ akari service restart
+$ akari service is-active
 ```
 
 ## Security Considerations

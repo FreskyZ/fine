@@ -1,12 +1,14 @@
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
 import type { AdminPayload } from '../../src/shared/types/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
 import { Asset, download } from './ssh';
-import { pi } from './pi';
 
 // this is akari (local) to akari (server)
+
+const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
 
 type V = [number, number, number]
 let v: V = null; // [port, scryptPasswordIndex, scryptSaltIndex]
@@ -32,7 +34,7 @@ async function getv(): Promise<V> {
 export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(resolve => {
     const serialized = JSON.stringify(payload);
     getv().then(v => {
-        const key = crypto.scryptSync(pi.slice(v[1], 32), pi.slice(v[2], 32), 32);
+        const key = crypto.scryptSync(codebook.slice(v[1], 32), codebook.slice(v[2], 32), 32);
         const iv = crypto.randomFillSync(new Uint8Array(16));
         const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
         const encryptedChunks: Buffer[] = [];
@@ -50,7 +52,6 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
             host: 'DOMAIN_NAME',
             method: 'POST',
             port: v[0],
-            timeout: 15_000,
         });
         request.on('error', error => {
             if ((error as any).code == 'ECONNREFUSED') {
@@ -69,19 +70,53 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
             request.write(packed);
             request.end();
         });
-        request.on('timeout', () => {
-            logError('adm', 'timeout');
-            resolve(false);
-        });
         request.on('response', response => {
             if (response.statusCode != 200) {
-                logError('adm', `response unexpected status ${response.statusCode}`);
+                logError('adm', `response ${response.statusCode}`);
                 resolve(false);
+            } else if (payload.type == 'service') {
+                response.pipe(process.stdout);
+                response.on('end', () => resolve(true));
+            } else if (payload.type == 'watchsc') {
+                if (payload.data == 'stop') {
+                    // send and ignore
+                    response.on('data', () => {});
+                    response.on('end', () => {
+                        logInfo('adm', chalk`ack stop watch server-core`);
+                        resolve(true);
+                    });
+                } else if (payload.data == 'start') {
+                    let headerReceived = false; // body header, not http header
+                    let receivingHeader = Buffer.alloc(0); // in case header is splitted // when will this 4 characters splitted?
+                    response.on('data', chunk => {
+                        if (!headerReceived) {
+                            receivingHeader = Buffer.concat([receivingHeader, Buffer.from(chunk)]);
+                            if (receivingHeader.length < 4) {
+                                return; // wait next chunk
+                            } else {
+                                headerReceived = true;
+                                const header = receivingHeader.slice(0, 4).toString();
+                                if (header == 'that') {
+                                    logInfo('adm', chalk`ack {yellow restart watch server-core}`);
+                                    resolve(true);
+                                } else if (header == 'this') {
+                                    // write remaining to stdout and start direct pipe
+                                    process.stdout.write(receivingHeader.slice(4));
+                                    response.pipe(process.stdout);
+                                } else {
+                                    logError('adm', `start watch server-core received unexpected header ${header}`);
+                                    resolve(false);
+                                }
+                            }
+                        } else {
+                            // header already received and validated and handled, here will not be called or already started piping
+                        }
+                    });
+                    response.on('end', () => resolve(true));
+                }
             } else {
-                // I don't know when this small response will be splitted, but collect full data in case
-                let fulldata = '';
+                let fulldata = ''; // I don't know when this small response will be splitted, but collect full data in case
                 response.on('data', (data: string) => { fulldata += data; });
-
                 response.on('end', () => {
                     if (fulldata == 'ACK ' + serialized) {
                         logInfo('adm', chalk`ACK {yellow ${formatAdminPayload(payload)}}`);

@@ -23,7 +23,7 @@ function validateApp(appname: string) {
     }
 }
 
-const [a1, a2] = [process.argv[2], process.argv[3]]; // 0 is node, 1 is maka
+const [a1, a2] = [process.argv[2] || '', process.argv[3] || '']; // 0 is node, 1 is maka
 if (a1 == 'self') {
     buildSelf();
 } else if (a1 == 'clean') {
@@ -64,8 +64,20 @@ if (a1 == 'self') {
     buildAppClient('cost', false);
     buildAppClient('ak', false);
 
+} else if (a1 == 'service' && a2 == 'start') {
+    admin({ type: 'service', data: 'start' }).then(result => process.exit(result ? 1 : 0));
+} else if (a1 == 'service' && a2 == 'status') {
+    admin({ type: 'service', data: 'status' }).then(result => process.exit(result ? 1 : 0));
+} else if (a1 == 'service' && a2 == 'stop') {
+    admin({ type: 'service', data: 'stop' }).then(result => process.exit(result ? 1 : 0));
+} else if (a1 == 'service' && a2 == 'restart') {
+    admin({ type: 'service', data: 'restart' }).then(result => process.exit(result ? 1 : 0));
+} else if (a1 == 'service' && a2 == 'is-active') {
+    admin({ type: 'service', data: 'is-active' }).then(result => process.exit(result ? 1 : 0));
+
 } else if (a1 == 'test') {
-    admin({ type: 'webpage', data: { type: 'reload-css' } });
+    admin({ type: 'watchsc', data: 'stop' }).then(result => process.exit(result ? 1 : 0));
+
 } else {
     console.log('unknown command');
     process.exit(1);
@@ -78,8 +90,8 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// implement systemd commands start/stop/restart/is-active and pipe to http response and pipe to akari (local) stdout
-// integrite server-core, web-page, app-server, app-client with new deployment and reload feature
+// integrite web-page, app-server, app-client with new deployment and reload feature
+// mypack seems print updated module list twice, disable source-map seems not working
 // public target direct to deploy, remove clean target, remove dist folder from local, remove dist from gitignore
 // new client-dev script, integrite and test with app-client, try the reload css machenism
 

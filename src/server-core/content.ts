@@ -275,7 +275,5 @@ export function handleCommand(data: AdminContentCommand) {
         AllowSourceMap = true;
     } else if (data.type == 'disable-source-map') {
         AllowSourceMap = false;
-    } else if (data.type == 'set-websocket-port') {
-        DevWebSocketPort = data.port;
     }
 }
