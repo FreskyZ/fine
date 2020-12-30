@@ -12,7 +12,7 @@ import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
 import { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical } from '../common';
-import { admin } from '../tools/admin-local';
+import { admin } from '../tools/admin';
 import { codegen } from '../tools/codegen';
 import { SassOptions, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';

@@ -79,8 +79,9 @@ class MyPacker {
 
     private lastHash: string = null;
     private lastModules: Module[] = null;
-
-    public constructor(public readonly options: MyPackOptions) {
+    private readonly logHeader: string;
+    public constructor(public readonly options: MyPackOptions, additionalHeader?: string) {
+        this.logHeader = additionalHeader ? `mpk${additionalHeader}` : 'mpk';
     }
 
     private sources: Source[];
@@ -114,7 +115,7 @@ class MyPacker {
                 : this.sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
                 : null;
             if (!requiredFileName) {
-                logError('mpk', `${source.filename}: invalid module name ${raw} at ${source.mapIndex(match.index)}`);
+                logError(this.logHeader, `${source.filename}: invalid module name ${raw} at ${source.mapIndex(match.index)}`);
                 return null;
             }
 
@@ -142,6 +143,7 @@ class MyPacker {
     // return true for has circular reference and should abort
     private checkCircularReference(modules: Module[]): boolean {
         // this is actually similar to runtime initialize process
+        const self = this;
         const loadings: { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string }[] = [
             { moduleName: modules[0].name, parentFileName: null, parentRequirePosition: null, parentRequireRaw: null },
         ];
@@ -151,7 +153,7 @@ class MyPacker {
                 const requestedModule = modules.find(m => m.name == request.resolvedModuleName);
 
                 if (loadings.some(o => o.moduleName == requestedModule.name)) {  // this also checks self references, but how and why will anyone write self reference?
-                    logError('mpk', 'circular reference encountered');
+                    logError(self.logHeader, 'circular reference encountered');
                     for (const loading of loadings.slice(1)) {
                         console.log(chalk`   {${loading.parentFileName == requestedModule.source.filename ? 'yellow' : 'white'} ${loading.parentFileName}}`  // highlight the file name
                             + chalk`:${loading.parentRequirePosition}:{gray require("}${loading.parentRequireRaw}{gray ")}`);
@@ -227,7 +229,7 @@ class MyPacker {
     }
 
     private printResult(assetSize: number, modules: Module[]) {
-        logInfo('mpk', chalk`completed with {yellow 1} asset {yellow ${filesize(assetSize)}}`);
+        logInfo(this.logHeader, chalk`completed with {yellow 1} asset {yellow ${filesize(assetSize)}}`);
         if (this.options.printModules) {
             if (this.lastModules) {
                 for (const addedModule of modules.filter(n => !this.lastModules.some(p => p.source.filename == n.source.filename))) {
@@ -251,11 +253,11 @@ class MyPacker {
 
     public async run(): Promise<MyPackResult> {
         const entry = this.options.entry; // entry file name
-        logInfo('mpk', this.lastHash ? 'repack' : chalk`pack {yellow ${entry.startsWith('/vbuild/') ? entry.slice(8) : entry}}`);
+        logInfo(this.logHeader, this.lastHash ? 'repack' : chalk`pack {yellow ${entry.startsWith('/vbuild/') ? entry.slice(8) : entry}}`);
 
         this.getSources();
         if (!this.sources.some(s => s.filename == entry)) {
-            logError('mpk', 'invalid entry');
+            logError(this.logHeader, 'invalid entry');
             return { success: false };
         }
 
@@ -302,7 +304,7 @@ class MyPacker {
         this.lastHash = hash;
 
         if (!hasChange) {
-            logInfo('mpk', chalk`completed with {blue no change}`);
+            logInfo(this.logHeader, chalk`completed with {blue no change}`);
         } else {
             this.printResult(resultJs.length, modules);
         }
@@ -321,7 +323,7 @@ class MyPacker {
 
         if (!('writeFile' in this.options) || this.options.writeFile) {
             if (!this.options.output) {
-                logError('mpk', 'output required');
+                logError(this.logHeader, 'output required');
                 return { success: false };
             }
             await fs.promises.writeFile(this.options.output, resultJs);
@@ -335,6 +337,6 @@ class MyPacker {
     }
 }
 
-export function mypack(options: MyPackOptions) { return new MyPacker(options); }
+export function mypack(options: MyPackOptions, additionalHeader?: string) { return new MyPacker(options, additionalHeader); }
 
 // TODO: check removed file actually removed

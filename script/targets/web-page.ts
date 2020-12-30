@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
-import { admin } from '../tools/admin-local';
+import { admin } from '../tools/admin';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { SassOptions, sass } from '../tools/sass';
 

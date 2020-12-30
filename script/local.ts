@@ -4,6 +4,7 @@ import { build as buildServerCore } from './targets/server-core';
 import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
+import { admin } from './tools/admin';
 
 function validatePage(pagename: string) {
     if (['home', 'user', '404', '418'].includes(pagename)) {
@@ -65,7 +66,8 @@ if (a1 == 'self') {
 
 } else {
     console.log('unknown command');
-    process.exit(1);
+    admin({ type: 'auth', data: { type: 'reload-server', app: 'cost' } }).then(() => process.exit(1));
+    // process.exit(1);
 }
 
 // this is moved from common because it seems not suitable for fpsd
@@ -75,7 +77,6 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// confirm use websocket I still can use normal https request response handling
 // test send command, test send encrypted command, test download encryption key to encrypt command
 // integrite server-core, web-page, app-server, app-client with new deployment and reload feature
 // public target direct to deploy, remove clean target, remove dist folder from local, remove dist from gitignore

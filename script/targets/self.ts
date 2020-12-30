@@ -1,9 +1,8 @@
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { MyPackOptions, mypack } from '../tools/mypack';
-import { upload } from '../tools/ssh';
-import { admin } from '../tools/admin-local';
+import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
+import { Asset, upload } from '../tools/ssh';
 
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
@@ -31,6 +30,10 @@ const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
     cleanupFiles: false,
 });
 
+const getUploadAssets = (packResult: MyPackResult): Asset[] => [
+    { name: 'akari', data: packResult.resultJs, remote: 'WEBROOT/akari', mode: 0o777 }
+];
+
 export async function build(): Promise<void> {
     logInfo('akr', chalk`{cyan self}`);
 
@@ -40,21 +43,25 @@ export async function build(): Promise<void> {
     }
 
     // multi target mypack is complex, just call twice
-    const packResult1 = await mypack(getMyPackOptions1(checkResult.files)).run();
-    if (!packResult1.success) {
-        return logCritical('akr', chalk`{cyan self} failed at pack (1)`);
-    }
+    await Promise.all([
+        (async (): Promise<void> => {
+            const packResult = await mypack(getMyPackOptions1(checkResult.files), '(1)').run();
+            if (!packResult.success) {
+                return logCritical('akr', chalk`{cyan self} failed at pack (1)`);
+            }
+        })(),
+        (async (): Promise<void> => {
+            const packResult = await mypack(getMyPackOptions2(checkResult.files), '(2)').run();
+            if (!packResult.success) {
+                return logCritical('akr', chalk`{cyan self} failed at pack (2)`);
+            }
 
-    const packResult2 = await mypack(getMyPackOptions2(checkResult.files)).run();
-    if (!packResult2.success) {
-        return logCritical('akr', chalk`{cyan self} failed at pack (2)`);
-    }
+            const uploadResult = await upload(getUploadAssets(packResult));
+            if (!uploadResult) {
+                return logCritical('akr', chalk`{cyan self} failed at upload`);
+            }
+        })(),
+    ]);
 
-    const uploadResult = await upload([{ name: 'akari', data: packResult2.resultJs, remote: 'WEBROOT/akari', mode: 0o777 }]);
-    if (!uploadResult) {
-        return logCritical('akr', chalk`{cyan self} failed at upload`);
-    }
-    
-    await admin({ type: 'content', data: { type: 'reload-client', app: 'wimm' } });
     logInfo('akr', chalk`{cyan self} completed successfully`);
 }

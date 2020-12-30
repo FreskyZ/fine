@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as chalk from 'chalk';
 import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logCritical } from '../common';
-import { admin } from '../tools/admin-local';
+import { admin } from '../tools/admin';
 import { codegen } from '../tools/codegen';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, mypack } from '../tools/mypack';

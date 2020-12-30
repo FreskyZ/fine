@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
-import type { AdminContentData } from '../shared/types/admin';
+import type { AdminContentCommand } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
 
@@ -242,11 +242,12 @@ function handleReloadClient(appname: string) {
     const oldCachedFiles = reloadKeyToCache[appname];
     delete reloadKeyToCache[appname];
 
+    const now = `"${dayjs.utc().unix().toString(16)}"`;
     const files = getAppFiles(appname).map<FileCache>(file => {
         const realpath = path.join('WEBROOT', `${appname}/${file}`);
         const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
         const newContent = fs.readFileSync(realpath);
-        const entry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+        const entry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: newContent, encodedContent: {} };
         fileCache.push(entry);
         virtualToCache[`/${appname}/${file}`] = entry;
         return entry;
@@ -256,14 +257,14 @@ function handleReloadClient(appname: string) {
         const realpath = path.join('WEBROOT', `${appname}/index.html`);
         const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
         const newContent = fs.readFileSync(realpath);
-        const indexEntry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+        const indexEntry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: newContent, encodedContent: {} };
         fileCache.push(indexEntry);
         virtualToCache[`/${appname}/`] = indexEntry;
         files.push(indexEntry);
         reloadKeyToCache[appname] = files;
     }
 }
-export function handleCommand(data: AdminContentData) {
+export function handleCommand(data: AdminContentCommand) {
     logInfo({ type: 'admin command content', data });
 
     if (data.type == 'reload-page') {

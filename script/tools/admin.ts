@@ -18,7 +18,7 @@ export async function admin(payload: AdminPayload): Promise<boolean> {
             host: 'DOMAIN_NAME',
             method: 'POST',
             port: 8001,
-            timeout: 10_000,
+            timeout: 15_000,
         });
         request.on('error', error => {
             if ((error as any).code == 'ECONNREFUSED') {

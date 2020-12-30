@@ -1,11 +1,10 @@
 
 import * as fs from 'fs';
-import * as path from 'path';
 import * as chalk from 'chalk';
-import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logCritical } from '../common';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { MyPackOptions, mypack } from '../tools/mypack';
+import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
+import { Asset, upload } from '../tools/ssh';
 
 const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -20,35 +19,33 @@ const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     entry: '/vbuild/server-core/index.js',
     sourceMap: true,
     output: 'dist/main/server.js',
+    writeFile: false,
     printModules: true,
     minify: true,
 });
 
+const getUploadAssets = (packResult: MyPackResult): Asset[] => [
+    { name: 'server.js', data: packResult.resultJs, remote: 'WEBROOT/main/server.js' },
+    { name: 'server.js.map', data: packResult.resultMap, remote: 'WEBROOT/main/server.js.map' },
+];
+
 async function buildOnce(): Promise<void> {
-    logInfo('mka', chalk`{cyan server-core}`);
+    logInfo('akr', chalk`{cyan server-core}`);
     await fs.promises.mkdir('dist/main', { recursive: true });
 
     const checkResult = typescript(getTypescriptOptions(false)).check();
     if (!checkResult.success) {
-        return logCritical('mka', chalk`{cyan server-core} failed at check`);
+        return logCritical('akr', chalk`{cyan server-core} failed at check`);
     }
 
     const packResult = await mypack(getMyPackOptions(checkResult.files)).run();
     if (!packResult.success) {
-        return logCritical('mka', chalk`{cyan server-core} failed at pack`);
+        return logCritical('akr', chalk`{cyan server-core} failed at pack`);
     }
 
-    try {
-        logInfo('ssh', 'deploy assets');
-        const sftp = new SFTPClient();
-        await sftp.connect({ host: 'domain.com', username: 'root', privateKey: await fs.promises.readFile('SSH_KEY'), passphrase: 'SSH_PASSPHRASE' });
-        await sftp.fastPut(path.resolve(`dist/main/server.js`), `WEBROOT/main/server.js`);
-        await sftp.fastPut(path.resolve(`dist/main/server.js.map`), `WEBROOT/main/server.js.map`);
-        await sftp.end();
-        logInfo('ssh', 'completed successfully');
-    } catch (ex) {
-        console.log(ex);
-        logCritical('ssh', 'failed to connect or put file, try later');
+    const uploadResult = await upload(getUploadAssets(packResult));
+    if (!uploadResult) {
+        return logCritical('akr', chalk`{cyan server-core} failed at upload`);
     }
 
     logInfo('mka', chalk`{cyan server-core} completed successfully`);
@@ -62,11 +59,8 @@ function buildWatch() {
     typescript(getTypescriptOptions(true)).watch(async ({ files }) => {
         packer.options.files = files;
         const packResult = await packer.run();
-        if (!packResult.success) {
-            return;
-        }
-        if (packResult.hasChange) {
-            // TODO
+        if (packResult.success && packResult.hasChange) {
+            await upload(getUploadAssets(packResult));
         }
     });
 }

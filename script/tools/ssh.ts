@@ -3,7 +3,7 @@ import * as chalk from 'chalk';
 import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logError } from '../common';
 
-interface Asset {
+export interface Asset {
     name: string,   // display name
     data: Buffer,
     remote: string, // should be absolute

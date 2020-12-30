@@ -35,7 +35,12 @@ export function logCritical(header: string, message: string) {
 
 export function formatAdminPayload(payload: AdminPayload) {
     switch (payload.type) {
+        case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
+        case 'webpage': switch (payload.data.type) {
+            case 'reload-js': return 'reload-js';
+            case 'reload-css': return 'reload-css';
+        } 
         case 'content': switch (payload.data.type) {
             case 'reload-client': return `reload-client ${payload.data.app}`;
             case 'reload-page': return `reload-page ${payload.data.pagename}`;
