@@ -1,10 +1,9 @@
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+
 import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
 import * as SFTPClient from 'ssh2-sftp-client';
-import { logInfo, logError, logCritical } from '../common';
-import { admin } from '../tools/admin';
+import { logInfo, logCritical } from '../common';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, mypack } from '../tools/mypack';
 
@@ -55,37 +54,9 @@ async function buildOnce(): Promise<void> {
     logInfo('mka', chalk`{cyan server-core} completed successfully`);
 }
 
-// only watch server-core require restart server process
-let serverProcess: ChildProcessWithoutNullStreams = null;
-function startOrRestartServer() {
-    function start() {
-        // mds: my dev server
-        logInfo('mds', 'start server');
-        serverProcess = spawn('node', ['dist/main/server.js']);
-        
-        serverProcess.stdout.pipe(process.stdout);
-        serverProcess.stderr.pipe(process.stderr);
-        serverProcess.on('error', error => {
-            logError('mds', `server process error ${error.message}`);
-        });
-        serverProcess.on('exit', code => { 
-            (code == 0 ? logInfo : logError)('mds', `server process exited with code ${code}`); 
-            serverProcess = null; 
-        });
-    }
-
-    if (serverProcess != null) {
-        serverProcess.once('exit', start);
-        admin({ type: 'shutdown' });
-    } else {
-        start();
-    }
-}
-
 function buildWatch() {
     logInfo('mka', chalk`watch {cyan server-core}`);
-    process.on('exit', () => serverProcess?.kill()); // make sure
-    fs.mkdirSync('dist/main', { recursive: true });  // maka sure 2
+    fs.mkdirSync('dist/main', { recursive: true });
 
     const packer = mypack(getMyPackOptions(null));
     typescript(getTypescriptOptions(true)).watch(async ({ files }) => {
@@ -95,7 +66,7 @@ function buildWatch() {
             return;
         }
         if (packResult.hasChange) {
-            startOrRestartServer();
+            // TODO
         }
     });
 }

@@ -16,7 +16,8 @@ export interface MyPackOptions {
     entry: string,             // entry name should be in file list
     files: { name: string, content: string }[],
     sourceMap?: boolean,       // default to false
-    output: string,            // source map file is output + '.map'
+    output?: string,           // source map file is output + '.map', or write file to output
+    writeFile?: boolean,       // write output to file, default to true
     printModules?: boolean,    // default to false
     minify?: boolean,          // default to false
     shebang?: boolean,         // default to false
@@ -26,12 +27,32 @@ export interface MyPackOptions {
 export type MyPackResult = {
     success: boolean,
     hasChange?: boolean, // this hash = last hash
+    resultJs?: Buffer,   // only when writeFile is false and hasChange is true
+    resultMap?: Buffer,  // only when writeFile is false and hasChange is true and sourceMap is true
+}
+
+function mapIndex(source: string): (index: number) => string {
+    const re = /\n/g;
+    const lfPositions: number[] = [];
+    do { const match = re.exec(source); if (!match) { break; } lfPositions.push(match.index) } while (true);
+
+    return function mapIndex(index: number): string { // `line:column`
+        let arrayIndex = lfPositions.findIndex(p => p > index);
+        if (arrayIndex < 0) { // last line, ignore index parameter is actually too large
+            return `${lfPositions.length + 1}:${index - (lfPositions.length ? lfPositions[lfPositions.length - 1] : 0) + 1}`
+        } else if (arrayIndex == 0) {
+            return `1:${index}`;
+        } else {
+            return `${arrayIndex + 1}:${index - lfPositions[arrayIndex - 1] + 1}`;
+        }
+    }
 }
 
 interface Source { 
     filename: string, 
     jsContent: string,
     mapContent: string, // can be missing even if source map is on
+    mapIndex: (index: number) => string,
 }
 
 interface ModuleRequest {
@@ -68,6 +89,7 @@ class MyPacker {
             filename: name,
             jsContent: content,
             mapContent: this.options.files.find(f => f.name == name + '.map')?.content,
+            mapIndex: mapIndex(content),
         }));
     }
 
@@ -92,7 +114,7 @@ class MyPacker {
                 : this.sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
                 : null;
             if (!requiredFileName) {
-                logError('mpk', `${source.filename}: invalid module name ${raw} at ${match.index}`);
+                logError('mpk', `${source.filename}: invalid module name ${raw} at ${source.mapIndex(match.index)}`);
                 return null;
             }
 
@@ -120,18 +142,28 @@ class MyPacker {
     // return true for has circular reference and should abort
     private checkCircularReference(modules: Module[]): boolean {
         // this is actually similar to runtime initialize process
+        const loadings: { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string }[] = [
+            { moduleName: modules[0].name, parentFileName: null, parentRequirePosition: null, parentRequireRaw: null },
+        ];
 
-        const loadings: Module[] = [];
         function load($module: Module) {
-            loadings.push($module);
             for (const request of $module.requests) {
                 const requestedModule = modules.find(m => m.name == request.resolvedModuleName);
-                if (loadings.some(o => o.name == requestedModule.name)) { // this also checks self references, but how and why will anyone write self reference?
+
+                if (loadings.some(o => o.moduleName == requestedModule.name)) {  // this also checks self references, but how and why will anyone write self reference?
+                    logError('mpk', 'circular reference encountered');
+                    for (const loading of loadings.slice(1)) {
+                        console.log(chalk`   {${loading.parentFileName == requestedModule.source.filename ? 'yellow' : 'white'} ${loading.parentFileName}}`  // highlight the file name
+                            + chalk`:${loading.parentRequirePosition}:{gray require("}${loading.parentRequireRaw}{gray ")}`);
+                    }
+                    console.log(chalk`   ${$module.source.filename}:${$module.source.mapIndex(request.index)}:{gray require("}{yellow ${request.raw}}{gray ")}`); // highlight the require
                     throw new Error('circular reference');
                 }
+
+                loadings.push({ parentFileName: $module.source.filename, parentRequirePosition: $module.source.mapIndex(request.index), parentRequireRaw: request.raw, moduleName: requestedModule.name });
                 load(requestedModule);
+                loadings.pop();
             }
-            loadings.pop();
         }
 
         try {
@@ -139,7 +171,6 @@ class MyPacker {
             return false;
         } catch (ex) {
             if (ex.message == 'circular reference') {
-                logInfo('mpk', 'circular reference');
                 return true;
             }
             throw ex;
@@ -288,17 +319,22 @@ class MyPacker {
         }
         this.lastModules = modules;
 
-        await fs.promises.writeFile(this.options.output, resultJs);
-        if (this.options.sourceMap) {
-            await fs.promises.writeFile(this.options.output + '.map', resultMap);
+        if (!('writeFile' in this.options) || this.options.writeFile) {
+            if (!this.options.output) {
+                logError('mpk', 'output required');
+                return { success: false };
+            }
+            await fs.promises.writeFile(this.options.output, resultJs);
+            if (this.options.sourceMap) {
+                await fs.promises.writeFile(this.options.output + '.map', resultMap);
+            }
+            return { success: true, hasChange };
+        } else {
+            return { success: true, hasChange, resultJs: Buffer.from(resultJs), resultMap: resultMap ? Buffer.from(resultMap) : null };
         }
-
-        return { success: true, hasChange };
     }
 }
 
 export function mypack(options: MyPackOptions) { return new MyPacker(options); }
 
 // TODO: check removed file actually removed
-// TODO: check circular reference checker
-// TODO: check source map mapped correctly

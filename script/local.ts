@@ -1,4 +1,3 @@
-import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
 import { build as buildPublic, cleanAll } from './targets/public';
 import { build as buildServerCore } from './targets/server-core';
@@ -64,17 +63,27 @@ if (a1 == 'self') {
     buildAppClient('cost', false);
     buildAppClient('ak', false);
 
-} else if (a1 == 'shutdown') {
-    admin({ type: 'shutdown' }).then(() => process.exit(1)); // send and die or directly let unhandled rejection die
-} else if (a1 == 'reload-static') {
-    admin({ type: 'reload-static', key: a2 == 'home' || a2 == 'user' ? a2 : validateApp(a2) }).then(() => process.exit(1));
-} else if (a1 == 'source-map') { // only source map is available in command line, because websocket server is opened by watch app-client, where auto enables and sends port
-    admin({ type: 'config-devmod', sourceMap: a2 == 'enable' }).then(() => process.exit(1));
-} else if (a1 == 'reload-server') {
-    admin({ type: 'reload-server', app: validateApp(a2) }).then(() => process.exit(1));
-} else if (a1 == 'expire-device') {
-    admin({ type: 'expire-device', deviceId: parseInt(a2) }).then(() => process.exit(1));
 } else {
     console.log('unknown command');
     process.exit(1);
 }
+
+// this is moved from common because it seems not suitable for fpsd
+process.on('unhandledRejection', error => { 
+    console.log('unhandled reject: ', error);
+    process.exit(0);
+});
+
+// TODO
+// confirm use websocket I still can use normal https request response handling
+// test send command, test send encrypted command, test download encryption key to encrypt command
+// integrite server-core, web-page, app-server, app-client with new deployment and reload feature
+// public target direct to deploy, remove clean target, remove dist folder from local, remove dist from gitignore
+// new client-dev script, integrite and test with app-client, try the reload css machenism
+
+// add edit feature to wimm!
+
+// add (c) and (s) to watch -both log header, continue improve log format
+// add basic eslint to self, server-core, web-page, app-server and app-client, all as warnings
+// develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32
+// move error stack parser and source map map from server-core into log viewing web page

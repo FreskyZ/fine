@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
-import { admin } from '../tools/admin';
+import { admin } from '../tools/admin-local';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { SassOptions, sass } from '../tools/sass';
 
@@ -29,7 +29,7 @@ async function buildOnce(pagename: string): Promise<void> {
     // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
 
     const checker = typescript(getTypeScriptOptions(pagename, false));
-    if (fs.existsSync(checker.options.entry)) {
+    if (fs.existsSync(checker.options.entry as string)) {
         const checkResult = checker.check();
         if (!checkResult.success) {
             return logCritical('mka', chalk`{yellow ${pagename}-page} failed at check`);
@@ -49,7 +49,7 @@ async function buildOnce(pagename: string): Promise<void> {
     await fs.promises.copyFile(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
     logInfo('htm', 'copy completed');
 
-    await admin({ type: 'reload-static', key: pagename }); // unknown page name auto ignored
+    await admin({ type: 'content', data: { type: 'reload-page', pagename } });
     logInfo('mka', chalk`{cyan ${pagename}-page} completed succesfully`);
 }
 
@@ -88,7 +88,7 @@ async function buildWatch(pagename: string) {
     let reloadRequested = false;
 
     const checker = typescript(getTypeScriptOptions(pagename, true));
-    if (fs.existsSync(checker.options.entry)) {
+    if (fs.existsSync(checker.options.entry as string)) {
         checker.watch(checkResult => {
             // tsc does not print watched message because in backend targets it will be directly followed by a mypack 'repack' message, so add one here
             logInfo('tsc', `completed with no diagnostics`);
@@ -109,7 +109,7 @@ async function buildWatch(pagename: string) {
     setInterval(() => {
         if (reloadRequested) {
             reloadRequested = false;
-            admin({ type: 'reload-static', key: pagename }).catch(() => { /* ignore */});
+            admin({ type: 'content', data: { type: 'reload-page', pagename } });
         }
     }, 3002).unref();
 }

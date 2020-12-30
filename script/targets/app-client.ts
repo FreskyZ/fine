@@ -12,11 +12,10 @@ import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
 import { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical } from '../common';
-import { admin } from '../tools/admin';
+import { admin } from '../tools/admin-local';
 import { codegen } from '../tools/codegen';
 import { SassOptions, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
-import { wswatch, wsadmin } from '../tools/wsadmin';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'jsx',
@@ -272,7 +271,8 @@ async function buildOnce(app: string) {
     })();
 
     await renderHtmlTemplate(app, await Promise.all([p2, p1]), false);
-    await admin({ type: 'reload-static', key: app });
+    // sftp
+    await admin({ type: 'content', data: { type: 'reload-client', app } });
     logInfo('mka', chalk`{cyan ${app}-client} complete successfully`);
 }
 
@@ -349,16 +349,16 @@ function buildWatch(app: string) {
         if (rerenderRequested) {
             rerenderRequested = false;
             renderHtmlTemplate(app, [cssFiles, webpackResultFiles.concat(['x/x.js'])], true).then(() => {
-                admin({ type: 'reload-static', key: app }).catch(() => { /* ignore */});
+                admin({ type: 'content', data: { type: 'reload-client', app } }).catch(() => { /* ignore */});
                 // always reconfig devmod in case server-core restarted, this also refreshes disable timer
-                admin({ type: 'config-devmod', sourceMap: true, websocketPort: port }).catch(() => { /* ignore */});
-                wsadmin('refresh');
+                // admin({ type: 'config-devmod', sourceMap: true, websocketPort: port }).catch(() => { /* ignore */});
+                // wsadmin('refresh');
             });
         }
     }, 3003);
 
-    const port = Math.floor(Math.random() * 98 + 8001); // random between 8001~8099 // lazy to investigate whether include in this expression and in cloud service security setup
-    wswatch(port);
+    // const port = Math.floor(Math.random() * 98 + 8001); // random between 8001~8099 // lazy to investigate whether include in this expression and in cloud service security setup
+    // wswatch(port);
 }
 
 export function build(app: string, watch: boolean) {

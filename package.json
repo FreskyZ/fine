@@ -36,7 +36,7 @@
     "@types/koa": "^2.11.6",
     "@types/koa-bodyparser": "^4.3.0",
     "@types/mysql": "^2.15.16",
-    "@types/node": "^14.14.13",
+    "@types/node": "^14.14.16",
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0",
     "@types/rimraf": "^3.0.0",

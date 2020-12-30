@@ -4,8 +4,9 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
-import { logInfo } from './logger';
+import type { AdminContentData } from '../shared/types/admin';
 import { MyError } from '../shared/error';
+import { logInfo } from './logger';
 
 // see server-routing.md
 // handle all kinds of file requests, include html/js/css/image and not interesting files like robots.txt, sitemap.xml, etc.
@@ -23,12 +24,10 @@ import { MyError } from '../shared/error';
 //     to make scenarios like "mycode.js updated while vendor.js not updated" fast
 //   server init keeps not load file content to help keep server init performance
 
-// dev mode is default disabled and can be enabled for 1 hour by admin script
 // if source map is enabled, if source map name related js file exists, will try to find the source map file and compress and return
-// if websocket port is provided, will return a script trying to connect to websocket and respond to build script watch reload requests, see docs/build-script.md#Auto_Refresh_Page
-// disable timer is restarted if new devmod enable is requested by admin
-type DevMode = { enabled: boolean, sourceMap: boolean, websocketPort: number, timer: NodeJS.Timeout }
-const DEVMODE: DevMode = { enabled: false, sourceMap: false, websocketPort: null, timer: null };
+// if websocket port is provided, will return a script trying to connect to websocket and respond to build script watch reload requests, see docs/admin.md#WebPage_Hot_Relading
+let AllowSourceMap = false;
+let DevWebSocketPort: number = null;
 
 // NOTE: 
 // - only match href/src starts with "absolute" path, which means from same origin
@@ -129,7 +128,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
     }
 
     const virtual = `/${ctx.subdomains.length == 0 ? 'www' : ctx.subdomains[0]}${ctx.path}`;
-    if (DEVMODE.enabled && DEVMODE.sourceMap && virtual.endsWith('.map') && virtual.slice(0, -4) in virtualToCache) {
+    if (AllowSourceMap && virtual.endsWith('.map') && virtual.slice(0, -4) in virtualToCache) {
         const realpath = virtualToCache[virtual.slice(0, -4)].realpath + '.map';
         if (fs.existsSync(realpath)) {
             const content = await fs.promises.readFile(realpath);
@@ -142,9 +141,9 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         }
     }
     if (ctx.path == '/x/x.js') {
-        if (DEVMODE.websocketPort) {
+        if (DevWebSocketPort) {
             ctx.status = 200;
-            ctx.body = `(ws=>{ws.onmessage=e=>{ws.send('ACK '+e.data);if(e.data=='refresh')window.location.reload();}})(new WebSocket(\`wss://\${window.location.host}:${DEVMODE.websocketPort}/devsocket\`))`;
+            ctx.body = `(ws=>{ws.onmessage=e=>{ws.send('ACK '+e.data);if(e.data=='refresh')window.location.reload();}})(new WebSocket(\`wss://\${window.location.host}:${DevWebSocketPort}/devsocket\`))`;
             ctx.type = 'js';
             ctx.set('Cache-Control', 'no-store');
             return;
@@ -206,73 +205,76 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
     }
 }
 
-export function handleAdminReloadStatic(key: string) {
-    logInfo({ type: 'reload-static', value: { key }});
+function handleReloadPage(pagename: string) {
     const now = `"${dayjs.utc().unix().toString(16)}"`;
-
-    if (key == 'home' || key == 'user') { // these 2 web page is not removable
-        for (const file of reloadKeyToCache[key]) {
-            if (!fs.existsSync(file.realpath)) {
-                continue; // let later get request to 404
-            }
-
-            const newContent = fs.readFileSync(file.realpath);
-            if (file.content == null || Buffer.compare(file.content, newContent) != 0) { // only refresh when content change, or never loaded
-                file.cacheKey = now;
-                file.content = null;
-                file.encodedContent = {};
-            }
+    for (const file of reloadKeyToCache[pagename]) {
+        if (!fs.existsSync(file.realpath)) {
+            continue; // let later get request to 404
         }
-    } else if (APP_NAMES.includes(key)) {
-        // clear all and insert new, but try to use old cache key and encoded content if no content change
 
-        if (key in reloadKeyToCache) {
-            for (const file of reloadKeyToCache[key]) {
-                // delete from fileCache and virtualToCache by reference
-                fileCache.splice(fileCache.indexOf(file), 1);
-                for (const virtual in /* <- ATTENTION */ virtualToCache) {
-                    if (virtualToCache[virtual] == file) {
-                        delete virtualToCache[virtual];
-                    }
+        const newContent = fs.readFileSync(file.realpath);
+        if (file.content == null || Buffer.compare(file.content, newContent) != 0) { // only refresh when content change, or never loaded
+            file.cacheKey = now;
+            file.content = null;
+            file.encodedContent = {};
+        }
+    }
+}
+function handleReloadClient(appname: string) {
+    if (!APP_NAMES.includes(appname)) {
+        return; // ignore
+    }
+
+    // clear all and insert new, but try to use old cache key and encoded content if no content change
+    if (appname in reloadKeyToCache) {
+        for (const file of reloadKeyToCache[appname]) {
+            // delete from fileCache and virtualToCache by reference
+            fileCache.splice(fileCache.indexOf(file), 1);
+            for (const virtual in /* <- ATTENTION */ virtualToCache) {
+                if (virtualToCache[virtual] == file) {
+                    delete virtualToCache[virtual];
                 }
             }
         }
-        // NOTE: this may be undefined if key not in reloadKeyToCache, when app reloaded from disabled to enabled
-        const oldCachedFiles = reloadKeyToCache[key];
-        delete reloadKeyToCache[key];
-
-        const files = getAppFiles(key).map<FileCache>(file => {
-            const realpath = path.join('WEBROOT', `${key}/${file}`);
-            const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
-            const newContent = fs.readFileSync(realpath);
-            const entry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
-            fileCache.push(entry);
-            virtualToCache[`/${key}/${file}`] = entry;
-            return entry;
-        });
-
-        if (files.length) {
-            const realpath = path.join('WEBROOT', `${key}/index.html`);
-            const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
-            const newContent = fs.readFileSync(realpath);
-            const indexEntry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
-            fileCache.push(indexEntry);
-            virtualToCache[`/${key}/`] = indexEntry;
-            files.push(indexEntry);
-            reloadKeyToCache[key] = files;
-        }
-    } // else ignore unknown key
-}
-
-export function handleAdminConfigDevMod(sourceMap: boolean, websocketPort: number) {
-    logInfo({ type: 'config-devmod', value: { sourceMap, websocketPort }});
-
-    if (DEVMODE.timer) {
-        clearTimeout(DEVMODE.timer);
     }
 
-    DEVMODE.enabled = true;
-    DEVMODE.sourceMap = sourceMap || DEVMODE.sourceMap;
-    DEVMODE.websocketPort = websocketPort || DEVMODE.websocketPort;
-    DEVMODE.timer = setTimeout(() => DEVMODE.enabled = false, 3600_000);
+    // NOTE: this may be undefined if key not in reloadKeyToCache, when app reloaded from disabled to enabled
+    const oldCachedFiles = reloadKeyToCache[appname];
+    delete reloadKeyToCache[appname];
+
+    const files = getAppFiles(appname).map<FileCache>(file => {
+        const realpath = path.join('WEBROOT', `${appname}/${file}`);
+        const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
+        const newContent = fs.readFileSync(realpath);
+        const entry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+        fileCache.push(entry);
+        virtualToCache[`/${appname}/${file}`] = entry;
+        return entry;
+    });
+
+    if (files.length) {
+        const realpath = path.join('WEBROOT', `${appname}/index.html`);
+        const oldEntry = oldCachedFiles?.find(c => c.realpath == realpath);
+        const newContent = fs.readFileSync(realpath);
+        const indexEntry = oldEntry?.content && Buffer.compare(oldEntry.content, newContent) == 0 ? oldEntry : { realpath, cacheKey: now, content: null, encodedContent: {} };
+        fileCache.push(indexEntry);
+        virtualToCache[`/${appname}/`] = indexEntry;
+        files.push(indexEntry);
+        reloadKeyToCache[appname] = files;
+    }
+}
+export function handleCommand(data: AdminContentData) {
+    logInfo({ type: 'admin command content', data });
+
+    if (data.type == 'reload-page') {
+        handleReloadPage(data.pagename);
+    } else if (data.type == 'reload-client') {
+        handleReloadClient(data.app);
+    } else if (data.type == 'enable-source-map') {
+        AllowSourceMap = true;
+    } else if (data.type == 'disable-source-map') {
+        AllowSourceMap = false;
+    } else if (data.type == 'set-websocket-port') {
+        DevWebSocketPort = data.port;
+    }
 }

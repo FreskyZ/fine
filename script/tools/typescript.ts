@@ -1,11 +1,11 @@
 import * as path from 'path';
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
-import { logError, logInfo, compileTimeConfig } from '../common';
+import { logError, logInfo, getCompileTimeConfig } from '../common';
 
 export type TypeScriptOptions = {
     base: 'normal',
-    entry: string,
+    entry: string | string[],
     // no: no source map, normal: separated source map have source map url, hide: separated source map, no source map url
     sourceMap: 'no' | 'normal' | 'hide',
     watch: boolean,
@@ -119,6 +119,7 @@ function printEmitResult(emitResult: ts.EmitResult): boolean {
 }
 
 // install on ts.sys, already replace by maka.config, call additional hook if exists
+const compileTimeConfig = getCompileTimeConfig();
 function setupReadFileHook() {
     const originalReadFile = ts.sys.readFile;
     ts.sys.readFile = (fileName, encoding) => {
@@ -176,9 +177,10 @@ class TypeScriptChecker {
 
     public check(): TypeScriptResult {
         logInfo('tsc', chalk`once {yellow ${this.options.entry}}`);
-    
         setupReadFileHook();
-        const program = ts.createProgram([this.options.entry], this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
+
+        const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
+        const program = ts.createProgram(entry, this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
     
         const files: TypeScriptResult['files'] = [];
         const emitResult = program.emit(undefined, createWriteFileHook(this.options, files));
@@ -202,10 +204,11 @@ class TypeScriptChecker {
         //       while MyPackOptions.file is exactly **this** array, mypack will cleanup this array if configured (default to true)
         const files: TypeScriptResult['files'] = [];
         
-        // amazingly this blocks until first check and emit completes and continue
+        const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         setImmediate(() => {
+            // amazingly this blocks until first check and emit completes and continue
             ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
-                [this.options.entry], 
+                entry, 
                 this.compilerOptions,
                 ts.sys,
                 (...createProgramArgs) => {

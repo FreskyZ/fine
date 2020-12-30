@@ -4,6 +4,7 @@ import * as dayjs from 'dayjs';
 import type * as _ from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
+import type { AdminAuthData } from '../shared/types/admin';
 import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
@@ -255,12 +256,12 @@ export async function handleApplications(ctx: Ctx) {
     throw new MyError('not-found', 'invalid invocation');
 }
 
-// // these 2 admin handlers are amazingly simple
-export function handleAdminReloadServer(app: string) {
-    logInfo({ type: 'reload-server', value: { app }});
-    delete require.cache[require.resolve(`../${app}/server`)];
-}
-export async function handleAdminExpireDevice(deviceId: number) {
-    logInfo({ type: 'expire-device', value: { deviceId }});
-    await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', (dayjs.utc as any)([1970, 1, 1]).format(QueryDateTimeFormat.datetime), deviceId);
+export async function handleCommand(data: AdminAuthData) {
+    logInfo({ type: 'admin command auth', data });
+
+    if (data.type == 'reload-server') {
+        delete require.cache[require.resolve(`../${data.app}/server`)];
+    } else if (data.type == 'expire-device') {
+        await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', (dayjs.utc as any)([1970, 1, 1]).format(QueryDateTimeFormat.datetime), data.deviceId);
+    } // other not supported for now
 }

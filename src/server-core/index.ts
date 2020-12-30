@@ -1,21 +1,20 @@
-import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
-import type { AdminEventEmitter, AdminPayload } from '../shared/types/admin';
+import type { AdminPayload } from '../shared/types/admin';
+import type { ContextState } from './auth';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleRequestContent, handleAdminReloadStatic, handleAdminConfigDevMod } from './content';
+import { handleRequestContent } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
-import type { ContextState } from './auth';
 import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
-import { handleAdminReloadServer, handleAdminExpireDevice } from './auth'; // admin handler
+import { handleCommand as handleAuthCommand } from './auth';
+import { handleCommand as handleContentCommand } from './content';
 
 const app = new Koa<ContextState>();
-const admin: AdminEventEmitter = new EventEmitter();
 
 app.use(handleRequestError);
 app.use(handleRequestContent);
@@ -25,10 +24,6 @@ app.use(handleRequestAuthentication);
 app.use(handleApplications);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
-admin.on('reload-static', handleAdminReloadStatic);
-admin.on('config-devmod', handleAdminConfigDevMod);
-admin.on('reload-server', handleAdminReloadServer);
-admin.on('expire-device', handleAdminExpireDevice);
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
@@ -67,17 +62,14 @@ socketServer.on('connection', connection => {
         }
         // ACK after data decoded or else data seems to be discarded after that end closed
         connection.write('ACK');
+        // do nothing for ping, ACK is enough for stating 'I'm alive'
 
         if (message.type == 'shutdown') {
-            admin.emit('shutdown');
-        } else if (message.type == 'reload-static') {
-            admin.emit('reload-static', message.key);
-        } else if (message.type == 'config-devmod') {
-            admin.emit('config-devmod', message.sourceMap, message.websocketPort);
-        } else if (message.type == 'reload-server') {
-            admin.emit('reload-server', message.app);
-        } else if (message.type == 'expire-device') {
-            admin.emit('expire-device', message.deviceId);
+            shutdown();
+        } else if (message.type == 'auth') {
+            handleAuthCommand(message.data);
+        } else if (message.type == 'content') {
+            handleContentCommand(message.data);
         }
     });
 });
@@ -85,8 +77,8 @@ socketServer.on('connection', connection => {
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = http2.createSecureServer({ 
-    key: fs.readFileSync("SSL_KEY", 'utf-8'), 
-    cert: fs.readFileSync("SSL_CERT", 'utf-8'),
+    key: fs.readFileSync('SSL_KEY', 'utf-8'), 
+    cert: fs.readFileSync('SSL_CERT', 'utf-8'),
 }, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};
@@ -205,4 +197,3 @@ function shutdown() {
 }
 
 process.on('SIGINT', shutdown);
-admin.on('shutdown', shutdown);
