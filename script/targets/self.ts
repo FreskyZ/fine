@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
@@ -24,14 +25,13 @@ const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
     entry: '/vbuild/server.js',
     files,
-    writeFile: false,
     minify: true,
     shebang: true,
     cleanupFiles: false,
 });
 
 const getUploadAssets = (packResult: MyPackResult): Asset[] => [
-    { name: 'akari', data: packResult.resultJs, remote: 'WEBROOT/akari', mode: 0o777 }
+    { data: packResult.resultJs, remote: 'WEBROOT/akari', mode: 0o777 }
 ];
 
 export async function build(): Promise<void> {
@@ -49,6 +49,7 @@ export async function build(): Promise<void> {
             if (!packResult.success) {
                 return logCritical('akr', chalk`{cyan self} failed at pack (1)`);
             }
+            fs.writeFileSync('akari', packResult.resultJs);
         })(),
         (async (): Promise<void> => {
             const packResult = await mypack(getMyPackOptions2(checkResult.files), '(2)').run();

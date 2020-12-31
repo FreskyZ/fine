@@ -67,7 +67,7 @@ const AddModal: React.FC<AddModalProps> = ({ handleCancel, handleFinish }) => {
         footer={<Button loading={loading} disabled={!title || !amount} size='small' onClick={handleSave}>保存</Button>}>
         <Radio.Group className='record-type' value={type} disabled={loading} onChange={e => setType(e.target.value)}>
             <Radio value='cost'>支出</Radio>
-            <Radio disabled={true} value='income'>收入</Radio>
+            <Radio value='income'>收入</Radio>
             <Radio disabled={true} value='transfer'>转移</Radio>
         </Radio.Group>
         <Input className='record-title' value={title} disabled={loading} onChange={e => setTitle(e.target.value)} />

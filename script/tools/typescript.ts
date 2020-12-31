@@ -60,14 +60,14 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
     };
 }
 
-function printDiagnostic({ category, code, messageText, file, start }: ts.Diagnostic): void {
+function printDiagnostic({ category, code, messageText, file, start }: ts.Diagnostic, additionalHeader?: string): void {
     if (code == 6031) {
         // original message is 'TS6031: Starting compilation in watch mode...'
         // ignore because transpileWatch have its own starting message
         return; 
     } else if (code == 6032) {
         // original message is 'TS6032: File change detected. Starting incremental compilation
-        logInfo('tsc', 'recheck');
+        logInfo(`tsc${additionalHeader}`, 'recheck');
     } else if (code == 6194) {
         // originaL message is 'TS6194: Found 0 errors. Watching for file changes'
         // because this is already checked by emit hook's !emitResult.emitSkipped, and this actually fires after that, which will make output message not in order, so ignore
@@ -171,7 +171,10 @@ function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult
 
 class TypeScriptChecker {
     private readonly compilerOptions: ts.CompilerOptions;
-    public constructor(public readonly options: TypeScriptOptions) {
+    public constructor(
+        public readonly options: TypeScriptOptions, 
+        private readonly additionalHeader?: string) {
+        this.additionalHeader = this.additionalHeader ?? '';
         this.compilerOptions = mergeOptions(options);
     }
 
@@ -191,7 +194,7 @@ class TypeScriptChecker {
 
     // callback only called when watch recheck success
     public watch(callback: (result: TypeScriptResult) => any) {
-        logInfo('tsc', chalk`watch {yellow ${this.options.entry}}`);
+        logInfo(`tsc${this.additionalHeader}`, chalk`watch {yellow ${this.options.entry}}`);
 
         setupReadFileHook();
     
@@ -223,11 +226,11 @@ class TypeScriptChecker {
                     }
                     return program;
                 },
-                printDiagnostic,
-                printDiagnostic,
+                diagnostic => printDiagnostic(diagnostic, this.additionalHeader),
+                diagnostic => printDiagnostic(diagnostic, this.additionalHeader)
             ));
         });
     }
 }
 
-export function typescript(options: TypeScriptOptions) { return new TypeScriptChecker(options); }
+export function typescript(options: TypeScriptOptions, additionalHeader?: string) { return new TypeScriptChecker(options, additionalHeader); }

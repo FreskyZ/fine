@@ -123,15 +123,15 @@ export interface CodeGenerationResult {
     success: boolean,
 }
 
-async function generateServerDefinition(app: string): Promise<CodeGenerationResult> {
+async function generateServerDefinition(app: string, additionalHeader?: string): Promise<CodeGenerationResult> {
     const filename = `src/${app}/server/index.ts`;
-    logInfo('fcg', chalk`generate {yellow ${filename}}`);
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow ${filename}}`);
 
     let definitionFile: APIDefinitionFile;
     try {
         definitionFile = await loadFile(app);
     } catch (ex) {
-        logError('fcg', ex.message);
+        logError(`fcg${additionalHeader}`, ex.message);
         return { success: false };
     }
     const { version, definitions } = definitionFile;
@@ -142,7 +142,7 @@ async function generateServerDefinition(app: string): Promise<CodeGenerationResu
     if (definitions.length == 0) {
         resultJs += "// empty\n";
         await fs.promises.writeFile(filename, resultJs);
-        logInfo('fcg', 'generate completed with empty');
+        logInfo(`fcg${additionalHeader}`, 'generate completed with empty');
         return { success: true };
     }
 
@@ -207,19 +207,19 @@ async function generateServerDefinition(app: string): Promise<CodeGenerationResu
     resultJs += '}\n';
 
     await fs.promises.writeFile(filename, resultJs);
-    logInfo('fcg', 'generate completed');
+    logInfo(`fcg${additionalHeader}`, 'generate completed');
     return { success: true };
 }
 
-async function generateClientDefinition(app: string): Promise<CodeGenerationResult> {
+async function generateClientDefinition(app: string, additionalHeader?: string): Promise<CodeGenerationResult> {
     const filename = `src/${app}/client/api.ts`;
-    logInfo('fcg', chalk`generate {yellow ${filename}}`);
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow ${filename}}`);
 
     let definitionFile: APIDefinitionFile;
     try {
         definitionFile = await loadFile(app);
     } catch (ex) {
-        logError('fcg', ex.message);
+        logError(`fcg${additionalHeader}`, ex.message);
         return { success: false };
     }
     const { version, definitions } = definitionFile;
@@ -230,7 +230,7 @@ async function generateClientDefinition(app: string): Promise<CodeGenerationResu
     if (definitions.length == 0) {
         resultJs += "// empty\n";
         await fs.promises.writeFile(filename, resultJs);
-        logInfo('fcg', 'generate completed with empty');
+        logInfo(`fcg${additionalHeader}`, 'generate completed with empty');
         return { success: true };
     }
 
@@ -290,7 +290,7 @@ async function generateClientDefinition(app: string): Promise<CodeGenerationResu
     }
 
     await fs.promises.writeFile(filename, resultJs);
-    logInfo('fcg', 'generate completed');
+    logInfo(`fcg${additionalHeader}`, 'generate completed');
     return { success: true };
 }
 
@@ -298,20 +298,22 @@ class CodeGenerator {
     public readonly definitionFile: string;
     public constructor(
         private readonly app: string, 
-        private readonly target: 'server' | 'client') {
+        private readonly target: 'server' | 'client',
+        private readonly additionalHeader?: string) {
+        this.additionalHeader = this.additionalHeader ?? '';
         this.definitionFile = getDefinitionFile(this.app);
     }
 
     public generate(): Promise<CodeGenerationResult> {
         if (this.target == 'server') {
-            return generateServerDefinition(this.app);
+            return generateServerDefinition(this.app, this.additionalHeader);
         } else {
-            return generateClientDefinition(this.app);
+            return generateClientDefinition(this.app, this.additionalHeader);
         }
     }
 
     public watch() {
-        logInfo('fcg', chalk`watch {yellow ${this.definitionFile}}`);
+        logInfo(`fcg${this.additionalHeader}`, chalk`watch {yellow ${this.definitionFile}}`);
 
         // prevent reentry like web-page html
         let regenerateRequested = true; // init to true for initial codegen
@@ -328,4 +330,4 @@ class CodeGenerator {
     }
 }
 
-export function codegen(app: string, target: 'server' | 'client') { return new CodeGenerator(app, target); }
+export function codegen(app: string, target: 'server' | 'client', additionalHeader?: string) { return new CodeGenerator(app, target, additionalHeader); }

@@ -1,12 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import * as chalk from 'chalk';
-import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { codegen } from '../tools/codegen';
+import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { MyPackOptions, mypack } from '../tools/mypack';
+import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -14,7 +12,6 @@ const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions =>
     sourceMap: 'hide',
     watch,
 });
-
 const getMyPackOptions = (app: string, files: MyPackOptions['files']): MyPackOptions => ({
     type: 'lib',
     entry: `/vbuild/${app}/server/index.js`,
@@ -24,65 +21,60 @@ const getMyPackOptions = (app: string, files: MyPackOptions['files']): MyPackOpt
     printModules: true,
     minify: true,
 });
+const getUploadAssets = (app: string, packResult: MyPackResult): Asset[] => [
+    { remote: `WEBROOT/${app}/server.js`, data: packResult.resultJs },
+    { remote: `WEBROOT/${app}/server.js.map`, data: packResult.resultMap },
+];
 
 async function buildOnce(app: string): Promise<void> {
-    logInfo('mka', chalk`{cyan ${app}-server}`);
-    await fs.promises.mkdir(`dist/${app}`, { recursive: true });
+    logInfo('akr', chalk`{cyan ${app}-server}`);
+    // mkdir(recursive)
 
     const codegenResult = await codegen(app, 'server').generate();
     if (!codegenResult.success) {
-        return logCritical('mka', chalk`{cyan ${app}-server} failed at code generation`);
+        return logCritical('akr', chalk`{cyan ${app}-server} failed at code generation`);
     }
 
     const checkResult = typescript(getTypeScriptOptions(app, false)).check();
     if (!checkResult.success) {
-        return logCritical('mka', chalk`{cyan ${app}-server} failed at check`);
+        return logCritical('akr', chalk`{cyan ${app}-server} failed at check`);
     }
 
     const packResult = await mypack(getMyPackOptions(app, checkResult.files)).run();
     if (!packResult.success) {
-        return logCritical('mka', chalk`{cyan ${app}-server} failed at pack`);
+        return logCritical('akr', chalk`{cyan ${app}-server} failed at pack`);
     }
 
-    try {
-        logInfo('ssh', 'deploy assets');
-        const sftp = new SFTPClient();
-        await sftp.connect({ host: 'domain.com', username: 'root', privateKey: await fs.promises.readFile('SSH_KEY'), passphrase: 'SSH_PASSPHRASE' });
-        await sftp.fastPut(path.resolve(`dist/${app}/server.js`), `WEBROOT/${app}/server.js`);
-        await sftp.fastPut(path.resolve(`dist/${app}/server.js.map`), `WEBROOT/${app}/server.js.map`);
-        await sftp.end();
-        logInfo('ssh', 'completed successfully');
-    } catch (ex) {
-        console.log(ex);
-        logCritical('ssh', 'failed to connect or put file, try later');
+    const uploadResult = await upload(getUploadAssets(app, packResult));
+    if (!uploadResult) {
+        return logCritical('akr', chalk`{cyan ${app}-server} failed at upload`);
+    }
+    const adminResult = await admin({ type: 'auth', data: { type: 'reload-server', app } });
+    if (!adminResult) {
+        return logCritical('akr', chalk`{cyan ${app}-server} failed at reload`);
     }
 
-    logInfo('mka', chalk`{cyan ${app}-server} complete successfully`);
+    logInfo('akr', chalk`{cyan ${app}-server} complete successfully`);
 }
 
-function buildWatch(app: string) {
-    logInfo('mka', chalk`watch {cyan ${app}-server}`);
-    fs.mkdirSync(`dist/${app}`, { recursive: true });
+function buildWatch(app: string, additionalHeader?: string) {
+    logInfo(`akr${additionalHeader ?? ''}`, chalk`watch {cyan ${app}-server}`);
+    // mkdir(recursive)
 
-    codegen(app, 'server').watch(); // no callback watch is this simple
+    codegen(app, 'server', additionalHeader).watch(); // no callback watch is this simple
 
-    const packer = mypack(getMyPackOptions(app, null));
-    typescript(getTypeScriptOptions(app, true)).watch(async ({ files }) => {
-        packer.options.files = files; // this usage is correct but unexpected, change this later
+    const packer = mypack(getMyPackOptions(app, null), additionalHeader);
+    typescript(getTypeScriptOptions(app, true), additionalHeader).watch(async ({ files }) => {
+        packer.updateFiles(files);
         const packResult = await packer.run();
-        if (!packResult.success) {
-            return;
-        }
-        if (packResult.hasChange) {
-            await admin({ type: 'auth', data: { type: 'reload-server', app } }).catch(() => { /* ignore */});
+        if (packResult.success && packResult.hasChange) {
+            if (await upload(getUploadAssets(app, packResult), { additionalHeader })) {
+                await admin({ type: 'auth', data: { type: 'reload-server', app } }, additionalHeader);
+            }
         }
     });
 }
 
-export async function build(app: string, watch: boolean): Promise<void> {
-    if (watch) {
-        buildWatch(app);
-    } else {
-        await buildOnce(app);
-    }
+export async function build(app: string, watch: boolean, additionalHeader?: string): Promise<void> {
+    (watch ? buildWatch : buildOnce)(app, additionalHeader);
 }

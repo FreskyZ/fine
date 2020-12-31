@@ -1,5 +1,5 @@
 import { build as buildSelf } from './targets/self';
-import { build as buildPublic, cleanAll } from './targets/public';
+import { build as buildPublic } from './targets/public';
 import { build as buildServerCore } from './targets/server-core';
 import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
@@ -26,8 +26,6 @@ function validateApp(appname: string) {
 const [a1, a2] = [process.argv[2] || '', process.argv[3] || '']; // 0 is node, 1 is maka
 if (a1 == 'self') {
     buildSelf();
-} else if (a1 == 'clean') {
-    cleanAll();
 } else if (a1 == 'public') {
     buildPublic();
 
@@ -48,10 +46,9 @@ if (a1 == 'self') {
     buildAppServer(validateApp(a1.slice(0, -7)), false);
 } else if (a1 == 'watch' && a2.endsWith('-server')) {
     buildAppServer(validateApp(a2.slice(0, -7)), true);
-
 } else if (a1 == 'watch' && a2.endsWith('-both')) { // both client and server
-    buildAppClient(validateApp(a2.slice(0, -5)), true);
-    buildAppServer(validateApp(a2.slice(0, -5)), true);
+    buildAppClient(validateApp(a2.slice(0, -5)), true, '(c)');
+    buildAppServer(validateApp(a2.slice(0, -5)), true, '(s)');
 
 } else if (a1 == 'all') {
     buildPublic();
@@ -75,7 +72,7 @@ if (a1 == 'self') {
 } else if (a1 == 'service' && a2 == 'is-active') {
     admin({ type: 'service', data: 'is-active' }).then(result => process.exit(result ? 1 : 0));
 
-} else if (a1 == 'test') {
+} else if (a1 == 'watchscstop') { // reserved in case it does not stop
     admin({ type: 'watchsc', data: 'stop' }).then(result => process.exit(result ? 1 : 0));
 
 } else {
@@ -90,14 +87,12 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// integrite web-page, app-server, app-client with new deployment and reload feature
-// mypack seems print updated module list twice, disable source-map seems not working
-// public target direct to deploy, remove clean target, remove dist folder from local, remove dist from gitignore
+// disable source-map seems not working
 // new client-dev script, integrite and test with app-client, try the reload css machenism
 
 // add edit feature to wimm!
 
 // add (c) and (s) to watch -both log header, continue improve log format
 // add basic eslint to self, server-core, web-page, app-server and app-client, all as warnings
-// develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32
+// develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32, command line `akari view-log &`
 // move error stack parser and source map map from server-core into log viewing web page

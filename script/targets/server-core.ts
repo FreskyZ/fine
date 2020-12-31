@@ -1,5 +1,4 @@
 
-import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
@@ -20,19 +19,19 @@ const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     entry: '/vbuild/server-core/index.js',
     sourceMap: true,
     output: 'dist/main/server.js',
-    writeFile: false,
     printModules: true,
     minify: true,
 });
 
 const getUploadAssets = (packResult: MyPackResult): Asset[] => [
-    { name: 'server.js', data: packResult.resultJs, remote: 'WEBROOT/main/server.js' },
-    { name: 'server.js.map', data: packResult.resultMap, remote: 'WEBROOT/main/server.js.map' },
+    { remote: 'WEBROOT/main/server.js', data: packResult.resultJs },
+    { remote: 'WEBROOT/main/server.js.map', data: packResult.resultMap },
 ];
 
 async function buildOnce(): Promise<void> {
     logInfo('akr', chalk`{cyan server-core}`);
-    await fs.promises.mkdir('dist/main', { recursive: true });
+    // mkdir(recursive) is not needed anymore
+    // as I'm lazy to investigate ssh version, now it's assumed that server has already full deployed once and all folder already exists
 
     const checkResult = typescript(getTypescriptOptions(false)).check();
     if (!checkResult.success) {
@@ -54,7 +53,7 @@ async function buildOnce(): Promise<void> {
 
 async function buildWatch() {
     logInfo('akr', chalk`watch {cyan server-core}`);
-    fs.mkdirSync('dist/main', { recursive: true });
+    // mkdir(recursive)
 
     const packer = mypack(getMyPackOptions(null));
     typescript(getTypescriptOptions(true)).watch(async ({ files }) => {

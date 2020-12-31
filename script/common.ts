@@ -33,6 +33,21 @@ export function logCritical(header: string, message: string) {
     return process.exit(1);
 }
 
+export function watchvar(callback: () => any, options?: { interval?: number, initialCall?: boolean }): () => void {
+    let requested = false;
+    setInterval(() => {
+        if (requested) {
+            requested = false;
+            callback();
+        }
+    }, options?.interval ?? 3001);
+
+    if (options?.initialCall) {
+        callback();
+    }
+    return () => requested = true;
+}
+
 export function formatAdminPayload(payload: AdminPayload) {
     switch (payload.type) {
         case 'ping': return 'ping';

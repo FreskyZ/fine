@@ -1,14 +1,17 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { logInfo, logCritical } from '../common';
+import { logInfo, logCritical, watchvar } from '../common';
 import { admin } from '../tools/admin';
-import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { SassOptions, sass } from '../tools/sass';
+import { Asset, upload } from '../tools/ssh';
+import { SassOptions, SassResult, sass } from '../tools/sass';
+import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
-// web page, not web app, they contains hand written html and at most one sass file and at most one ts file which transpiles into seems-hand-written javascript
+// web page, not web app, they contains hand written html 
+//    and at most one sass file which transpiles into one compressed css 
+//    and at most one ts file which transpiles into look-like-hand-written javascript
 // 1. except the index page, others are available at all domains without the html extension,
-// 2. except 404/418, they are reloadable via admin action reload-static, reload key is same as PageName
-// 3. source file name is same as PageName, url path is not same as PageName
+// 2. except 404/418, they are reloadable via admin script, reload key is same as PageName
+// 3. source file name is same as PageName, url path may not be same as PageName
 
 const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptions => ({
     base: 'normal',
@@ -17,101 +20,88 @@ const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptio
     sourceMap: 'no',
     watch,
 });
-
 const getSassOptions = (pagename: string): SassOptions => ({
     entry: `src/pages/${pagename}.sass`,
-    output: `dist/main/${pagename}.css`,
 });
+const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult | 'html'): Asset => result == 'html' ? {
+    remote: `WEBROOT/main/${pagename}.html`,
+    data: fs.readFileSync(`src/pages/${pagename}.html`),
+} : 'files' in result ? {
+    remote: `WEBROOT/main/${pagename}.js`,
+    data: Buffer.from(result.files[0].content),
+} : {
+    remote: `WEBROOT/main/${pagename}.css`,
+    data: result.resultCss, 
+};
 
 async function buildOnce(pagename: string): Promise<void> {
-    logInfo('mka', chalk`{cyan ${pagename}-page}`);
-    await fs.promises.mkdir('dist/main', { recursive: true });
-    // although these 3 things can be done in parallel, sequential them to prevent output mess and less `new Promise<>((resolve) ...` code
+    logInfo('akr', chalk`{cyan ${pagename}-page}`);
+    // mkdir(recursive)
+
+    const assets: Asset[] = [getUploadAsset(pagename, 'html')]; // html is here
 
     const checker = typescript(getTypeScriptOptions(pagename, false));
     if (fs.existsSync(checker.options.entry as string)) {
         const checkResult = checker.check();
         if (!checkResult.success) {
-            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at check`);
+            return logCritical('akr', chalk`{cyan ${pagename}-page} failed at check`);
         }
-        await fs.promises.writeFile(`dist/main/${pagename}.js`, checkResult.files[0].content);
+        assets.push(getUploadAsset(pagename, checkResult));
     }
 
     const transpiler = sass(getSassOptions(pagename));
     if (fs.existsSync(transpiler.options.entry)) {
         const transpileResult = await transpiler.transpile();
         if (!transpileResult.success) {
-            return logCritical('mka', chalk`{yellow ${pagename}-page} failed at transpile`);
+            return logCritical('akr', chalk`{cyan ${pagename}-page} failed at transpile`);
         }
+        assets.push(getUploadAsset(pagename, transpileResult));
     }
 
-    logInfo('htm', chalk`copy {yellow ${pagename}.html}`);
-    await fs.promises.copyFile(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
-    logInfo('htm', 'copy completed');
-
-    await admin({ type: 'content', data: { type: 'reload-page', pagename } });
-    logInfo('mka', chalk`{cyan ${pagename}-page} completed succesfully`);
-}
-
-function watchHtml(pagename: string, callback: () => any) {
-    const entry = `src/pages/${pagename}.html`;
-    logInfo('htm', chalk`watch {yellow ${entry}}`);
-
-    // fs.watch unexpectedly triggers 2 events on html edit, use same strategy as admin reload to prevent frequent call
-    let recopyRequested = false;
-    fs.watch(entry, { persistent: false }, () => {
-        recopyRequested = true;
-    });
-
-    const actualCopy = () => {
-        fs.copyFileSync(`src/pages/${pagename}.html`, `dist/main/${pagename}.html`);
-        logInfo('htm', 'copy completed');
-        callback();
+    const uploadResult = await upload(assets);
+    if (!uploadResult) {
+        return logCritical('akr', chalk`{cyan ${pagename}-page} failed at upload`);
+    }
+    const adminResult = await admin({ type: 'content', data: { type: 'reload-page', pagename } });
+    if (!adminResult) {
+        return logCritical('akr', chalk`{cyan ${pagename}-page} failed at reload`);
     }
 
-    setInterval(() => {
-        if (recopyRequested) {
-            recopyRequested = false;
-            logInfo('htm', 'recopy');
-            actualCopy();
-        }
-    }, 3001);
-
-    actualCopy(); // initial copy
+    logInfo('akr', chalk`{cyan ${pagename}-page} completed succesfully`);
 }
 
 async function buildWatch(pagename: string) {
-    logInfo('mka', chalk`watch {cyan ${pagename}-page}`);
-    await fs.promises.mkdir('dist/main', { recursive: true });
+    logInfo('akr', chalk`watch {cyan ${pagename}-page}`);
+    // mkdir(recursive)
 
-    // prevent frequent reload
-    let reloadRequested = false;
+    const requestReload = watchvar(() => {
+        admin({ type: 'content', data: { type: 'reload-page', pagename } });
+    });
 
     const checker = typescript(getTypeScriptOptions(pagename, true));
     if (fs.existsSync(checker.options.entry as string)) {
-        checker.watch(checkResult => {
+        checker.watch(async checkResult => {
             // tsc does not print watched message because in backend targets it will be directly followed by a mypack 'repack' message, so add one here
             logInfo('tsc', `completed with no diagnostics`);
-            fs.writeFileSync(`dist/main/${pagename}.js`, checkResult.files[0].content);
-            reloadRequested = true;
+            if (await upload(getUploadAsset(pagename, checkResult))) { requestReload(); }
         });
     }
 
     const transpiler = sass(getSassOptions(pagename));
     if (fs.existsSync(transpiler.options.entry)) {
-        transpiler.watch(() => {
-            reloadRequested = true;
+        transpiler.watch(async transpileResult => {
+            if (await upload(getUploadAsset(pagename, transpileResult))) { requestReload(); }
         });
     }
 
-    watchHtml(pagename, () => reloadRequested = true);
+    const requestReupload = watchvar(async () => {
+        logInfo('htm', 'reupload');
+        if (await upload(getUploadAsset(pagename, 'html'))) { requestReload(); }
+    }, { initialCall: true });
 
-    setInterval(() => {
-        if (reloadRequested) {
-            reloadRequested = false;
-            admin({ type: 'content', data: { type: 'reload-page', pagename } });
-        }
-    }, 3002).unref();
+    const htmlEntry = `src/pages/${pagename}.html`;
+    logInfo('htm', chalk`watch {yellow ${htmlEntry}}`);
+    fs.watch(htmlEntry, { persistent: false }, requestReupload);
 }
 
 export function build(pagename: string, watch: boolean) {

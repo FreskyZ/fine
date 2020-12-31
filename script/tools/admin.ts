@@ -17,7 +17,7 @@ async function getv(): Promise<V> {
         // cannot ssh connect or any error download file or parse content 
         // is regarded as critical error and will abort process, because almost all targets need upload file or send command
 
-        const asset: Asset = { name: 'akariv', remote: 'WEBROOT/akariv' };
+        const asset: Asset = { remote: 'WEBROOT/akariv' };
         if (!await download([asset], true)) {
             return logCritical('adm', 'fail to getv (1)');
         }
@@ -31,7 +31,11 @@ async function getv(): Promise<V> {
     return v;
 }
 
-export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(resolve => {
+// get akari (server) port
+export const getServerPort = async () => (await getv())[0];
+
+export const admin = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
+    const logHeader = `adm${additionalHeader ?? ''}`;
     const serialized = JSON.stringify(payload);
     getv().then(v => {
         const key = crypto.scryptSync(codebook.slice(v[1], 32), codebook.slice(v[2], 32), 32);
@@ -55,16 +59,16 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
         });
         request.on('error', error => {
             if ((error as any).code == 'ECONNREFUSED') {
-                logError('adm', 'cannot connect akari (server)');
+                logError(logHeader, 'cannot connect akari (server)');
             } else {
-                logError('adm', `request error ${error.message}`, error);
+                logError(logHeader, `request error ${error.message}`, error);
             }
             resolve(false);
         });
         request.on('socket', socket => {
             socket.on('error', _error => {
                 // // currently this reports same error as request.on('error'), while duplicate resolve only respects the first one
-                // logError('adm', `socket error ${error.message}`);
+                // logError(logHeader, `socket error ${error.message}`);
                 resolve(false);
             })
             request.write(packed);
@@ -72,7 +76,7 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
         });
         request.on('response', response => {
             if (response.statusCode != 200) {
-                logError('adm', `response ${response.statusCode}`);
+                logError(logHeader, `response ${response.statusCode}`);
                 resolve(false);
             } else if (payload.type == 'service') {
                 response.pipe(process.stdout);
@@ -82,7 +86,7 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
                     // send and ignore
                     response.on('data', () => {});
                     response.on('end', () => {
-                        logInfo('adm', chalk`ack stop watch server-core`);
+                        logInfo(logHeader, chalk`ack stop watch server-core`);
                         resolve(true);
                     });
                 } else if (payload.data == 'start') {
@@ -97,14 +101,14 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
                                 headerReceived = true;
                                 const header = receivingHeader.slice(0, 4).toString();
                                 if (header == 'that') {
-                                    logInfo('adm', chalk`ack {yellow restart watch server-core}`);
+                                    logInfo(logHeader, chalk`ack {yellow restart watch server-core}`);
                                     resolve(true);
                                 } else if (header == 'this') {
                                     // write remaining to stdout and start direct pipe
                                     process.stdout.write(receivingHeader.slice(4));
                                     response.pipe(process.stdout);
                                 } else {
-                                    logError('adm', `start watch server-core received unexpected header ${header}`);
+                                    logError(logHeader, `start watch server-core received unexpected header ${header}`);
                                     resolve(false);
                                 }
                             }
@@ -119,10 +123,10 @@ export const admin = (payload: AdminPayload): Promise<boolean> => new Promise(re
                 response.on('data', (data: string) => { fulldata += data; });
                 response.on('end', () => {
                     if (fulldata == 'ACK ' + serialized) {
-                        logInfo('adm', chalk`ACK {yellow ${formatAdminPayload(payload)}}`);
+                        logInfo(logHeader, chalk`{cyan ACK} {yellow ${formatAdminPayload(payload)}}`);
                         resolve(true);
                     } else {
-                        logError('adm', 'unexpected response ' + fulldata);
+                        logError(logHeader, 'unexpected response ' + fulldata);
                         resolve(false);
                     }
                 });

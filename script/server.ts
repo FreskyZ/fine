@@ -179,7 +179,19 @@ class ServerCoreHost {
     }
 }
 
+const clientdevjs = '' +
+    `const ws = new WebSocket(\`wss://\${location.host}:PORT\`);\n` +
+    `ws.onmessage = e => { ws.send('ACK ' + e.data); console.log(e.data); }`;
+
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {
+
+    if (request.method == 'GET' && request.url == '/client-dev.js') {
+        logInfo('htt', 'GET /client-dev.js');
+        response.statusCode = 200;
+        response.write(clientdevjs.replace('PORT', port.toString()));
+        response.end();
+        return;
+    }
 
     let encryptedData = ''; // I don't know when this small request will be splitted, but collect full data in case
     request.on('data', data => { encryptedData += Buffer.isBuffer(data) ? data.toString() : data; });

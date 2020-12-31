@@ -5,15 +5,19 @@ import { logInfo, logError } from '../common';
 
 export interface SassOptions {
     entry: string,
-    output: string,
+}
+export interface SassResult {
+    success?: boolean,
+    resultCss?: Buffer,
 }
 
 class SassTranspiler {
-    public constructor(public options: SassOptions) {
+    public constructor(public readonly options: SassOptions, private readonly additionalHeader?: string) {
+        this.additionalHeader = this.additionalHeader ?? '';
     }
 
     // return success instead of reject because try catch every await is redundent
-    public transpile = () => new Promise<{ success: boolean }>(resolve => {
+    public transpile = () => new Promise<SassResult>(resolve => {
         logInfo('css', chalk`once {yellow ${this.options.entry}}`);
     
         render({
@@ -24,18 +28,17 @@ class SassTranspiler {
                 logError('css', `error at ${error.file}:${error.line}:${error.column}: ${error.message}`);
                 resolve({ success: false });
             } else {
-                fs.writeFileSync(this.options.output, result.css);
                 logInfo('css', `completed in ${result.stats.duration}ms`);
-                resolve({ success: true });
+                resolve({ success: true, resultCss: result.css });
             }
         });
     });
 
     // single entry, watch all included files, any change will invalidate all watchers and restart all watch again
     // callback only called when watch retranspile success
-    public watch(callback: () => void) {
-        const self = this;
-        logInfo('css', chalk`watch {yellow ${this.options.entry}}`);
+    public watch(callback: (result: SassResult) => void) {
+        const logHeader = `css${this.additionalHeader}`
+        logInfo(logHeader, chalk`watch {yellow ${this.options.entry}}`);
 
         const watchers: fs.FSWatcher[] = [];
         const renderOptions: Options = {
@@ -58,27 +61,26 @@ class SassTranspiler {
 
             render(renderOptions, (error, result) => {
                 if (error) {
-                    logError('css', `error at ${error.file}:${error.line}:${error.column}: ${error.message}`);
+                    logError(logHeader, `error at ${error.file}:${error.line}:${error.column}: ${error.message}`);
                 } else {
-                    fs.writeFileSync(self.options.output, result.css);
-                    logInfo('css', `completed in ${result.stats.duration}ms`);
-                    callback();
+                    logInfo(logHeader, `completed in ${result.stats.duration}ms`);
+                    callback({ resultCss: result.css });
                     previousFiles = result.stats.includedFiles;
                 }
                 
                 for (const file of previousFiles) {
                     watchers.push(fs.watch(file, { persistent: false }, () => {
                         if (state == 'running') {
-                            logInfo('css', 'retranspile waiting');
+                            logInfo(logHeader, 'retranspile waiting');
                             state = 'pending';
                         } else if (state == 'none') {
-                            logInfo('css', 'retranspile (1)');
+                            logInfo(logHeader, 'retranspile (1)');
                             impl();
                         } // else if state == pending: already changed to pending
                     }));
                 }
                 if (state == 'pending') {
-                    logInfo('css', 'retranspile (2)');
+                    logInfo(logHeader, 'retranspile (2)');
                     impl();
                 } else if (state == 'running') {
                     state = 'none';
@@ -88,4 +90,4 @@ class SassTranspiler {
     }
 }
 
-export function sass(options: SassOptions) { return new SassTranspiler(options); }
+export function sass(options: SassOptions, additionalHeader?: string) { return new SassTranspiler(options, additionalHeader); }

@@ -1,20 +1,25 @@
-import * as fs from 'fs-extra';
-import * as rimraf from 'rimraf';
-import { logInfo, logError } from '../common';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as chalk from 'chalk';
+import { logInfo } from '../common';
+import { Asset, upload } from '../tools/ssh';
 
-export function build() {
-    logInfo('mka', 'copy public');
-    fs.copySync('src/public', 'dist/public', { overwrite: true });
-    logInfo('mka', 'copy public completed');
+async function collectAssets(assets: Asset[], directory: string) {
+    await Promise.all((await fs.promises.readdir(directory, { withFileTypes: true })).map(async entry => {
+        const entryName = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+            await collectAssets(assets, entryName);
+        } else {
+            // replace: from 'src/public/*' to 'WEBROOT/public/*'
+            assets.push({ remote: entryName.replace('src', 'WEBROOT'), data: await fs.promises.readFile(entryName) });
+        }
+    }));
+    return assets;
 }
 
-export function cleanAll() {
-    logInfo('mka', 'clean all');
-    rimraf('dist', (error) => {
-        if (error) {
-            logError('mka', 'clean failed: ' + error.message);
-        } else {
-            logInfo('mka', 'clean all completed');
-        }
-    });
+export async function build() {
+    // mkdir(recursive)
+    logInfo('akr', chalk`{cyan public}`);
+    await upload(await collectAssets([], 'src/public'));
+    logInfo('akr', chalk`{cyan public} complete`);
 }

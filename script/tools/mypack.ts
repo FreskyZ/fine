@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
 import { SHA256 as sha256 } from 'crypto-js';
@@ -16,8 +15,7 @@ export interface MyPackOptions {
     entry: string,             // entry name should be in file list
     files: { name: string, content: string }[],
     sourceMap?: boolean,       // default to false
-    output?: string,           // source map file is output + '.map', or write file to output
-    writeFile?: boolean,       // write output to file, default to true
+    output?: string,           // source map file is output + '.map'
     printModules?: boolean,    // default to false
     minify?: boolean,          // default to false
     shebang?: boolean,         // default to false
@@ -82,6 +80,9 @@ class MyPacker {
     private readonly logHeader: string;
     public constructor(public readonly options: MyPackOptions, additionalHeader?: string) {
         this.logHeader = additionalHeader ? `mpk${additionalHeader}` : 'mpk';
+    }
+    public updateFiles(files: MyPackOptions['files']) {
+        this.options.files = files;
     }
 
     private sources: Source[];
@@ -304,7 +305,7 @@ class MyPacker {
         this.lastHash = hash;
 
         if (!hasChange) {
-            logInfo(this.logHeader, chalk`completed with {blue no change}`);
+            logInfo(this.logHeader, chalk`completed with {gray no change}`);
         } else {
             this.printResult(resultJs.length, modules);
         }
@@ -321,19 +322,7 @@ class MyPacker {
         }
         this.lastModules = modules;
 
-        if (!('writeFile' in this.options) || this.options.writeFile) {
-            if (!this.options.output) {
-                logError(this.logHeader, 'output required');
-                return { success: false };
-            }
-            await fs.promises.writeFile(this.options.output, resultJs);
-            if (this.options.sourceMap) {
-                await fs.promises.writeFile(this.options.output + '.map', resultMap);
-            }
-            return { success: true, hasChange };
-        } else {
-            return { success: true, hasChange, resultJs: Buffer.from(resultJs), resultMap: resultMap ? Buffer.from(resultMap) : null };
-        }
+        return { success: true, hasChange, resultJs: Buffer.from(resultJs), resultMap: resultMap ? Buffer.from(resultMap) : null };
     }
 }
 

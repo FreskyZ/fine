@@ -30,7 +30,7 @@ export async function addRecord(ctx: Context, record: Record): Promise<Record> {
         throw new MyError('common', 'title cannot be empty');
     }
     if (!['cost', 'income', 'transfer'].includes(record.type)) {
-        throw new MyError('common', 'invalid type');
+        throw new MyError('common', 'invalid record type');
     }
     if (record.amount <= 0) {
         throw new MyError('common', 'amount should be larger than 0');
@@ -40,6 +40,8 @@ export async function addRecord(ctx: Context, record: Record): Promise<Record> {
     if (!time.isValid()) {
         throw new MyError('common', 'invalid time');
     }
+
+    record.title = 'title';
 
     const { value: { insertId: recordId } } = await query<QueryResult>(
         'INSERT INTO `WIMMRecord` (`Title`, `Type`, `Tags`, `Amount`, `Time`, `UserId`) VALUES (?, ?, ?, ?, ?, ?)',
