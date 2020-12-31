@@ -46,11 +46,11 @@ function getAppFiles(app: string): string[] {
 
     do {
         const match = htmlStyleRegex.exec(html);
-        if (match) { filenames.push(match.groups['filename']); } else { break; }
+        if (match) { filenames.push(match.groups!['filename']); } else { break; }
     } while (true);
     do {
         const match = htmlScriptRegex.exec(html);
-        if (match) { filenames.push(match.groups['filename']); } else { break; }
+        if (match) { filenames.push(match.groups!['filename']); } else { break; }
     } while (true);
 
     return filenames;
@@ -99,7 +99,7 @@ const fileCache: FileCache[] = knownFiles
 // key is /${subdomain ?? 'www'}${path}
 type VirtualToCache = { [key: string]: FileCache }
 const virtualToCache = knownFiles
-    .reduce<VirtualToCache>((acc, f) => { acc[f.virtual] = fileCache.find(c => c.realpath == path.join('WEBROOT', f.real)); return acc; }, {});
+    .reduce<VirtualToCache>((acc, f) => { acc[f.virtual] = fileCache.find(c => c.realpath == path.join('WEBROOT', f.real))!; return acc; }, {});
 // key is reload key
 type ReloadKeyToCache = { [key: string]: FileCache[] }
 const reloadKeyToCache: ReloadKeyToCache = knownFiles
@@ -110,7 +110,7 @@ const reloadKeyToCache: ReloadKeyToCache = knownFiles
             .filter(f => f.reloadKey == reloadKey)
             .map(f => path.join('WEBROOT', f.real))
             .filter((f, index, array) => array.indexOf(f) == index) // distinct because realpath may duplicate
-            .map(f => fileCache.find(c => c.realpath == f)); 
+            .map(f => fileCache.find(c => c.realpath == f)!); 
         return acc; 
     }, {});
 

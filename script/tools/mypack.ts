@@ -23,9 +23,9 @@ export interface MyPackOptions {
 }
 
 export type MyPackResult = {
-    success: boolean,
-    hasChange?: boolean, // this hash = last hash
-    resultJs?: Buffer,   // only when writeFile is false and hasChange is true
+    success: true,
+    hasChange: boolean, // this hash = last hash
+    resultJs: Buffer,   // only when writeFile is false and hasChange is true
     resultMap?: Buffer,  // only when writeFile is false and hasChange is true and sourceMap is true
 }
 
@@ -49,7 +49,7 @@ function mapIndex(source: string): (index: number) => string {
 interface Source { 
     filename: string, 
     jsContent: string,
-    mapContent: string, // can be missing even if source map is on
+    mapContent?: string, // can be missing even if source map is on
     mapIndex: (index: number) => string,
 }
 
@@ -67,16 +67,23 @@ interface Module {
     hash: string,    // hash of previous content
 }
 
+// discard all kind of content from previous module to reduce memory usage
+interface LastModule {
+    name: string,
+    source: string, // source file name
+    hash: string,
+}
+
 interface EmitHost {
     sb: string, // string builder
-    generator: SourceMapGenerator,
+    generator: SourceMapGenerator | null,
     lineOffset: number, // offset from generated line to original line, because column will not be change in this packing process
 }
 
 class MyPacker {
 
-    private lastHash: string = null;
-    private lastModules: Module[] = null;
+    private lastHash: string | null = null;
+    private lastModules: LastModule[] | null = null;
     private readonly logHeader: string;
     public constructor(public readonly options: MyPackOptions, additionalHeader?: string) {
         this.logHeader = additionalHeader ? `mpk${additionalHeader}` : 'mpk';
@@ -85,9 +92,8 @@ class MyPacker {
         this.options.files = files;
     }
 
-    private sources: Source[];
-    private getSources() {
-        this.sources = this.options.files.filter(f => f.name.endsWith('.js')).map(({ name, content }) => ({
+    private getSources(): Source[] {
+        return this.options.files.filter(f => f.name.endsWith('.js')).map(({ name, content }) => ({
             filename: name,
             jsContent: content,
             mapContent: this.options.files.find(f => f.name == name + '.map')?.content,
@@ -95,7 +101,7 @@ class MyPacker {
         }));
     }
 
-    private processModule(source: Source): Module {
+    private processModule(source: Source, sources: Source[]): Module | null {
         let moduleName = path.relative(path.dirname(this.options.entry), source.filename);
         if (moduleName.endsWith('.js')) { moduleName = moduleName.slice(0, -3); }
         if (moduleName.endsWith('index')) { moduleName = moduleName.slice(0, -5); }
@@ -108,12 +114,12 @@ class MyPacker {
             const match = pattern.exec(source.jsContent);
             if (!match) { break; }
 
-            const raw = match.groups['request'];
+            const raw = match.groups!['request'];
             const fullRequest = path.resolve(path.dirname(source.filename), raw);
             const requiredFileName = 
-                this.sources.some(s => s.filename == fullRequest) ? fullRequest
-                : this.sources.some(s => s.filename == fullRequest + '.js') ? fullRequest + '.js'
-                : this.sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
+                sources.some(s => s.filename == fullRequest) ? fullRequest
+                : sources.some(s => s.filename == fullRequest + '.js') ? fullRequest + '.js'
+                : sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
                 : null;
             if (!requiredFileName) {
                 logError(this.logHeader, `${source.filename}: invalid module name ${raw} at ${source.mapIndex(match.index)}`);
@@ -145,13 +151,12 @@ class MyPacker {
     private checkCircularReference(modules: Module[]): boolean {
         // this is actually similar to runtime initialize process
         const self = this;
-        const loadings: { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string }[] = [
-            { moduleName: modules[0].name, parentFileName: null, parentRequirePosition: null, parentRequireRaw: null },
-        ];
+        type Loading = { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string }
+        const loadings: Loading[] = [{ moduleName: modules[0].name, parentFileName: '', parentRequirePosition: '', parentRequireRaw: '' }];
 
         function load($module: Module) {
             for (const request of $module.requests) {
-                const requestedModule = modules.find(m => m.name == request.resolvedModuleName);
+                const requestedModule = modules.find(m => m.name == request.resolvedModuleName)!; // resolved module name must be in modules list
 
                 if (loadings.some(o => o.moduleName == requestedModule.name)) {  // this also checks self references, but how and why will anyone write self reference?
                     logError(self.logHeader, 'circular reference encountered');
@@ -197,15 +202,15 @@ class MyPacker {
         host.sb += `'${$module.name}': (exports, myimport) => {\n${$module.content}}, `;
         host.lineOffset += 1;
 
-        if (host.generator) {
-            let firstMappingLine: number = null; // first mapping line is 3/4 (diff by whether have export) which maps to packed js line `lineMovement + 1`
-            const consumer = await new SourceMapConsumer(JSON.parse($module.source.mapContent));
+        if (host.generator && !$module.source.mapContent) {
+            let firstMappingLine: number | null = null; // first mapping line is 3/4 (diff by whether have export) which maps to packed js line `lineMovement + 1`
+            const consumer = await new SourceMapConsumer(JSON.parse($module.source.mapContent!));
             consumer.eachMapping(mapping => {
                 if (firstMappingLine === null) {
                     firstMappingLine = mapping.generatedLine;
                 }
 
-                host.generator.addMapping({ 
+                host.generator!.addMapping({ 
                     source: path.resolve(mapping.source), 
                     original: { line: mapping.originalLine, column: mapping.originalColumn },
                     generated: { line: mapping.generatedLine - firstMappingLine + host.lineOffset + 1, column: mapping.generatedColumn },
@@ -232,17 +237,18 @@ class MyPacker {
     private printResult(assetSize: number, modules: Module[]) {
         logInfo(this.logHeader, chalk`completed with {yellow 1} asset {yellow ${filesize(assetSize)}}`);
         if (this.options.printModules) {
-            if (this.lastModules) {
-                for (const addedModule of modules.filter(n => !this.lastModules.some(p => p.source.filename == n.source.filename))) {
+            const lastModules = this.lastModules;
+            if (lastModules) {
+                for (const addedModule of modules.filter(n => !lastModules.some(p => p.source == n.source.filename))) {
                     console.log(chalk`  {gray +} ${addedModule.name} ({gray ${addedModule.source.filename}}) ${filesize(addedModule.content.length)}`);
                 }
                 for (const [updatedModule] of modules
-                    .map(n => [n, this.lastModules.find(p => p.source.filename == n.source.filename)])
+                    .map<[Module, LastModule?]>(n => [n, lastModules.find(p => p.source == n.source.filename)])
                     .filter(([currentModule, previousModule]) => previousModule && currentModule.hash != previousModule.hash)) {
                     console.log(chalk`  {gray *} ${updatedModule.name} ({gray ${updatedModule.source.filename}}) ${filesize(updatedModule.content.length)}`);
                 }
-                for (const removedModule of this.lastModules.filter(p => !modules.some(n => n.source.filename == p.source.filename))) {
-                    console.log(chalk`  {gray - removed} ${removedModule.name} ({gray ${removedModule.source.filename}})`);
+                for (const removedModule of lastModules.filter(p => !modules.some(n => n.source.filename == p.source))) {
+                    console.log(chalk`  {gray - removed} ${removedModule.name} ({gray ${removedModule.source}})`);
                 }
             } else {
                 for (const { name, source, content } of modules) {
@@ -253,12 +259,12 @@ class MyPacker {
         }
     }
 
-    public async run(): Promise<MyPackResult> {
+    public async run(): Promise<{ success: false } | MyPackResult> {
         const entry = this.options.entry; // entry file name
         logInfo(this.logHeader, this.lastHash ? 'repack' : chalk`pack {yellow ${entry.startsWith('/vbuild/') ? entry.slice(8) : entry}}`);
 
-        this.getSources();
-        if (!this.sources.some(s => s.filename == entry)) {
+        const sources = this.getSources();
+        if (!sources.some(s => s.filename == entry)) {
             logError(this.logHeader, 'invalid entry');
             return { success: false };
         }
@@ -267,7 +273,7 @@ class MyPacker {
         const modules: Module[] = [];
         const requiredFileNames: string[] = [entry]; // items already checked in this.sources
         for (let moduleIndex = 0; moduleIndex < requiredFileNames.length; ++moduleIndex) {
-            const $module = this.processModule(this.sources.find(s => s.filename == requiredFileNames[moduleIndex]));
+            const $module = this.processModule(sources.find(s => s.filename == requiredFileNames[moduleIndex])!, sources); // find!: requiredFileName already checked in sources
             if (!$module) { return { success: false }; }
             requiredFileNames.push(...$module.requests.map(r => r.resolvedFileName).filter(f => !requiredFileNames.includes(f)));
             modules.push($module);
@@ -294,17 +300,15 @@ class MyPacker {
                     url: this.options.output + '.map', // this is generated //#sourceMapURL, which I do not use
                 },
                 format: {
-                    max_line_len: 'MAKA_SELF_MULTILINE' in process.env ? 120 : undefined,
+                    max_line_len: 'AKARIN_SELF_MULTILINE' in process.env ? 120 : undefined,
                 }
             });
-            resultJs = minifyResult.code;
+            resultJs = minifyResult.code!;
             resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
         }
 
         const hash = sha256(resultJs).toString();
         const hasChange = hash != this.lastHash;
-        this.lastHash = hash;
-
         if (!hasChange) {
             logInfo(this.logHeader, chalk`completed with {gray no change}`);
         } else {
@@ -315,15 +319,9 @@ class MyPacker {
             this.cleanupMemoryFile(modules, this.options.files);
         }
 
-        // remove content to reduce memory usage
-        for (const $module of modules) {
-            $module.content = null;
-            $module.source.jsContent = null;
-            $module.source.mapContent = null;
-        }
-        this.lastModules = modules;
-
-        return { success: true, hasChange, resultJs: Buffer.from(resultJs), resultMap: resultMap ? Buffer.from(resultMap) : null };
+        this.lastHash = hash;
+        this.lastModules = modules.map<LastModule>(m => ({ name: m.name, source: m.source.filename, hash: m.hash }));
+        return { success: true, hasChange, resultJs: Buffer.from(resultJs), resultMap: resultMap ? Buffer.from(resultMap) : undefined };
     }
 }
 

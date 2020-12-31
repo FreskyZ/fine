@@ -4,25 +4,25 @@ import * as https from 'https';
 import * as chalk from 'chalk';
 import type { AdminPayload } from '../../src/shared/types/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
-import { Asset, download } from './ssh';
+import { download } from './ssh';
 
 // this is akari (local) to akari (server)
 
 const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
 
 type V = [number, number, number]
-let v: V = null; // [port, scryptPasswordIndex, scryptSaltIndex]
+let v: V | null = null; // [port, scryptPasswordIndex, scryptSaltIndex]
 async function getv(): Promise<V> {
     if (!v) {
         // cannot ssh connect or any error download file or parse content 
         // is regarded as critical error and will abort process, because almost all targets need upload file or send command
 
-        const asset: Asset = { remote: 'WEBROOT/akariv' };
-        if (!await download([asset], true)) {
+        const assets = await download('WEBROOT/akariv', true);
+        if (!assets) {
             return logCritical('adm', 'fail to getv (1)');
         }
 
-        const vs = asset.data.toString();
+        const vs = assets[0].data.toString();
         v = vs.split(':').map(x => parseInt(x)) as V;
         if (v.length != 3 || v.some(x => !x)) {
             return logCritical('adm', 'fail to getv (2)');

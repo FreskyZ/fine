@@ -23,7 +23,7 @@ function validateApp(appname: string) {
     }
 }
 
-const [a1, a2] = [process.argv[2] || '', process.argv[3] || '']; // 0 is node, 1 is maka
+const [a1, a2] = [process.argv[2] || '', process.argv[3] || '']; // 0 is node, 1 is akari
 if (a1 == 'self') {
     buildSelf();
 } else if (a1 == 'public') {

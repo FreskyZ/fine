@@ -52,7 +52,7 @@ function parsePath(apiName: string, rawPath: string): PathComponent[] {
             throw new Error(`api ${apiName} too many parameters`);
         }
 
-        const [parameterName, parameterType] = [match.groups['parameterName'], match.groups['parameterType']];
+        const [parameterName, parameterType] = [match.groups!['parameterName'], match.groups!['parameterType']];
         if (!parameterTypes.includes(parameterType)) {
             throw new Error(`api ${apiName} parameter ${parameterName} invalid type ${parameterType}`);
         }

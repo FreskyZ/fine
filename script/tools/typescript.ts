@@ -29,16 +29,20 @@ const basicOptions: ts.CompilerOptions = {
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
     skipLibCheck: true,
     noEmitOnError: true,
+    // NOTE for strict
+    // I spent some time to fix non strict warnings and a lot of tsc-is-not-clever-enough / their-document-says-this-ask-them exclamation marks
+    // (one of the reasons is that my (FreskyZ@outlook.com) code is very strongly typed and well considered safe)
+    // so I decided to continue this pattern, every some time use this environment variable to check for non strict warnings and possible errors, but most of the time this switch is not on
+    strict: 'AKARIN_TS_STRICT' in process.env,
     noImplicitAny: true,
     noFallthroughCaseInSwitch: true,
     noImplicitReturns: true,
     noImplicitThis: true,
     noUnusedLocals: true,
     noUnusedParameters: true,
+    strictNullChecks: 'AKARIN_TS_STRICT' in process.env,
     strictFunctionTypes: true,
     strictBindCallApply: true,
-    // it proves to be too boring for strict null
-    // strictNullChecks: true,
     removeComments: true,
 };
 
@@ -47,7 +51,7 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
         ...basicOptions,
         outDir: '/vbuild', // git simply virtual path to normal config 
         sourceMap: options.sourceMap != 'no',
-        lib: 'additionalLib' in options ? [...basicOptions.lib, ...options.additionalLib.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
+        lib: 'additionalLib' in options ? [...basicOptions.lib!, ...options.additionalLib!.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
     } : {
         ...basicOptions,
         outDir: path.resolve('src'), // outdir should make output file look similar to original ts file to make webpack some path related things look proper
@@ -56,7 +60,7 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
         esModuleInterop: true,
         module: ts.ModuleKind.ESNext,
         jsx: ts.JsxEmit.ReactJSX,
-        lib: [...basicOptions.lib, 'lib.dom.d.ts'],
+        lib: [...basicOptions.lib!, 'lib.dom.d.ts'],
     };
 }
 
@@ -82,7 +86,7 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
         const displayCode = displayColor(`  TS${code} `);
 
         let fileAndPosition = '';
-        if (file) {
+        if (file && start) {
             const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
             fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
         }
@@ -118,7 +122,7 @@ function printEmitResult(emitResult: ts.EmitResult): boolean {
     return !emitResult.emitSkipped;
 }
 
-// install on ts.sys, already replace by maka.config, call additional hook if exists
+// install on ts.sys, already replace by akari.config, call additional hook if exists
 const compileTimeConfig = getCompileTimeConfig();
 function setupReadFileHook() {
     const originalReadFile = ts.sys.readFile;
@@ -126,7 +130,7 @@ function setupReadFileHook() {
         let fileContent = originalReadFile(fileName, encoding);
         if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
             for (const configName in compileTimeConfig) {
-                fileContent = fileContent.replaceAll(configName, compileTimeConfig[configName]);
+                fileContent = fileContent!.replaceAll(configName, compileTimeConfig[configName]);
             }
         }
         return fileContent;
@@ -200,7 +204,7 @@ class TypeScriptChecker {
     
         // NOTE: the following hooked emit will only write changed files, so this list is in this scope instead of that hook scope
         // ATTENTION: not used files (deleted and not imported) is not calling any delete, 
-        //            so I (maka) cannot remove the entry by any typescript functions or hooks, related: microsoft/TypeScript#30602
+        //            so it is not possible to remove the entry by any typescript functions or hooks, related: microsoft/TypeScript#30602
         // NOTE: webpack will parse entry javascript file and recursive include imported javascript files and auto ignore the removed file,
         //       so result module list is filtered and collected to cleanup **this** array
         // NOTE: mypack will match entry javascript file and bfs include imported javascript files and auto ignore the removed file,

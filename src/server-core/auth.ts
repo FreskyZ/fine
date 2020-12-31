@@ -60,7 +60,7 @@ async function handleLogin(ctx: Ctx) {
     const { value: { insertId: userDeviceId } } = await query<QueryResult>(
         'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`) VALUES (?, ?, ?, ?, ?)',
         userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime);
-    userDevice.Id = userDeviceId;
+    userDevice.Id = userDeviceId!;
     userDeviceStorage.push(userDevice);
 
     // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body 
@@ -223,7 +223,7 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
 
     for (const [regex, handler] of matchers) {
         const match = regex.exec(key);
-        if (match) { await handler(ctx, match.groups); return; }
+        if (match) { await handler(ctx, match.groups!); return; }
     }
 
     return await next();

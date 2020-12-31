@@ -130,9 +130,9 @@ function writeError(writable: stream.Writable, header: string, message: string) 
 }
 
 // host server core by akari (server) when watch server-core
-let serverCoreHost: ServerCoreHost;
+let serverCoreHost: ServerCoreHost | null = null;
 class ServerCoreHost {
-    private theProcess: cp.ChildProcessWithoutNullStreams;
+    private theProcess: cp.ChildProcessWithoutNullStreams | null = null;
     public constructor(private readonly response: http.ServerResponse) {
         this.startimpl();
     }

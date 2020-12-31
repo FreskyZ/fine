@@ -25,7 +25,7 @@ const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
 
 const getUploadAssets = (packResult: MyPackResult): Asset[] => [
     { remote: 'WEBROOT/main/server.js', data: packResult.resultJs },
-    { remote: 'WEBROOT/main/server.js.map', data: packResult.resultMap },
+    { remote: 'WEBROOT/main/server.js.map', data: packResult.resultMap! },
 ];
 
 async function buildOnce(): Promise<void> {
@@ -55,7 +55,7 @@ async function buildWatch() {
     logInfo('akr', chalk`watch {cyan server-core}`);
     // mkdir(recursive)
 
-    const packer = mypack(getMyPackOptions(null));
+    const packer = mypack(getMyPackOptions([]));
     typescript(getTypescriptOptions(true)).watch(async ({ files }) => {
         packer.options.files = files;
         const packResult = await packer.run();

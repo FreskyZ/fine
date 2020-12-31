@@ -33,9 +33,10 @@ const getUploadJsAssets = (app: string, additional: AdditionalStat): MyAsset[] =
     data: asset[1].data,
 }));
 
-// MAKA_AC_OSIZE: maka-app-client-optimize-size-level
+// AKARIN_APP_CLIENT_OSIZE: size optimize level
 // 0 is not minify, 1 is fast minify, 2 is full minify, default to 2
-const sizeOptimizeLevel = 'MAKA_AC_OSIZE' in process.env ? (process.env['MAKA_AC_OSIZE'] === '0' ? 0 : parseInt(process.env['MAKA_AC_OSIZE']) || 2) : 2;
+const sizeOptimizeLevelKey = 'AKARIN_APP_CLIENT_OSIZE'
+const sizeOptimizeLevel = sizeOptimizeLevelKey in process.env ? (process.env[sizeOptimizeLevelKey] === '0' ? 0 : parseInt(process.env[sizeOptimizeLevelKey]!) || 2) : 2;
 const getWebpackConfiguration = (app: string): webpack.Configuration => ({
     mode: 'development', // production force disable cache, so use development mode with production optimization settings
     entry: { 'client': path.resolve('src', app, 'client/index.js') },
@@ -77,8 +78,8 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
 });
 
 interface WebpackResult {
-    error: Error,
-    statsObject: webpack.Stats,
+    error?: Error,
+    statsObject?: webpack.Stats,
 }
 interface AdditionalStat { 
     assets: { [assetName: string]: { data: Buffer, compressSize: number } },
@@ -250,7 +251,7 @@ async function buildOnce(app: string): Promise<void> {
             logError('wpk', JSON.stringify(packResult.error, undefined, 1));
             return logCritical('akr', chalk`{yellow ${app}-client} failed at pack (1)`);
         }
-        const stats = packResult.statsObject.toJson() as WebpackStat;
+        const stats = packResult.statsObject!.toJson() as WebpackStat;
 
         printWebpackResult(stats, additional);
         if (stats.errorsCount > 0) {
@@ -266,7 +267,7 @@ async function buildOnce(app: string): Promise<void> {
     // promise 2: css, return css file list
     const p2 = (async (): Promise<MyAsset[]> => {
         const transpileResult = await sass(getSassOptions(app)).transpile();
-        if (!transpileResult) {
+        if (!transpileResult.success) {
             return logCritical('akr', chalk`{cyan ${app}-client} failed at transpile`);
         }
         return [{ remote: `WEBROOT/${app}/index.css`, data: transpileResult.resultCss }];
@@ -322,7 +323,7 @@ function buildWatch(app: string, additionalHeader?: string) {
 
     // Attention: this is *the* array inside TypeScriptChecker.watch, to be clean up by webpack result
     let typescriptResultFiles: TypeScriptResult['files'] = [];
-    let webpackLastHash: string = null; // last hash
+    let webpackLastHash: string | null = null;
     typescript(getTypeScriptOptions(app, true), additionalHeader).watch(async ({ files }) => {
         // no need to delete file here because it will not happen in typescript write file hook while correct delete file happen in cleanupMemoryFile
         for (const { name: fileName, content: fileContent } of files) {
@@ -347,7 +348,7 @@ function buildWatch(app: string, additionalHeader?: string) {
                 logError(`wpk${additionalHeader}`, 'webpack fatal error', error);
                 return;
             }
-            const stats = statsObject.toJson() as WebpackStat;
+            const stats = statsObject!.toJson() as WebpackStat;
         
             printWebpackResult(stats, additional, additionalHeader);
             cleanupMemoryFile(stats, typescriptResultFiles, mfs as memfs.IFs); // this writer still cannot write his type clearly, again

@@ -6,7 +6,7 @@ import * as SFTPClient from 'ssh2-sftp-client';
 import { logInfo, logError } from '../common';
 
 export interface Asset {
-    data?: Buffer,
+    data: Buffer,
     remote: string, // should be absolute
     mode?: number,  // default to 0o644
 }
@@ -42,7 +42,8 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
     }
 }
 
-export async function download(assets: Asset[], silence?: boolean) {
+export async function download(remoteNames: string | string[], silence?: boolean): Promise<Asset[] | null> {
+    remoteNames = Array.isArray(remoteNames) ? remoteNames : [remoteNames];
     const client = new SFTPClient();
 
     try {
@@ -53,23 +54,24 @@ export async function download(assets: Asset[], silence?: boolean) {
             passphrase: 'SSH_PASSPHRASE',
         });
 
-        for (const asset of assets) {
+        const assets: Asset[] = [];
+        for (const remoteName of remoteNames) {
             const chunks: Buffer[] = [];
-            await client.get(asset.remote, new stream.Writable({
+            await client.get(remoteName, new stream.Writable({
                 write(chunk, encoding, callback) {
                     chunks.push(Buffer.from(chunk, encoding));
                     callback();
                 }
             }));
-            asset.data = Buffer.concat(chunks);
+            assets.push({ remote: remoteName, data: Buffer.concat(chunks) });
         }
         await client.end();
         if (!silence) {
             logInfo('ssh', chalk`download {yellow ${assets.length}} file`);
         }
-        return true;
+        return assets;
     } catch (ex) {
         logError('ssh', 'error ' + ex.message);
-        return false;
+        return null;
     }
 }

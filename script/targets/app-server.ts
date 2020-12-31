@@ -23,7 +23,7 @@ const getMyPackOptions = (app: string, files: MyPackOptions['files']): MyPackOpt
 });
 const getUploadAssets = (app: string, packResult: MyPackResult): Asset[] => [
     { remote: `WEBROOT/${app}/server.js`, data: packResult.resultJs },
-    { remote: `WEBROOT/${app}/server.js.map`, data: packResult.resultMap },
+    { remote: `WEBROOT/${app}/server.js.map`, data: packResult.resultMap! },
 ];
 
 async function buildOnce(app: string): Promise<void> {
@@ -63,7 +63,7 @@ function buildWatch(app: string, additionalHeader?: string) {
 
     codegen(app, 'server', additionalHeader).watch(); // no callback watch is this simple
 
-    const packer = mypack(getMyPackOptions(app, null), additionalHeader);
+    const packer = mypack(getMyPackOptions(app, []), additionalHeader);
     typescript(getTypeScriptOptions(app, true), additionalHeader).watch(async ({ files }) => {
         packer.updateFiles(files);
         const packResult = await packer.run();

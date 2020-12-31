@@ -7,8 +7,8 @@ export interface SassOptions {
     entry: string,
 }
 export interface SassResult {
-    success?: boolean,
-    resultCss?: Buffer,
+    success: true,
+    resultCss: Buffer,
 }
 
 class SassTranspiler {
@@ -17,7 +17,7 @@ class SassTranspiler {
     }
 
     // return success instead of reject because try catch every await is redundent
-    public transpile = () => new Promise<SassResult>(resolve => {
+    public transpile = () => new Promise<{ success: false } | SassResult>(resolve => {
         logInfo('css', chalk`once {yellow ${this.options.entry}}`);
     
         render({
@@ -64,7 +64,7 @@ class SassTranspiler {
                     logError(logHeader, `error at ${error.file}:${error.line}:${error.column}: ${error.message}`);
                 } else {
                     logInfo(logHeader, `completed in ${result.stats.duration}ms`);
-                    callback({ resultCss: result.css });
+                    callback({ success: true, resultCss: result.css });
                     previousFiles = result.stats.includedFiles;
                 }
                 
