@@ -1,59 +1,80 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Button, Tag, Modal, Radio, Input, InputNumber, Spin, Popconfirm, message } from 'antd';
-import { CloseOutlined, PlusOutlined }  from '@ant-design/icons';
+import { Button, Tag, Modal, Radio, Input, InputNumber, message } from 'antd';
+import { PlusOutlined }  from '@ant-design/icons';
 import { DatePicker, TimePicker } from './dayjs-picker';
 import dayjs from 'dayjs';
 import type { Record } from '../api';
 import * as api from './api';
 
-type RecordRowProps = { record: Record, handleEdit: () => any, handleDeleteFinish: () => any };
-const RecordRow: React.FC<RecordRowProps> = ({ record, handleEdit, handleDeleteFinish }) => {
-    const [loading, setLoading] = useState(false);
-
-    const handleDelete = () => {
-        setLoading(true);
-        api.deleteRecord(record.id).then(() => {
-            message.info('删除成功');
-            handleDeleteFinish();
-        }, ex => {
-            message.error('删除失败：' + ex.message);
-            setLoading(false);
-        });
-    }
-
+type RecordRowProps = { record: Record, handleEdit: () => any };
+const RecordRow: React.FC<RecordRowProps> = ({ record, handleEdit }) => {
     const displayType = record.type == 'cost' ? '支出' : record.type == 'income' ? '收入' : '转移';
 
-    return <div className='record-display' onClick={handleEdit}><Spin spinning={loading}>
+    return <div className='record-display' onClick={handleEdit}>
         <span className='record-title'>{record.title}</span>
         <span className='record-tags'>{[displayType].concat(record.tags).map(tag => <Tag className='record-tag'><span>{tag}</span></Tag>)}</span>
         <span className='record-time'>{record.time}</span>
         <span className='record-amount'>&#x00A5;{record.amount}</span>
-        <Popconfirm title='确定要删除这条记录吗？' cancelText='取消' okText='确认' onConfirm={handleDelete}>
-            <CloseOutlined />
-        </Popconfirm>
-    </Spin></div>;
+    </div>;
 }
 
 // TODO: try antd 4 form later
-type AddModalProps = { handleCancel: () => void, handleFinish: (newRecord: Record) => any };
-const AddModal: React.FC<AddModalProps> = ({ handleCancel, handleFinish }) => {
+type AddModalProps = {
+    originalData?: Record, 
+    handleCancel: () => void, 
+    handleCreateUpdateFinish: (newRecord: Record) => any, 
+    handleDeleteFinish: () => any,
+};
+const AddModal: React.FC<AddModalProps> = ({ originalData, handleCancel, handleCreateUpdateFinish, handleDeleteFinish }) => {
     const [loading, setLoading] = useState(false);
-    const [title, setTitle] = useState('');
-    const [tags, setTags] = useState('');
-    const [type, setType] = useState<Record['type']>('cost');
-    const [time, setTime] = useState(dayjs());
-    const [amount, setAmount] = useState<number>(undefined);
+    const [title, setTitle] = useState(originalData?.title ?? '');
+    const [tags, setTags] = useState(originalData?.tags?.join(',') ?? '');
+    const [type, setType] = useState<Record['type']>(originalData?.type ?? 'cost');
+    const [time, setTime] = useState(dayjs(originalData?.time) ?? dayjs());
+    const [amount, setAmount] = useState<number>(originalData?.amount);
 
     const handleSave = () => {
         setLoading(true);
-        api.addRecord({ id: 0, title, type, tags: tags ? tags.split(',') : [], amount: amount || 0, time: time.format('YYYYMMDD-HHmmss') }).then(result => {
-            message.info('保存成功');
-            result.time = time.format('YYYY-MM-DD HH:mm:ss');
-            handleFinish(result);
-        }, ex => {
-            setLoading(false);
-            message.error('保存没成功：' + ex.message);
+
+        if (originalData) {
+            api.updateRecord(originalData.id, { id: originalData.id, title, type, tags: tags ? tags.split(',') : [], amount: amount || 0, time: time.format('YYYYMMDD-HHmmss') }).then(result => {
+                message.info('保存成功');
+                result.time = time.format('YYYY-MM-DD HH:mm:ss');
+                handleCreateUpdateFinish(result);
+            }, ex => {
+                setLoading(false);
+                message.error('保存没成功：' + ex.message);
+            });
+        } else {
+            api.addRecord({ id: 0, title, type, tags: tags ? tags.split(',') : [], amount: amount || 0, time: time.format('YYYYMMDD-HHmmss') }).then(result => {
+                message.info('保存成功');
+                result.time = time.format('YYYY-MM-DD HH:mm:ss');
+                handleCreateUpdateFinish(result);
+            }, ex => {
+                setLoading(false);
+                message.error('保存没成功：' + ex.message);
+            });
+        }
+    }
+
+    const handleDelete = () => {
+        Modal.confirm({
+            centered: true,
+            content: '确定要删除吗？',
+            okText: '确定',
+            okButtonProps: { danger: true },
+            cancelText: '取消',
+            onOk: () => {
+                setLoading(true);
+                api.deleteRecord(originalData.id).then(() => {
+                    message.info('删除成功');
+                    handleDeleteFinish();
+                }, ex => {
+                    message.error('删除失败：' + ex.message);
+                    setLoading(false);
+                });
+            },
         });
     }
 
@@ -64,7 +85,10 @@ const AddModal: React.FC<AddModalProps> = ({ handleCancel, handleFinish }) => {
         maskClosable={false}
         centered={true}
         onCancel={handleCancel}
-        footer={<Button loading={loading} disabled={!title || !amount} size='small' onClick={handleSave}>保存</Button>}>
+        footer={<>
+            {originalData && <Button loading={loading} danger={true} size='small' onClick={handleDelete}>删除</Button>}
+            <Button loading={loading} disabled={!title || !amount} size='small' onClick={handleSave}>保存</Button>
+        </>}>
         <Radio.Group className='record-type' value={type} disabled={loading} onChange={e => setType(e.target.value)}>
             <Radio value='cost'>支出</Radio>
             <Radio value='income'>收入</Radio>
@@ -81,6 +105,7 @@ const AddModal: React.FC<AddModalProps> = ({ handleCancel, handleFinish }) => {
 function App() {
     const [records, setRecords] = useState<Record[]>([]);
     const [addModalVisible, setAddModalVisible] = useState(false);
+    const [addModalOriginalData, setAddModalOriginalData] = useState<Record>(null);
 
     React.useEffect(() => {
         api.getRecords().then(setRecords);
@@ -91,12 +116,13 @@ function App() {
         {records.sort((r1, r2) => dayjs(r1.time).isBefore(dayjs(r2.time)) ? 1 : dayjs(r1.time).isAfter(dayjs(r2.time)) ? -1 : 0).map(record => <RecordRow 
             key={record.id}
             record={record}
-            handleEdit={() => message.info('TODO')}
-            handleDeleteFinish={() => setRecords(records.filter(r => r.id != record.id))}/>)}
-        <div className='add-container'><Button icon={<PlusOutlined />} shape='circle' onClick={() => setAddModalVisible(true)} /></div>
+            handleEdit={() => { setAddModalOriginalData(record); setAddModalVisible(true) }}/>)}
+        <div className='add-container'><Button icon={<PlusOutlined />} shape='circle' onClick={() => { setAddModalOriginalData(null); setAddModalVisible(true); }} /></div>
         {addModalVisible && <AddModal 
-            handleCancel={() => setAddModalVisible(false)}
-            handleFinish={newRecord => { setRecords(records.concat([newRecord])); setAddModalVisible(false) }} />}
+            originalData={addModalOriginalData}
+            handleCancel={() => { setAddModalOriginalData(null); setAddModalVisible(false); }}
+            handleDeleteFinish={() => { setRecords(records.filter(r => r.id != addModalOriginalData.id)); setAddModalOriginalData(null); setAddModalVisible(false); }}
+            handleCreateUpdateFinish={newRecord => { setRecords(records.filter(r => r.id != newRecord.id).concat([newRecord])); setAddModalOriginalData(null); setAddModalVisible(false); }} />}
     </>;
 }
 

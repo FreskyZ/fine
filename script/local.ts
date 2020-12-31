@@ -87,12 +87,6 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// disable source-map seems not working
-// new client-dev script, integrite and test with app-client, try the reload css machenism
-
-// add edit feature to wimm!
-
-// add (c) and (s) to watch -both log header, continue improve log format
 // add basic eslint to self, server-core, web-page, app-server and app-client, all as warnings
 // develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32, command line `akari view-log &`
 // move error stack parser and source map map from server-core into log viewing web page

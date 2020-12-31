@@ -180,8 +180,19 @@ class ServerCoreHost {
 }
 
 const clientdevjs = '' +
-    `const ws = new WebSocket(\`wss://\${location.host}:PORT\`);\n` +
-    `ws.onmessage = e => { ws.send('ACK ' + e.data); console.log(e.data); }`;
+    `const ws=new WebSocket(\`wss://\${location.host}:PORT\`);` + 
+    `ws.onmessage=e=>{` +
+      `ws.send('ACK '+e.data);` + 
+      `if (e.data==='reload-js') {` +
+        `location.reload();` +
+      `} else if (e.data==='reload-css') {` +
+        `const oldlink=Array.from(document.getElementsByTagName('link')).find(e=>e.getAttribute('href')==='/index.css');` +
+        `const newlink=document.createElement('link');` +
+        `newlink.setAttribute('rel','stylesheet');newlink.setAttribute('type','text/css');newlink.setAttribute('href','/index.css');` +
+        `document.head.appendChild(newlink);` +
+        `oldlink?.remove();` +
+      `}` +
+    `};`;
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {
 
@@ -391,8 +402,6 @@ function shutdown() {
     if (serverCoreHost) {
         serverCoreHost.stop();
     }
-
-    sendToServerCore({ type: 'content', data: { type: 'disable-source-map' } }); // send and ignore
 
     // wait all server close
     Promise.all([

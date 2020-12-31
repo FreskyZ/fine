@@ -246,7 +246,8 @@ class MyPacker {
                 }
             } else {
                 for (const { name, source, content } of modules) {
-                    console.log(chalk`   {gray +} ${name} ({gray ${source.filename}}) ${filesize(content.length)}`);
+                    const displayFileName = source.filename.startsWith('/vbuild/') ? source.filename.slice(8) : source.filename;
+                    console.log(chalk`   {gray +} ({gray ${displayFileName}}) {greenBright ${name}} ${filesize(content.length)}`);
                 }
             }
         }

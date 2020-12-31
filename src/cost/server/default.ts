@@ -41,8 +41,6 @@ export async function addRecord(ctx: Context, record: Record): Promise<Record> {
         throw new MyError('common', 'invalid time');
     }
 
-    record.title = 'title';
-
     const { value: { insertId: recordId } } = await query<QueryResult>(
         'INSERT INTO `WIMMRecord` (`Title`, `Type`, `Tags`, `Amount`, `Time`, `UserId`) VALUES (?, ?, ?, ?, ?, ?)',
         record.title, record.type, record.tags ? record.tags.join(',') : null, record.amount, time.format(QueryDateTimeFormat.datetime), ctx.user.id);
@@ -50,8 +48,27 @@ export async function addRecord(ctx: Context, record: Record): Promise<Record> {
     return { ...record, id: recordId };
 }
 
-export async function updateRecord(_: Context, _recordId: number, _change: Record): Promise<Record> {
-    return null;
+export async function updateRecord(_ctx: Context, recordId: number, record: Record): Promise<Record> {
+    if (!record.title) {
+        throw new MyError('common', 'title cannot be empty');
+    }
+    if (!['cost', 'income', 'transfer'].includes(record.type)) {
+        throw new MyError('common', 'invalid record type');
+    }
+    if (record.amount <= 0) {
+        throw new MyError('common', 'amount should be larger than 0');
+    }
+
+    const time = dayjs(record.time, 'YYYYMMDD-HHmmss');
+    if (!time.isValid()) {
+        throw new MyError('common', 'invalid time');
+    }
+
+    await query(
+        'UPDATE `WIMMRecord` SET `Title` = ?, `Type` = ?, `Tags` = ?, `Amount` = ?, `Time` = ? WHERE `Id` = ?',
+        record.title, record.type, record.tags ? record.tags.join(',') : null, record.amount, time.format(QueryDateTimeFormat.datetime), recordId);
+
+    return record; // this does not change in update operation, for now
 }
 
 export async function deleteRecord(ctx: Context, recordId: number): Promise<void> {

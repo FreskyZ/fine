@@ -25,9 +25,9 @@ import { logInfo } from './logger';
 //   server init keeps not load file content to help keep server init performance
 
 // if source map is enabled, if source map name related js file exists, will try to find the source map file and compress and return
-// if websocket port is provided, will return a script trying to connect to websocket and respond to build script watch reload requests, see docs/admin.md#WebPage_Hot_Relading
+// auto close source map after 2 hours in case akari (server) does not close it
 let AllowSourceMap = false;
-let DevWebSocketPort: number = null;
+let DisableSourceMapTimer: NodeJS.Timeout;
 
 // NOTE: 
 // - only match href/src starts with "absolute" path, which means from same origin
@@ -126,7 +126,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
         ctx.set('Location', 'https://DOMAIN_NAME');
         return;
     }
-
+    
     const virtual = `/${ctx.subdomains.length == 0 ? 'www' : ctx.subdomains[0]}${ctx.path}`;
     if (AllowSourceMap && virtual.endsWith('.map') && virtual.slice(0, -4) in virtualToCache) {
         const realpath = virtualToCache[virtual.slice(0, -4)].realpath + '.map';
@@ -137,21 +137,6 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next) {
             ctx.type = 'json';
             ctx.set('Content-Encoding', 'gzip');
             ctx.set('Content-Length', ctx.body.length.toString());
-            return;
-        }
-    }
-    if (ctx.path == '/x/x.js') {
-        if (DevWebSocketPort) {
-            ctx.status = 200;
-            ctx.body = `(ws=>{ws.onmessage=e=>{ws.send('ACK '+e.data);if(e.data=='refresh')window.location.reload();}})(new WebSocket(\`wss://\${window.location.host}:${DevWebSocketPort}/devsocket\`))`;
-            ctx.type = 'js';
-            ctx.set('Cache-Control', 'no-store');
-            return;
-        } else {
-            // return empty to disable the 'failed to load script' error
-            ctx.status = 200;
-            ctx.type = 'js';
-            ctx.body = '';
             return;
         }
     }
@@ -273,6 +258,10 @@ export function handleCommand(data: AdminContentCommand) {
         handleReloadClient(data.app);
     } else if (data.type == 'enable-source-map') {
         AllowSourceMap = true;
+        if (DisableSourceMapTimer) {
+            clearTimeout(DisableSourceMapTimer);
+        }
+        DisableSourceMapTimer = setTimeout(() => AllowSourceMap = false, 7200_000);
     } else if (data.type == 'disable-source-map') {
         AllowSourceMap = false;
     }
