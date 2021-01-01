@@ -75,6 +75,6 @@ function buildWatch(app: string, additionalHeader?: string) {
     });
 }
 
-export async function build(app: string, watch: boolean, additionalHeader?: string): Promise<void> {
+export function build(app: string, watch: boolean, additionalHeader?: string): void {
     (watch ? buildWatch : buildOnce)(app, additionalHeader);
 }

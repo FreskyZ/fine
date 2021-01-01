@@ -10,12 +10,12 @@ type PathComponent = {
     type: 'parameter',
     parameterName: string,
     parameterType: string,
-}
+};
 
 interface APIDefinition {
     namespace?: string,
-    apiName: string, 
-    method: string, 
+    apiName: string,
+    method: string,
     apiPath: PathComponent[],
     bodyType: string,
     bodyName: string,
@@ -38,13 +38,13 @@ const parameterTypeConfig: { [parameterType: string]: { pattern: string, validat
     'boolean': { pattern: '(true|false)', validator: 'validateBoolean', tsType: 'boolean' },
     'date': { pattern: '\\d{6}', validator: 'validateDate', tsType: 'Dayjs' },  // generated code format date at front end, validate and parse date at backend
     'time': { pattern: '\\d{12}', validator: 'validateTime', tsType: 'Dayjs' }, // generated code format time at front end, validate and parse time at backend
-}
+};
 
 function parsePath(apiName: string, rawPath: string): PathComponent[] {
     const result: PathComponent[] = [];
-    
+
     do {
-        const match = /\{(?<parameterName>[\w\_]+):(?<parameterType>\w+)\}/.exec(rawPath);
+        const match = /\{(?<parameterName>[\w_]+):(?<parameterType>\w+)\}/.exec(rawPath);
         if (!match) { break; }
 
         if (result.filter(r => r.type == 'parameter').length == 10) {
@@ -79,7 +79,7 @@ async function loadFile(app: string): Promise<APIDefinitionFile> {
     const { version, api } = parseXml(xml, { object: true })[`${app}-api`] as { version: string, api: any[] };
 
     return {
-        version, 
+        version,
         definitions: api.map<APIDefinition>((d, index) => {
 
             const apiName = d['name'];
@@ -162,7 +162,7 @@ async function generateServerDefinition(app: string, additionalHeader?: string):
     resultJs += '\n';
     resultJs += `export async function dispatch(ctx: WebContext) {\n`;
     resultJs += `    let match: RegExpExecArray;\n`;
-    resultJs += `    if (!ctx.path.startsWith('/${app}/v${version}')) { throw new MyError('not-found', 'invalid invocation version'); }\n`
+    resultJs += `    if (!ctx.path.startsWith('/${app}/v${version}')) { throw new MyError('not-found', 'invalid invocation version'); }\n`;
     resultJs += `    const methodPath = \`\${ctx.method} \${ctx.path.slice(${app.length + version.length + 3})}\`;\n`; // 3: /{app}/v{version}
     resultJs += '\n';
 
@@ -174,7 +174,7 @@ async function generateServerDefinition(app: string, additionalHeader?: string):
             if (component.type == 'normal') {
                 resultJs += component.value.replaceAll('/', '\\/');
             } else {
-                resultJs += `(?<${component.parameterName}>${parameterTypeConfig[component.parameterType].pattern})`
+                resultJs += `(?<${component.parameterName}>${parameterTypeConfig[component.parameterType].pattern})`;
             }
         }
         resultJs += `$/.exec(methodPath); if (match) {\n`;
@@ -237,7 +237,7 @@ async function generateClientDefinition(app: string, additionalHeader?: string):
     if (definitions.some(d => d.apiPath.some(c => c.type == 'parameter' && ['date', 'time'].includes(c.parameterType)))) {
         resultJs += `import type { Dayjs } from 'dayjs';\n`;
     }
-    
+
     const usedMethods = methods.filter(m => definitions.some(d => d.method == m)).map(m => myfetchMethods[m]); // use all methods.filter to keep them in order
     resultJs += `import { ${usedMethods.join(', ')} } from '../../shared/api-client';\n`;
 
@@ -254,13 +254,13 @@ async function generateClientDefinition(app: string, additionalHeader?: string):
 
         for (const { parameterName, parameterType } of apiPath.filter(c => c.type == 'parameter') as { parameterName: string, parameterType: string }[]) { // tsc fails to infer the type
             if (!resultJs.endsWith('(')) {
-                resultJs += ', ' // do not add comma for first parameter
+                resultJs += ', '; // do not add comma for first parameter
             }
             resultJs += `${parameterName}: ${parameterTypeConfig[parameterType].tsType}`;
         }
         if (bodyType) {
             if (!resultJs.endsWith('(')) {
-                resultJs += ', ' // do not add comma for first parameter
+                resultJs += ', '; // do not add comma for first parameter
             }
             resultJs += `${bodyName}: ${bodyType}`;
         }
@@ -297,7 +297,7 @@ async function generateClientDefinition(app: string, additionalHeader?: string):
 class CodeGenerator {
     public readonly definitionFile: string;
     public constructor(
-        private readonly app: string, 
+        private readonly app: string,
         private readonly target: 'server' | 'client',
         private readonly additionalHeader?: string) {
         this.additionalHeader = this.additionalHeader ?? '';
@@ -330,4 +330,4 @@ class CodeGenerator {
     }
 }
 
-export function codegen(app: string, target: 'server' | 'client', additionalHeader?: string) { return new CodeGenerator(app, target, additionalHeader); }
+export function codegen(app: string, target: 'server' | 'client', additionalHeader?: string): CodeGenerator { return new CodeGenerator(app, target, additionalHeader); }

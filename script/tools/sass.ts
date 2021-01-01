@@ -19,7 +19,7 @@ class SassTranspiler {
     // return success instead of reject because try catch every await is redundent
     public transpile = () => new Promise<{ success: false } | SassResult>(resolve => {
         logInfo('css', chalk`once {yellow ${this.options.entry}}`);
-    
+
         render({
             file: this.options.entry,
             outputStyle: 'compressed',
@@ -37,16 +37,16 @@ class SassTranspiler {
     // single entry, watch all included files, any change will invalidate all watchers and restart all watch again
     // callback only called when watch retranspile success
     public watch(callback: (result: SassResult) => void) {
-        const logHeader = `css${this.additionalHeader}`
+        const logHeader = `css${this.additionalHeader}`;
         logInfo(logHeader, chalk`watch {yellow ${this.options.entry}}`);
 
         const watchers: fs.FSWatcher[] = [];
         const renderOptions: Options = {
-            file: this.options.entry, 
+            file: this.options.entry,
             outputStyle: 'compressed',
         };
-    
-        // prevent reentry: 
+
+        // prevent reentry:
         // if running and a new watch event happens, it will find state is running and transfer state to pending
         // then when run complete, it will find state is pending instead of running and trigger another run, or else it will transfer state to none
         let state: 'none' | 'running' | 'pending' = 'none';
@@ -67,7 +67,7 @@ class SassTranspiler {
                     callback({ success: true, resultCss: result.css });
                     previousFiles = result.stats.includedFiles;
                 }
-                
+
                 for (const file of previousFiles) {
                     watchers.push(fs.watch(file, { persistent: false }, () => {
                         if (state == 'running') {
@@ -90,4 +90,4 @@ class SassTranspiler {
     }
 }
 
-export function sass(options: SassOptions, additionalHeader?: string) { return new SassTranspiler(options, additionalHeader); }
+export function sass(options: SassOptions, additionalHeader?: string): SassTranspiler { return new SassTranspiler(options, additionalHeader); }

@@ -10,8 +10,8 @@ import * as memfs from 'memfs';
 import * as TerserPlugin from 'terser-webpack-plugin';
 import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
-import { AdminPayload } from '../../src/shared/types/admin';
-import { WebpackStat } from '../types/webpack';
+import type { AdminPayload } from '../../src/shared/types/admin';
+import type { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical, watchvar } from '../common';
 import { admin, getServerPort } from '../tools/admin';
 import { codegen } from '../tools/codegen';
@@ -35,7 +35,7 @@ const getUploadJsAssets = (app: string, additional: AdditionalStat): MyAsset[] =
 
 // AKARIN_APP_CLIENT_OSIZE: size optimize level
 // 0 is not minify, 1 is fast minify, 2 is full minify, default to 2
-const sizeOptimizeLevelKey = 'AKARIN_APP_CLIENT_OSIZE'
+const sizeOptimizeLevelKey = 'AKARIN_APP_CLIENT_OSIZE';
 const sizeOptimizeLevel = sizeOptimizeLevelKey in process.env ? (process.env[sizeOptimizeLevelKey] === '0' ? 0 : parseInt(process.env[sizeOptimizeLevelKey]!) || 2) : 2;
 const getWebpackConfiguration = (app: string): webpack.Configuration => ({
     mode: 'development', // production force disable cache, so use development mode with production optimization settings
@@ -53,15 +53,17 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
             hidePathInfo: true,
             cacheGroups: {
                 // NOTE: they are manually balanced for "min max size", rebalance them if they lost balance
-                '1': { test: /node_modules\/react\-dom/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
-                '2': { test: /node_modules\/(rc|\@ant-design)/, priority: 20, chunks: 'all', filename: 'client-vendor2.js' },
+                /* eslint-disable prefer-named-capture-group */ // webpack not I match them, do not name the capture group
+                '1': { test: /node_modules\/react-dom/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
+                '2': { test: /node_modules\/(rc|@ant-design)/, priority: 20, chunks: 'all', filename: 'client-vendor2.js' },
                 '3': { test: /node_modules\/(antd|lodash)/, priority: 20, chunks: 'all', filename: 'client-vendor3.js' },
                 '4': { test: /node_modules/, priority: 10, chunks: 'all', filename: 'client-vendor4.js' },
+                /* eslint-enable prefer-named-capture-group */
             },
         },
         minimize: sizeOptimizeLevel != 0,
-        minimizer: [new TerserPlugin({ terserOptions: { 
-            format: { comments: false }, 
+        minimizer: [new TerserPlugin({ terserOptions: {
+            format: { comments: false },
             compress: sizeOptimizeLevel == 2,
         }, extractComments: false })],
     },
@@ -81,7 +83,7 @@ interface WebpackResult {
     error?: Error,
     statsObject?: webpack.Stats,
 }
-interface AdditionalStat { 
+interface AdditionalStat {
     assets: { [assetName: string]: { data: Buffer, compressSize: number } },
 }
 
@@ -212,7 +214,7 @@ async function renderHtmlTemplate(app: string, files: [js: string[], css: string
         logInfo(`htm${additionalHeader ?? ''}`, chalk`read {yellow ${templateEntry}}`);
     }
 
-    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.DOMAIN_NAME:${await getServerPort()}/client-dev.js`])
+    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.DOMAIN_NAME:${await getServerPort()}/client-dev.js`]);
 
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
     const html = htmlTemplate
@@ -242,7 +244,7 @@ async function buildOnce(app: string): Promise<void> {
         if (!checkResult.success) {
             return logCritical('akr', chalk`{cyan ${app}-client} failed at check`);
         }
-        
+
         // their type is very mismatch but they very can work at runtime
         const ifs = memfs.Volume.fromJSON(checkResult.files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {}));
         const [compiler, additional] = createWebpackCompiler(app, ifs, false);
@@ -275,9 +277,9 @@ async function buildOnce(app: string): Promise<void> {
 
     const results = await Promise.all([p1, p2]);
     const html = await renderHtmlTemplate(app, [
-        results[0].map(r => path.basename(r.remote)).filter(n => n.endsWith('.js')),  
+        results[0].map(r => path.basename(r.remote)).filter(n => n.endsWith('.js')),
         results[1].map(r => path.basename(r.remote))], false);
-    
+
     const uploadResult = await upload(results[0].concat(results[1]).concat([html]), { filenames: false });
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${app}-client} failed at upload`);
@@ -317,7 +319,7 @@ function buildWatch(app: string, additionalHeader?: string) {
     if (fs.existsSync(generator.definitionFile)) {
         generator.watch(); // no callback watch is this simple
     }
- 
+
     const mfs = new memfs.Volume();
     const [compiler, additional] = createWebpackCompiler(app, mfs, true, additionalHeader);
 
@@ -335,8 +337,8 @@ function buildWatch(app: string, additionalHeader?: string) {
         }
         typescriptResultFiles = files;
 
-        // use compiler.run instead of compiler.watch because 
-        // webpack seems to be very unstable watching input memory file system 
+        // use compiler.run instead of compiler.watch because
+        // webpack seems to be very unstable watching input memory file system
         // and output message order is a mess and I cannot figure out what happens
         if (compiler.running) {
             logError(`wpk${additionalHeader}`, 'already repacking, discard');
@@ -349,12 +351,12 @@ function buildWatch(app: string, additionalHeader?: string) {
                 return;
             }
             const stats = statsObject!.toJson() as WebpackStat;
-        
+
             printWebpackResult(stats, additional, additionalHeader);
             cleanupMemoryFile(stats, typescriptResultFiles, mfs as memfs.IFs); // this writer still cannot write his type clearly, again
-    
+
             if (stats.errorsCount != 0) { return; }
-    
+
             if (stats.hash != webpackLastHash) {
                 webpackLastHash = stats.hash;
                 jsAssets = getUploadJsAssets(app, additional);
@@ -363,10 +365,10 @@ function buildWatch(app: string, additionalHeader?: string) {
             } else {
                 logInfo(`wpk${additionalHeader}`, chalk`completed with {gray no change}`);
             }
-            
+
             // see buildOnce compiler.close
             compiler.close(error => { if (error) { logError('wpk', `failed to close compiler`, error); } }); // print error and ignore
-        })
+        });
     });
 
     sass(getSassOptions(app), additionalHeader).watch(transpileResult => {
@@ -375,6 +377,6 @@ function buildWatch(app: string, additionalHeader?: string) {
     });
 }
 
-export function build(app: string, watch: boolean, additionalHeader?: string) {
+export function build(app: string, watch: boolean, additionalHeader?: string): void {
     (watch ? buildWatch : buildOnce)(app, additionalHeader);
 }

@@ -1,34 +1,34 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
-import { AdminPayload } from '../src/shared/types/admin';
+import type { AdminPayload } from '../src/shared/types/admin';
 
 declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
 
 // this config is read runtime and replace for build normal things
 // so build script itself directly use this instead of replace it while building self
-export const getCompileTimeConfig = () => JSON.parse(fs.readFileSync('akari.config', 'utf-8'));
+export const getCompileTimeConfig = (): Record<string, string> => JSON.parse(fs.readFileSync('akari.config', 'utf-8'));
 
 // current color schema
 // error: red
 // target name: cyan
-// watching (the long displayed long message): blue 
+// watching (the long displayed long message): blue
 
-export function logInfo(header: string, message: string, error?: any) {
+export function logInfo(header: string, message: string, error?: any): void {
     if (error) {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
     } else {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
     }
 }
-export function logError(header: string, message: string, error?: any) {
+export function logError(header: string, message: string, error?: any): void {
     if (error) {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
     } else {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     }
 }
-export function logCritical(header: string, message: string) {
+export function logCritical(header: string, message: string): never {
     console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     return process.exit(1);
 }
@@ -48,14 +48,16 @@ export function watchvar(callback: () => any, options?: { interval?: number, ini
     return () => requested = true;
 }
 
-export function formatAdminPayload(payload: AdminPayload) {
+export function formatAdminPayload(payload: AdminPayload): string {
+    // even tsc knows return is not fallthrough, but eslint don't
+    /* eslint-disable no-fallthrough */
     switch (payload.type) {
         case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
         case 'webpage': switch (payload.data) {
             case 'reload-js': return 'reload-js';
             case 'reload-css': return 'reload-css';
-        } 
+        }
         case 'content': switch (payload.data.type) {
             case 'reload-client': return `reload-client ${payload.data.app}`;
             case 'reload-page': return `reload-page ${payload.data.pagename}`;
@@ -81,4 +83,5 @@ export function formatAdminPayload(payload: AdminPayload) {
         }
         default: return JSON.stringify(payload);
     }
+    /* eslint-enable no-fallthrough */
 }

@@ -10,11 +10,11 @@ import { download } from './ssh';
 
 const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
 
-type V = [number, number, number]
+type V = [number, number, number];
 let v: V | null = null; // [port, scryptPasswordIndex, scryptSaltIndex]
 async function getv(): Promise<V> {
     if (!v) {
-        // cannot ssh connect or any error download file or parse content 
+        // cannot ssh connect or any error download file or parse content
         // is regarded as critical error and will abort process, because almost all targets need upload file or send command
 
         const assets = await download('WEBROOT/akariv', true);
@@ -32,7 +32,7 @@ async function getv(): Promise<V> {
 }
 
 // get akari (server) port
-export const getServerPort = async () => (await getv())[0];
+export const getServerPort = async (): Promise<number> => (await getv())[0];
 
 export const admin = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
     const logHeader = `adm${additionalHeader ?? ''}`;
@@ -66,11 +66,11 @@ export const admin = (payload: AdminPayload, additionalHeader?: string): Promise
             resolve(false);
         });
         request.on('socket', socket => {
-            socket.on('error', _error => {
+            socket.on('error', () => {
                 // // currently this reports same error as request.on('error'), while duplicate resolve only respects the first one
                 // logError(logHeader, `socket error ${error.message}`);
                 resolve(false);
-            })
+            });
             request.write(packed);
             request.end();
         });
@@ -83,8 +83,9 @@ export const admin = (payload: AdminPayload, additionalHeader?: string): Promise
                 response.on('end', () => resolve(true));
             } else if (payload.type == 'watchsc') {
                 if (payload.data == 'stop') {
-                    // send and ignore
+                    /* eslint-disable @typescript-eslint/no-empty-function */ // according to document, if you don't receive and ignore data event, end event will not be emitted
                     response.on('data', () => {});
+                    /* eslint-enable @typescript-eslint/no-empty-function */
                     response.on('end', () => {
                         logInfo(logHeader, chalk`ack stop watch server-core`);
                         resolve(true);

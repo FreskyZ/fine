@@ -6,8 +6,8 @@ import { Asset, upload } from '../tools/ssh';
 import { SassOptions, SassResult, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
-// web page, not web app, they contains hand written html 
-//    and at most one sass file which transpiles into one compressed css 
+// web page, not web app, they contains hand written html
+//    and at most one sass file which transpiles into one compressed css
 //    and at most one ts file which transpiles into look-like-hand-written javascript
 // 1. except the index page, others are available at all domains without the html extension,
 // 2. except 404/418, they are reloadable via admin script, reload key is same as PageName
@@ -31,7 +31,7 @@ const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult 
     data: Buffer.from(result.files[0].content),
 } : {
     remote: `WEBROOT/main/${pagename}.css`,
-    data: result.resultCss, 
+    data: result.resultCss,
 };
 
 async function buildOnce(pagename: string): Promise<void> {
@@ -70,7 +70,7 @@ async function buildOnce(pagename: string): Promise<void> {
     logInfo('akr', chalk`{cyan ${pagename}-page} completed succesfully`);
 }
 
-async function buildWatch(pagename: string) {
+function buildWatch(pagename: string) {
     logInfo('akr', chalk`watch {cyan ${pagename}-page}`);
     // mkdir(recursive)
 
@@ -104,6 +104,6 @@ async function buildWatch(pagename: string) {
     fs.watch(htmlEntry, { persistent: false }, requestReupload);
 }
 
-export function build(pagename: string, watch: boolean) {
-    return (watch ? buildWatch : buildOnce)(pagename);
+export function build(pagename: string, watch: boolean): void {
+    (watch ? buildWatch : buildOnce)(pagename);
 }

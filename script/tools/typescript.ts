@@ -15,7 +15,7 @@ export type TypeScriptOptions = {
     entry: string,
     sourceMap: 'normal', // only normal available for jsx
     watch: boolean,
-}
+};
 
 export interface TypeScriptResult {
     success?: boolean, // not used when watch, because watch retranspile error will not call callback
@@ -49,7 +49,7 @@ const basicOptions: ts.CompilerOptions = {
 function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
     return options.base == 'normal' ? {
         ...basicOptions,
-        outDir: '/vbuild', // git simply virtual path to normal config 
+        outDir: '/vbuild', // git simply virtual path to normal config
         sourceMap: options.sourceMap != 'no',
         lib: 'additionalLib' in options ? [...basicOptions.lib!, ...options.additionalLib!.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
     } : {
@@ -68,7 +68,7 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
     if (code == 6031) {
         // original message is 'TS6031: Starting compilation in watch mode...'
         // ignore because transpileWatch have its own starting message
-        return; 
+        return;
     } else if (code == 6032) {
         // original message is 'TS6032: File change detected. Starting incremental compilation
         logInfo(`tsc${additionalHeader}`, 'recheck');
@@ -90,7 +90,7 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
             const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
             fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
         }
-    
+
         let flattenedMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
         if (flattenedMessage.includes('\n')) {
             flattenedMessage = '\n' + flattenedMessage;
@@ -151,7 +151,7 @@ function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult
                 fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
             // remove not used initialize `exports.x = exports.y = void 0;`
-            if (fileContent.startsWith('exports.')) { 
+            if (fileContent.startsWith('exports.')) {
                 fileContent = fileContent.slice(fileContent.indexOf('\n') + 1);
             }
 
@@ -176,7 +176,7 @@ function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult
 class TypeScriptChecker {
     private readonly compilerOptions: ts.CompilerOptions;
     public constructor(
-        public readonly options: TypeScriptOptions, 
+        public readonly options: TypeScriptOptions,
         private readonly additionalHeader?: string) {
         this.additionalHeader = this.additionalHeader ?? '';
         this.compilerOptions = mergeOptions(options);
@@ -188,10 +188,10 @@ class TypeScriptChecker {
 
         const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         const program = ts.createProgram(entry, this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
-    
+
         const files: TypeScriptResult['files'] = [];
         const emitResult = program.emit(undefined, createWriteFileHook(this.options, files));
-    
+
         const success = printEmitResult(emitResult);
         return { success, files };
     }
@@ -201,21 +201,21 @@ class TypeScriptChecker {
         logInfo(`tsc${this.additionalHeader}`, chalk`watch {yellow ${this.options.entry}}`);
 
         setupReadFileHook();
-    
+
         // NOTE: the following hooked emit will only write changed files, so this list is in this scope instead of that hook scope
-        // ATTENTION: not used files (deleted and not imported) is not calling any delete, 
+        // ATTENTION: not used files (deleted and not imported) is not calling any delete,
         //            so it is not possible to remove the entry by any typescript functions or hooks, related: microsoft/TypeScript#30602
         // NOTE: webpack will parse entry javascript file and recursive include imported javascript files and auto ignore the removed file,
         //       so result module list is filtered and collected to cleanup **this** array
         // NOTE: mypack will match entry javascript file and bfs include imported javascript files and auto ignore the removed file,
         //       while MyPackOptions.file is exactly **this** array, mypack will cleanup this array if configured (default to true)
         const files: TypeScriptResult['files'] = [];
-        
+
         const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         setImmediate(() => {
             // amazingly this blocks until first check and emit completes and continue
             ts.createWatchProgram(ts.createWatchCompilerHost<ts.EmitAndSemanticDiagnosticsBuilderProgram>(
-                entry, 
+                entry,
                 this.compilerOptions,
                 ts.sys,
                 (...createProgramArgs) => {
@@ -227,14 +227,14 @@ class TypeScriptChecker {
                             callback({ files });
                         }
                         return emitResult;
-                    }
+                    };
                     return program;
                 },
                 diagnostic => printDiagnostic(diagnostic, this.additionalHeader),
-                diagnostic => printDiagnostic(diagnostic, this.additionalHeader)
+                diagnostic => printDiagnostic(diagnostic, this.additionalHeader),
             ));
         });
     }
 }
 
-export function typescript(options: TypeScriptOptions, additionalHeader?: string) { return new TypeScriptChecker(options, additionalHeader); }
+export function typescript(options: TypeScriptOptions, additionalHeader?: string): TypeScriptChecker { return new TypeScriptChecker(options, additionalHeader); }

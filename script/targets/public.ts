@@ -17,7 +17,7 @@ async function collectAssets(assets: Asset[], directory: string) {
     return assets;
 }
 
-export async function build() {
+export async function build(): Promise<void> {
     // mkdir(recursive)
     logInfo('akr', chalk`{cyan public}`);
     await upload(await collectAssets([], 'src/public'));

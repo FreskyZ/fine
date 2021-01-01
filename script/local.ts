@@ -14,7 +14,7 @@ function validatePage(pagename: string) {
         process.exit(1);
     }
 }
-function validateApp(appname: string) { 
+function validateApp(appname: string) {
     if (['cost', 'collect', 'ak'].includes(appname)) {
         return appname;
     } else {
@@ -81,7 +81,7 @@ if (a1 == 'self') {
 }
 
 // this is moved from common because it seems not suitable for fpsd
-process.on('unhandledRejection', error => { 
+process.on('unhandledRejection', error => {
     console.log('unhandled reject: ', error);
     process.exit(0);
 });

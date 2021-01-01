@@ -10,7 +10,7 @@ import { Mutex } from 'async-mutex';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
 import * as WebSocket from 'ws';
-import { AdminPayload } from '../src/shared/types/admin';
+import type { AdminPayload } from '../src/shared/types/admin';
 import { logInfo, logError, formatAdminPayload } from './common';
 
 // akari (server) entry, see docs/build-script.md
@@ -37,7 +37,7 @@ async function sendToServerCore(payload: AdminPayload): Promise<boolean> {
     }
     return await mutex.runExclusive(async () => await impl(payload));
 
-    async function impl(payload: AdminPayload): Promise<boolean> {
+    function impl(payload: AdminPayload): Promise<boolean> {
         const socket = net.createConnection('/tmp/fps.socket');
         return new Promise<boolean>(resolve => {
             const serialized = JSON.stringify(payload);
@@ -72,18 +72,17 @@ async function sendToServerCore(payload: AdminPayload): Promise<boolean> {
     }
 }
 
-async function sendToWebPage(command: string): Promise<boolean> {
+function sendToWebPage(command: string): Promise<boolean> {
     logInfo('wbs', chalk`forward {blue ${command}}`);
     const clients = Array.from(wsServer.clients).filter(c => c.readyState == WebSocket.OPEN);
     if (clients.length == 0) {
         logInfo('wbs', chalk`{gray no client}`);
-        return true;
+        return Promise.resolve(true);
     }
 
     // for one client, send callback error is fail, unknown response is fail
     // for all client, any success is success, not any success is fail
     return Promise.all(clients.map(client => new Promise<boolean>(resolve => {
-        let timeout: NodeJS.Timeout;
         const handleMessage = (message: string) => {
             if (message.startsWith('ACK ')) {
                 resolve(true);
@@ -93,9 +92,9 @@ async function sendToWebPage(command: string): Promise<boolean> {
             }
             clearTimeout(timeout);
             client.off('message', handleMessage);
-        }
+        };
         client.once('message', handleMessage);
-        timeout = setTimeout(() => {
+        const timeout = setTimeout(() => {
             logError('wbs', 'timeout');
             resolve(false); // this resolve(false) will make furthur resolve(true) noop
             client.off('message', handleMessage);
@@ -149,7 +148,7 @@ class ServerCoreHost {
         });
         this.theProcess.on('exit', code => {
             (code == 0 ? writeInfo : writeError)(this.response, 'akr(server)', `server-core process exit with code ${code}`);
-            (code == 0 ? logInfo : logError)('sch', `server-core process exit with code ${code}`); 
+            (code == 0 ? logInfo : logError)('sch', `server-core process exit with code ${code}`);
             this.theProcess = null;
         });
     }
@@ -180,9 +179,9 @@ class ServerCoreHost {
 }
 
 const clientdevjs = '' +
-    `const ws=new WebSocket(\`wss://\${location.host}:PORT\`);` + 
+    `const ws=new WebSocket(\`wss://\${location.host}:PORT\`);` +
     `ws.onmessage=e=>{` +
-      `ws.send('ACK '+e.data);` + 
+      `ws.send('ACK '+e.data);` +
       `if (e.data==='reload-js') {` +
         `location.reload();` +
       `} else if (e.data==='reload-css') {` +
@@ -211,7 +210,7 @@ function handleCommand(request: http.IncomingMessage, response: http.ServerRespo
             response.statusCode = 400;
             response.end();
             return;
-        } 
+        }
 
         let decryptedData: string;
         try {
@@ -355,11 +354,11 @@ function startup() {
             resolve();
         }),
         new Promise<void>((resolve, reject) => {
-            const handleListenError = (error: Error) => { 
+            const handleListenError = (error: Error) => {
                 logError('htt', `server startup error: ${error.message}`);
                 reject();
             };
-            httpsServer.once('error', handleListenError); 
+            httpsServer.once('error', handleListenError);
             httpsServer.listen(port, () => {
                 httpsServer.removeListener('error', handleListenError);
                 httpsServer.on('error', error => {
@@ -382,7 +381,7 @@ function startup() {
 
 let shuttingdown = false;
 function shutdown() {
-    if (shuttingdown) return; 
+    if (shuttingdown) return;
     shuttingdown = true;
 
     // destroy connections
@@ -405,12 +404,12 @@ function shutdown() {
 
     // wait all server close
     Promise.all([
-        new Promise<void>((resolve, reject) => wsServer.close(error => { 
-            if (error) { logError('wbs', `close server error: ${error.message}`); reject(); } 
+        new Promise<void>((resolve, reject) => wsServer.close(error => {
+            if (error) { logError('wbs', `close server error: ${error.message}`); reject(); }
             else { resolve(); }
         })),
-        new Promise<void>((resolve, reject) => httpsServer.close(error => { 
-            if (error) { logError('htt', `close server error: ${error.message}`); reject(); } 
+        new Promise<void>((resolve, reject) => httpsServer.close(error => {
+            if (error) { logError('htt', `close server error: ${error.message}`); reject(); }
             else { resolve(); }
         })),
     ]).then(() => {

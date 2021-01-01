@@ -43,5 +43,5 @@ export interface WebpackStat {
     warnings: { message: string, [other: string]: any }[],
     assets: WebpackStatAsset[],
     chunks: WebpackStatChunk[],
-    modules: WebpackStatModule[];
+    modules: WebpackStatModule[],
 }

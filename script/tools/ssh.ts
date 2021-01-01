@@ -11,7 +11,7 @@ export interface Asset {
     mode?: number,  // default to 0o644
 }
 
-export async function upload(assets: Asset | Asset[], options?: { filenames?: boolean, additionalHeader?: string }) {
+export async function upload(assets: Asset | Asset[], options?: { filenames?: boolean, additionalHeader?: string }): Promise<boolean> {
     assets = Array.isArray(assets) ? assets : [assets];
     const client = new SFTPClient();
 
@@ -23,10 +23,10 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
     }
 
     try {
-        await client.connect({ 
-            host: 'DOMAIN_NAME', 
-            username: 'SSH_USER', 
-            privateKey: await fs.promises.readFile('SSH_KEY'), 
+        await client.connect({
+            host: 'DOMAIN_NAME',
+            username: 'SSH_USER',
+            privateKey: await fs.promises.readFile('SSH_KEY'),
             passphrase: 'SSH_PASSPHRASE',
         });
 
@@ -47,10 +47,10 @@ export async function download(remoteNames: string | string[], silence?: boolean
     const client = new SFTPClient();
 
     try {
-        await client.connect({ 
-            host: 'DOMAIN_NAME', 
-            username: 'SSH_USER', 
-            privateKey: await fs.promises.readFile('SSH_KEY'), 
+        await client.connect({
+            host: 'DOMAIN_NAME',
+            username: 'SSH_USER',
+            privateKey: await fs.promises.readFile('SSH_KEY'),
             passphrase: 'SSH_PASSPHRASE',
         });
 
@@ -61,7 +61,7 @@ export async function download(remoteNames: string | string[], silence?: boolean
                 write(chunk, encoding, callback) {
                     chunks.push(Buffer.from(chunk, encoding));
                     callback();
-                }
+                },
             }));
             assets.push({ remote: remoteName, data: Buffer.concat(chunks) });
         }

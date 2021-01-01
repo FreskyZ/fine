@@ -51,7 +51,7 @@ async function buildOnce(): Promise<void> {
     logInfo('akr', chalk`{cyan server-core} completed successfully`);
 }
 
-async function buildWatch() {
+function buildWatch() {
     logInfo('akr', chalk`watch {cyan server-core}`);
     // mkdir(recursive)
 
@@ -67,6 +67,6 @@ async function buildWatch() {
     process.on('SIGINT', () => { admin({ type: 'watchsc', data: 'stop' }).then(() => process.exit()); });
 }
 
-export function build(watch: boolean) {
+export function build(watch: boolean): void {
     (watch ? buildWatch : buildOnce)();
 }

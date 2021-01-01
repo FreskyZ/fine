@@ -22,7 +22,7 @@ export interface MyPackOptions {
     cleanupFiles?: boolean,    // see tools/typescript:TypeScriptChecker::watch, default to true, should be false for multi entry targets like self
 }
 
-export type MyPackResult = {
+export interface MyPackResult {
     success: true,
     hasChange: boolean, // this hash = last hash
     resultJs: Buffer,   // only when writeFile is false and hasChange is true
@@ -32,22 +32,22 @@ export type MyPackResult = {
 function mapIndex(source: string): (index: number) => string {
     const re = /\n/g;
     const lfPositions: number[] = [];
-    do { const match = re.exec(source); if (!match) { break; } lfPositions.push(match.index) } while (true);
+    do { const match = re.exec(source); if (!match) { break; } lfPositions.push(match.index); } while (true);
 
     return function mapIndex(index: number): string { // `line:column`
-        let arrayIndex = lfPositions.findIndex(p => p > index);
+        const arrayIndex = lfPositions.findIndex(p => p > index);
         if (arrayIndex < 0) { // last line, ignore index parameter is actually too large
-            return `${lfPositions.length + 1}:${index - (lfPositions.length ? lfPositions[lfPositions.length - 1] : 0) + 1}`
+            return `${lfPositions.length + 1}:${index - (lfPositions.length ? lfPositions[lfPositions.length - 1] : 0) + 1}`;
         } else if (arrayIndex == 0) {
             return `1:${index}`;
         } else {
             return `${arrayIndex + 1}:${index - lfPositions[arrayIndex - 1] + 1}`;
         }
-    }
+    };
 }
 
-interface Source { 
-    filename: string, 
+interface Source {
+    filename: string,
     jsContent: string,
     mapContent?: string, // can be missing even if source map is on
     mapIndex: (index: number) => string,
@@ -80,6 +80,16 @@ interface EmitHost {
     lineOffset: number, // offset from generated line to original line, because column will not be change in this packing process
 }
 
+function cleanupMemoryFile(modules: Module[], files: MyPackOptions['files']) {
+    const unusedFiles = files.filter(f => !modules.some(m => m.source.filename == f.name) && !modules.some(m => m.source.filename + '.map' == f.name));
+    for (const unusedFile of unusedFiles) {
+        files.splice(files.indexOf(unusedFile), 1);
+        if (!unusedFile.name.endsWith('.map')) {
+            console.log(chalk`   {gray - ${unusedFile.name}}`);
+        }
+    }
+}
+
 class MyPacker {
 
     private lastHash: string | null = null;
@@ -106,20 +116,20 @@ class MyPacker {
         if (moduleName.endsWith('.js')) { moduleName = moduleName.slice(0, -3); }
         if (moduleName.endsWith('index')) { moduleName = moduleName.slice(0, -5); }
         if (moduleName.length == 0) { moduleName = '.'; } // entry index.js will be empty string after previous operations
-    
+
         // find all usage of 'require(".', which resolves to my code
         const requests: ModuleRequest[] = [];
-        const pattern = /require\("(?<request>\.[\.\w\-\/]*)"\);/g; // rest part length 12
+        const pattern = /require\("(?<request>\.[.\w\-/]*)"\);/g; // rest part length 12
         do {
             const match = pattern.exec(source.jsContent);
             if (!match) { break; }
 
             const raw = match.groups!['request'];
             const fullRequest = path.resolve(path.dirname(source.filename), raw);
-            const requiredFileName = 
+            const requiredFileName =
                 sources.some(s => s.filename == fullRequest) ? fullRequest
                 : sources.some(s => s.filename == fullRequest + '.js') ? fullRequest + '.js'
-                : sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js' 
+                : sources.some(s => s.filename == fullRequest + '/index.js') ? fullRequest + '/index.js'
                 : null;
             if (!requiredFileName) {
                 logError(this.logHeader, `${source.filename}: invalid module name ${raw} at ${source.mapIndex(match.index)}`);
@@ -150,16 +160,15 @@ class MyPacker {
     // return true for has circular reference and should abort
     private checkCircularReference(modules: Module[]): boolean {
         // this is actually similar to runtime initialize process
-        const self = this;
-        type Loading = { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string }
+        type Loading = { moduleName: string, parentFileName: string, parentRequirePosition: string, parentRequireRaw: string };
         const loadings: Loading[] = [{ moduleName: modules[0].name, parentFileName: '', parentRequirePosition: '', parentRequireRaw: '' }];
 
-        function load($module: Module) {
+        const load = ($module: Module) => {
             for (const request of $module.requests) {
                 const requestedModule = modules.find(m => m.name == request.resolvedModuleName)!; // resolved module name must be in modules list
 
                 if (loadings.some(o => o.moduleName == requestedModule.name)) {  // this also checks self references, but how and why will anyone write self reference?
-                    logError(self.logHeader, 'circular reference encountered');
+                    logError(this.logHeader, 'circular reference encountered');
                     for (const loading of loadings.slice(1)) {
                         console.log(chalk`   {${loading.parentFileName == requestedModule.source.filename ? 'yellow' : 'white'} ${loading.parentFileName}}`  // highlight the file name
                             + chalk`:${loading.parentRequirePosition}:{gray require("}${loading.parentRequireRaw}{gray ")}`);
@@ -172,7 +181,7 @@ class MyPacker {
                 load(requestedModule);
                 loadings.pop();
             }
-        }
+        };
 
         try {
             load(modules[0]); // modules[0] is entry
@@ -185,6 +194,7 @@ class MyPacker {
         }
     }
 
+    /* eslint-disable class-methods-use-this */ // these 3 methods are put together to implmenet series of work
     private emitRuntimePrefix(host: EmitHost, entryModuleName: string) {
         if (this.options.shebang) {
             host.sb += '#!/usr/bin/env node\n';
@@ -195,7 +205,7 @@ class MyPacker {
             ? `((modules) => { const mycache = {};\n`
                 + `(function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('${entryModuleName}'); })({\n`
             : `module.exports = ((modules) => { const mycache = {};\n`
-                + `return (function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('${entryModuleName}'); })({\n`
+                + `return (function myrequire(modulename) { if (!(modulename in mycache)) { mycache[modulename] = {}; modules[modulename](mycache[modulename], myrequire); } return mycache[modulename]; })('${entryModuleName}'); })({\n`;
         host.lineOffset += 2;
     }
     private async emitModule(host: EmitHost, $module: Module) {
@@ -210,8 +220,8 @@ class MyPacker {
                     firstMappingLine = mapping.generatedLine;
                 }
 
-                host.generator!.addMapping({ 
-                    source: path.resolve(mapping.source), 
+                host.generator!.addMapping({
+                    source: path.resolve(mapping.source),
                     original: { line: mapping.originalLine, column: mapping.originalColumn },
                     generated: { line: mapping.generatedLine - firstMappingLine + host.lineOffset + 1, column: mapping.generatedColumn },
                 });
@@ -223,16 +233,7 @@ class MyPacker {
         // although this is small, but this is for do not add any sb+= in main function
         host.sb += '})\n';
     }
-    
-    private cleanupMemoryFile(modules: Module[], files: MyPackOptions['files']) {
-        const unusedFiles = files.filter(f => !modules.some(m => m.source.filename == f.name) && !modules.some(m => m.source.filename + '.map' == f.name));
-        for (const unusedFile of unusedFiles) {
-            files.splice(files.indexOf(unusedFile), 1);
-            if (!unusedFile.name.endsWith('.map')) {
-                console.log(chalk`   {gray - ${unusedFile.name}}`);
-            }
-        }
-    }
+    /* eslint-enable class-methods-use-this */
 
     private printResult(assetSize: number, modules: Module[]) {
         logInfo(this.logHeader, chalk`completed with {yellow 1} asset {yellow ${filesize(assetSize)}}`);
@@ -283,7 +284,7 @@ class MyPacker {
             return { success: false };
         }
 
-        const emitHost: EmitHost = { sb: '', lineOffset: 0, generator: !this.options.sourceMap ? null : new SourceMapGenerator({ file: this.options.output }) }
+        const emitHost: EmitHost = { sb: '', lineOffset: 0, generator: !this.options.sourceMap ? null : new SourceMapGenerator({ file: this.options.output }) };
         this.emitRuntimePrefix(emitHost, modules[0].name);
         for (const $module of modules) {
             await this.emitModule(emitHost, $module);
@@ -293,15 +294,15 @@ class MyPacker {
         let resultJs = emitHost.sb;
         let resultMap = emitHost.generator?.toString();
         if (this.options.minify) {
-            const minifyResult = await minify(resultJs, { 
-                sourceMap: !this.options.sourceMap ? false: { 
+            const minifyResult = await minify(resultJs, {
+                sourceMap: !this.options.sourceMap ? false: {
                     content: resultMap,
                     filename: this.options.output,     // this is new SourceMapGenerator({ file }), which I do not use
                     url: this.options.output + '.map', // this is generated //#sourceMapURL, which I do not use
                 },
                 format: {
                     max_line_len: 'AKARIN_SELF_MULTILINE' in process.env ? 120 : undefined,
-                }
+                },
             });
             resultJs = minifyResult.code!;
             resultMap = typeof minifyResult.map == 'object' ? JSON.stringify(minifyResult.map) : minifyResult.map; // type says result.map is string|RawSourceMap, so stringify it if is object
@@ -314,9 +315,9 @@ class MyPacker {
         } else {
             this.printResult(resultJs.length, modules);
         }
-        
+
         if (!('cleanupFiles' in this.options) || this.options.cleanupFiles) {
-            this.cleanupMemoryFile(modules, this.options.files);
+            cleanupMemoryFile(modules, this.options.files);
         }
 
         this.lastHash = hash;
@@ -325,6 +326,6 @@ class MyPacker {
     }
 }
 
-export function mypack(options: MyPackOptions, additionalHeader?: string) { return new MyPacker(options, additionalHeader); }
+export function mypack(options: MyPackOptions, additionalHeader?: string): MyPacker { return new MyPacker(options, additionalHeader); }
 
 // TODO: check removed file actually removed
