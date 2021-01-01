@@ -51,7 +51,7 @@ async function buildOnce(app: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${app}-server} failed at upload`);
     }
-    const adminResult = await admin({ type: 'auth', data: { type: 'reload-server', app } });
+    const adminResult = await admin.servercore({ type: 'auth', sub: { type: 'reload-server', app } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${app}-server} failed at reload`);
     }
@@ -71,7 +71,7 @@ function buildWatch(app: string, additionalHeader?: string) {
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
             if (await upload(getUploadAssets(app, packResult), { additionalHeader })) {
-                await admin({ type: 'auth', data: { type: 'reload-server', app } }, additionalHeader);
+                await admin.servercore({ type: 'auth', sub: { type: 'reload-server', app } }, additionalHeader);
             }
         }
     });

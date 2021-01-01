@@ -4,7 +4,7 @@ import * as dayjs from 'dayjs';
 // import type {} from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
-import type { AdminAuthCommand } from '../shared/types/admin';
+import type { AdminServerCoreAuthCommand } from '../shared/types/admin';
 import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
@@ -258,7 +258,7 @@ export async function handleApplications(ctx: Ctx): Promise<void> {
     throw new MyError('not-found', 'invalid invocation');
 }
 
-export async function handleCommand(data: AdminAuthCommand): Promise<void> {
+export async function handleCommand(data: AdminServerCoreAuthCommand): Promise<void> {
     logInfo({ type: 'admin command auth', data });
 
     if (data.type == 'reload-server') {

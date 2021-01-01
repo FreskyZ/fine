@@ -63,10 +63,10 @@ function buildWatch() {
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
             await upload(getUploadAssets(packResult));
-            admin({ type: 'watchsc', data: 'start' }); // will be restart if started
+            admin.selfhost('start'); // will be restart if started
         }
     });
-    process.on('SIGINT', () => { admin({ type: 'watchsc', data: 'stop' }).then(() => process.exit()); });
+    process.on('SIGINT', () => { admin.selfhost('stop').then(() => process.exit()); });
 }
 
 export function build(watch: boolean): void {

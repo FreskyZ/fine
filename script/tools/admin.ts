@@ -2,13 +2,11 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
-import type { AdminPayload } from '../../src/shared/types/admin';
+import type { AdminPayload, AdminServerCoreCommand, AdminWebPageCommand, AdminSelfHostCommand, AdminServiceHostCommand } from '../../src/shared/types/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
 import { download } from './ssh';
 
 // this is akari (local) to akari (server)
-
-const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
 
 type V = [number, number, number];
 let v: V | null = null; // [port, scryptPasswordIndex, scryptSaltIndex]
@@ -31,10 +29,8 @@ async function getv(): Promise<V> {
     return v;
 }
 
-// get akari (server) port
-export const getServerPort = async (): Promise<number> => (await getv())[0];
-
-export const admin = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
+const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
+const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
     const logHeader = `adm${additionalHeader ?? ''}`;
     const serialized = JSON.stringify(payload);
     getv().then(v => {
@@ -78,10 +74,10 @@ export const admin = (payload: AdminPayload, additionalHeader?: string): Promise
             if (response.statusCode != 200) {
                 logError(logHeader, `response ${response.statusCode}`);
                 resolve(false);
-            } else if (payload.type == 'service') {
+            } else if (payload.target == 'service-host') {
                 response.pipe(process.stdout);
                 response.on('end', () => resolve(true));
-            } else if (payload.type == 'watchsc') {
+            } else if (payload.target == 'self-host') {
                 if (payload.data == 'stop') {
                     /* eslint-disable @typescript-eslint/no-empty-function */ // according to document, if you don't receive and ignore data event, end event will not be emitted
                     response.on('data', () => {});
@@ -135,3 +131,12 @@ export const admin = (payload: AdminPayload, additionalHeader?: string): Promise
         });
     });
 });
+
+class AdminLocal {
+    public get port(): Promise<number> { return getv().then(v => v[0]); } // akari (server) port
+    public servercore(command: AdminServerCoreCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'server-core', data: command }, additionalHeader); }
+    public webpage(command: AdminWebPageCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'web-page', data: command }, additionalHeader); }
+    public selfhost(command: AdminSelfHostCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'self-host', data: command }, additionalHeader); }
+    public servicehost(command: AdminServiceHostCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'service-host', data: command }, additionalHeader); }
+}
+export const admin = new AdminLocal();

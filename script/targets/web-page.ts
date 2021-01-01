@@ -65,7 +65,7 @@ async function buildOnce(pagename: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at upload`);
     }
-    const adminResult = await admin({ type: 'content', data: { type: 'reload-page', pagename } });
+    const adminResult = await admin.servercore({ type: 'content', sub: { type: 'reload-page', pagename } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at reload`);
     }
@@ -78,7 +78,7 @@ function buildWatch(pagename: string) {
     // mkdir(recursive)
 
     const requestReload = watchvar(() => {
-        admin({ type: 'content', data: { type: 'reload-page', pagename } });
+        admin.servercore({ type: 'content', sub: { type: 'reload-page', pagename } });
     });
 
     const checker = typescript(getTypeScriptOptions(pagename, true));

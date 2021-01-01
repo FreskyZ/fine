@@ -4,7 +4,7 @@ import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
-import type { AdminPayload } from '../shared/types/admin';
+import type { AdminServerCoreCommand } from '../shared/types/admin';
 import type { ContextState } from './auth';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
@@ -54,7 +54,7 @@ socketServer.on('connection', connection => {
     });
     connection.on('data', data => {
         const payload = data.toString('utf-8');
-        let message = { type: null } as AdminPayload;
+        let message = { type: 'ping' } as AdminServerCoreCommand;
         try {
             message = JSON.parse(payload);
         } catch {
@@ -67,9 +67,9 @@ socketServer.on('connection', connection => {
         if (message.type == 'shutdown') {
             shutdown();
         } else if (message.type == 'auth') {
-            handleAuthCommand(message.data);
+            handleAuthCommand(message.sub);
         } else if (message.type == 'content') {
-            handleContentCommand(message.data);
+            handleContentCommand(message.sub);
         }
     });
 });

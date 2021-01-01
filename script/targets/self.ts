@@ -8,14 +8,14 @@ import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
-    entry: ['script/local.ts', 'script/server.ts'],
+    entry: ['script/index.ts', 'script/server/index.ts'],
     sourceMap: 'no',
     watch: false,
 };
 
 const getMyPackOptions1 = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: '/vbuild/local.js',
+    entry: '/vbuild/index.js',
     files,
     output: 'akari',
     minify: true,
@@ -24,7 +24,7 @@ const getMyPackOptions1 = (files: MyPackOptions['files']): MyPackOptions => ({
 });
 const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: '/vbuild/server.js',
+    entry: '/vbuild/server/index.js',
     files,
     minify: true,
     shebang: true,

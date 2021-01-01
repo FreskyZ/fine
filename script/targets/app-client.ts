@@ -10,10 +10,9 @@ import * as memfs from 'memfs';
 import * as TerserPlugin from 'terser-webpack-plugin';
 import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
-import type { AdminPayload } from '../../src/shared/types/admin';
 import type { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical, watchvar } from '../common';
-import { admin, getServerPort } from '../tools/admin';
+import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { codegen } from '../tools/codegen';
 import { Asset as /* compare to webpack asset */ MyAsset, upload } from '../tools/ssh';
@@ -215,7 +214,7 @@ async function renderHtmlTemplate(app: string, files: [js: string[], css: string
         logInfo(`htm${additionalHeader ?? ''}`, chalk`read {yellow ${templateEntry}}`);
     }
 
-    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.DOMAIN_NAME:${await getServerPort()}/client-dev.js`]);
+    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.DOMAIN_NAME:${await admin.port}/client-dev.js`]);
 
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
     const html = htmlTemplate
@@ -286,7 +285,7 @@ async function buildOnce(app: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${app}-client} failed at upload`);
     }
-    const adminResult = await admin({ type: 'content', data: { type: 'reload-client', app } });
+    const adminResult = await admin.servercore({ type: 'content', sub: { type: 'reload-client', app } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${app}-client} failed at reload`);
     }
@@ -302,7 +301,7 @@ function buildWatch(app: string, additionalHeader?: string) {
     let [jsAssets, cssAssets]: [MyAsset[], MyAsset[]] = [[], []]; // assign new array in consider of the remove file issue
     let jsHasChange = false; // js has change, if render is trigger by css, then only send reload-css, else send reload-js // this is kind of duplicate with webpackLastHash, design later
     const requestRender = watchvar(async () => {
-        const refreshCommand: AdminPayload = jsHasChange ? { type: 'webpage', data: 'reload-js' } : { type: 'webpage', data: 'reload-css' };
+        const thisRenderJsHasChange = jsHasChange; // in case flag changed during some operations
         jsHasChange = false;
 
         const html = await renderHtmlTemplate(app, [
@@ -311,8 +310,8 @@ function buildWatch(app: string, additionalHeader?: string) {
 
         if (jsAssets.length > 0) {
             if (await upload(jsAssets.concat(cssAssets).concat([html]), { filenames: false, additionalHeader })) {
-                await admin({ type: 'content', data: { type: 'reload-client', app } }, additionalHeader);
-                await admin(refreshCommand, additionalHeader);
+                await admin.servercore({ type: 'content', sub: { type: 'reload-client', app } }, additionalHeader);
+                await admin.webpage(thisRenderJsHasChange ? 'reload-js' : 'reload-css', additionalHeader);
             }
         }
     });

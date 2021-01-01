@@ -1,5 +1,5 @@
 
-export type AdminAuthCommand =
+export type AdminServerCoreAuthCommand =
     | { type: 'reload-server', app: string }
     | { type: 'enable-signup' }
     | { type: 'disable-signup' }
@@ -7,32 +7,35 @@ export type AdminAuthCommand =
     | { type: 'disable-user', userId: number }
     | { type: 'expire-device', deviceId: number };
 
-export type AdminContentCommand =
+export type AdminServerCoreContentCommand =
     | { type: 'reload-client', app: string }
     | { type: 'reload-page', pagename: string }
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 
+export type AdminServerCoreCommand =
+    | { type: 'ping' }
+    | { type: 'shutdown' }
+    | { type: 'auth', sub: AdminServerCoreAuthCommand }
+    | { type: 'content', sub: AdminServerCoreContentCommand };
+
 export type AdminWebPageCommand =
     | 'reload-js'
     | 'reload-css';
 
-export type AdminServiceCommand =
+export type AdminServiceHostCommand =
     | 'start'
     | 'stop'
     | 'restart'
     | 'is-active'
     | 'status';
 
-export type AdminWatchServerCoreCommand =
+export type AdminSelfHostCommand =
     | 'start'
     | 'stop';
 
 export type AdminPayload =
-    | { type: 'ping' }                                       // this send to server core
-    | { type: 'shutdown' }                                   // this send to server core
-    | { type: 'auth', data: AdminAuthCommand }               // this send to server core auth
-    | { type: 'content', data: AdminContentCommand }         // this send to server core content
-    | { type: 'service', data: AdminServiceCommand }         // this send to systemctl
-    | { type: 'webpage', data: AdminWebPageCommand }         // this send to browser opened tab
-    | { type: 'watchsc', data: AdminWatchServerCoreCommand };// watch-server-core, this send to hosted srever core
+    | { target: 'server-core', data: AdminServerCoreCommand }
+    | { target: 'web-page', data: AdminWebPageCommand }
+    | { target: 'service-host', data: AdminServiceHostCommand }
+    | { target: 'self-host', data: AdminSelfHostCommand };

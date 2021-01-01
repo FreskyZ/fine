@@ -62,18 +62,18 @@ if (a1 == 'self') {
     buildAppClient('ak', false);
 
 } else if (a1 == 'service' && a2 == 'start') {
-    admin({ type: 'service', data: 'start' }).then(result => process.exit(result ? 1 : 0));
+    admin.servicehost('start').then(result => process.exit(result ? 1 : 0));
 } else if (a1 == 'service' && a2 == 'status') {
-    admin({ type: 'service', data: 'status' }).then(result => process.exit(result ? 1 : 0));
+    admin.servicehost('status').then(result => process.exit(result ? 1 : 0));
 } else if (a1 == 'service' && a2 == 'stop') {
-    admin({ type: 'service', data: 'stop' }).then(result => process.exit(result ? 1 : 0));
+    admin.servicehost('stop').then(result => process.exit(result ? 1 : 0));
 } else if (a1 == 'service' && a2 == 'restart') {
-    admin({ type: 'service', data: 'restart' }).then(result => process.exit(result ? 1 : 0));
+    admin.servicehost('restart').then(result => process.exit(result ? 1 : 0));
 } else if (a1 == 'service' && a2 == 'is-active') {
-    admin({ type: 'service', data: 'is-active' }).then(result => process.exit(result ? 1 : 0));
+    admin.servicehost('is-active').then(result => process.exit(result ? 1 : 0));
 
-} else if (a1 == 'watchscstop') { // reserved in case it does not stop
-    admin({ type: 'watchsc', data: 'stop' }).then(result => process.exit(result ? 1 : 0));
+} else if (a1 == 'stop-self-host') { // reserved in case it does not stop
+    admin.selfhost('stop').then(result => process.exit(result ? 1 : 0));
 
 } else {
     console.log('unknown command');

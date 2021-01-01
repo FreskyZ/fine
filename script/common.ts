@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
-import type { AdminPayload } from '../src/shared/types/admin';
+import type { AdminPayload, AdminServerCoreCommand } from '../src/shared/types/admin';
 
 declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
 
@@ -48,40 +48,43 @@ export function watchvar(callback: () => any, options?: { interval?: number, ini
     return () => requested = true;
 }
 
-export function formatAdminPayload(payload: AdminPayload): string {
-    // even tsc knows return is not fallthrough, but eslint don't
-    /* eslint-disable no-fallthrough */
-    switch (payload.type) {
+export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): string {
+    switch (command.type) {
         case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
-        case 'webpage': switch (payload.data) {
-            case 'reload-js': return 'reload-js';
-            case 'reload-css': return 'reload-css';
-        }
-        case 'content': switch (payload.data.type) {
-            case 'reload-client': return `reload-client ${payload.data.app}`;
-            case 'reload-page': return `reload-page ${payload.data.pagename}`;
+        case 'content': switch (command.sub.type) {
+            case 'reload-client': return `reload-client ${command.sub.app}`;
+            case 'reload-page': return `reload-page ${command.sub.pagename}`;
             case 'enable-source-map': return `source-map enable`;
             case 'disable-source-map': return `source-map disable`;
         }
-        case 'auth': switch (payload.data.type) {
-            case 'reload-server': return `reload-server ${payload.data.app}`;
+        case 'auth': switch (command.sub.type) {
+            case 'reload-server': return `reload-server ${command.sub.app}`;
             case 'enable-signup': return `enable-signup`;
             case 'disable-signup': return `disable-signup`;
-            default: return JSON.stringify(payload.data); // TODO
+            default: return JSON.stringify(command.sub); // TODO
         }
-        case 'service': switch (payload.data) {
+    }
+}
+
+export function formatAdminPayload(payload: AdminPayload): string {
+    switch (payload.target) {
+        case 'server-core': return formatAdminServerCoreCommand(payload.data);
+        case 'web-page': switch (payload.data) {
+            case 'reload-js': return 'web-page reload-js';
+            case 'reload-css': return 'web-page reload-css';
+        }
+        case 'service-host': switch (payload.data) {
             case 'start': return `systemctl start`;
             case 'status': return `systemctl status`;
             case 'stop': return `systemctl stop`;
             case 'restart': return `systemctl restart`;
             case 'is-active': return `systemctl is-active`;
         }
-        case 'watchsc': switch (payload.data) {
-            case 'start': return 'start watch server-core';
-            case 'stop': return 'stop watch server-core';
+        case 'self-host': switch (payload.data) {
+            case 'start': return 'self-host start server-core';
+            case 'stop': return 'self-host stop server-core';
         }
         default: return JSON.stringify(payload);
     }
-    /* eslint-enable no-fallthrough */
 }
