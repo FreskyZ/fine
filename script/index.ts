@@ -16,7 +16,7 @@ function validatePage(pagename: string) {
     }
 }
 function validateApp(appname: string) {
-    if (['cost', 'collect', 'ak'].includes(appname)) {
+    if (['wimm', 'collect', 'ak'].includes(appname)) {
         return appname;
     } else {
         console.log('unknown app name');

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
@@ -8,7 +9,7 @@ import type { AdminServerCoreCommand } from '../shared/types/admin';
 import type { ContextState } from './auth';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleRequestContent } from './content';
+import { handleCertificate, handleRequestContent } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
 import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
 import { handleCommand as handleAuthCommand } from './auth';
@@ -16,6 +17,7 @@ import { handleCommand as handleContentCommand } from './content';
 
 const app = new Koa<ContextState>();
 
+app.use(handleCertificate);
 app.use(handleRequestError);
 app.use(handleRequestContent);
 app.use(handleRequestAccessControl);
@@ -76,7 +78,10 @@ socketServer.on('connection', connection => {
 
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
-const http2Server = http2.createSecureServer({
+const http2Server = 'FPS_CERTIFICATE' in process.env ? https.createServer({
+    key: fs.readFileSync('SSL_KEY', 'utf-8'),
+    cert: fs.readFileSync('SSL_CERT', 'utf-8'),
+}, app.callback()) : http2.createSecureServer({
     key: fs.readFileSync('SSL_KEY', 'utf-8'),
     cert: fs.readFileSync('SSL_CERT', 'utf-8'),
 }, app.callback());
@@ -155,7 +160,7 @@ Promise.all([
     }),
 ]).then(() => {
     logInfo('server core startup');
-    console.log('server core startup');
+    console.log('server core startup' + ('FPS_CERTIFICATE' in process.env ? ' CERTIFICATE' : ''));
 }).catch(() => {
     console.error('server core startup failed');
     process.exit(101);

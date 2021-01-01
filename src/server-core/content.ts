@@ -24,6 +24,20 @@ import { logInfo } from './logger';
 //     to make scenarios like "mycode.js updated while vendor.js not updated" fast
 //   server init keeps not load file content to help keep server init performance
 
+// if enabled by environment variable, return dummy value for required domains
+export async function handleCertificate(ctx: koa.Context, next: koa.Next): Promise<any> {
+    if (!('FPS_CERTIFICATE' in process.env)) {
+        return await next();
+    }
+    
+    if (ctx.path == '/') {
+        ctx.status = 200;
+    } else {
+        ctx.body = fs.readFileSync(path.join('public', ctx.path));
+        ctx.status = 200;
+    }
+}
+
 // if source map is enabled, if source map name related js file exists, will try to find the source map file and compress and return
 // auto close source map after 2 hours in case akari (server) does not close it
 let AllowSourceMap = false;

@@ -8,7 +8,7 @@ import { getRecords, addRecord, getRecord, updateRecord, deleteRecord, getAccoun
 
 export async function dispatch(ctx: WebContext): Promise<void> {
     let match: RegExpExecArray;
-    if (!ctx.path.startsWith('/cost/v1')) { throw new MyError('not-found', 'invalid invocation version'); }
+    if (!ctx.path.startsWith('/wimm/v1')) { throw new MyError('not-found', 'invalid invocation version'); }
     const methodPath = `${ctx.method} ${ctx.path.slice(8)}`;
 
     match = /^GET \/records$/.exec(methodPath); if (match) {

@@ -18,7 +18,7 @@ export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredent
 type Ctx = koa.ParameterizedContext<ContextState>;
 
 // app related config
-const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'cost': true, 'collect': true };
+const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'wimm': true, 'collect': true };
 const allowedOriginConfig: { [origin: string]: string } = APP_NAMES.reduce<{ [origin: string]: string }>(
     (acc, app) => { acc[`https://${app}.DOMAIN_NAME`] = app; return acc; }, { [`https://DOMAIN_NAME`]: 'www', [`https://www.DOMAIN_NAME`]: 'www' });
 
