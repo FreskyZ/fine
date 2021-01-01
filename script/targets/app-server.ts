@@ -1,6 +1,7 @@
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
+import { eslint } from '../tools/eslint';
 import { codegen } from '../tools/codegen';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
@@ -28,6 +29,7 @@ const getUploadAssets = (app: string, packResult: MyPackResult): Asset[] => [
 
 async function buildOnce(app: string): Promise<void> {
     logInfo('akr', chalk`{cyan ${app}-server}`);
+    await eslint(`${app}-server`, 'node', ['src/shared/**/*.ts', `src/${app}/server/**/*.ts`]);
     // mkdir(recursive)
 
     const codegenResult = await codegen(app, 'server').generate();

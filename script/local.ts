@@ -87,6 +87,5 @@ process.on('unhandledRejection', error => {
 });
 
 // TODO
-// add basic eslint to self, server-core, web-page, app-server and app-client, all as warnings
 // develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32, command line `akari view-log &`
 // move error stack parser and source map map from server-core into log viewing web page

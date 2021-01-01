@@ -53,16 +53,16 @@ function loadOrInitializeEntries(fileName: string): Entry[] {
     return [];
 }
 
-type State = { [key in Level]: { 
+type State = { [key in Level]: {
     date: dayjs.Dayjs,
-    filename: string, 
+    filename: string,
     entries: Entry[],
     notFlushedCount: number,
-} }
+} };
 const state = levels.reduce<Partial<State>>((s, level) => {
     const date = dayjs.utc();
     const filename = getLogFileName(date, level);
-    const entries = loadOrInitializeEntries(filename); 
+    const entries = loadOrInitializeEntries(filename);
     s[level] = { date, filename, entries, notFlushedCount: 0 };
     return s;
 }, {}) as State;
@@ -101,12 +101,12 @@ function write(level: Level, content: any) {
     }
 }
 
-export function logInfo(content: any) { write('info', content); }
-export function logError(content: any) { write('error', content); }
+export function logInfo(content: any): void { write('info', content); }
+export function logError(content: any): void { write('error', content); }
 
 // this currently is simply add a switch to console.log, to be designed later
 const TRACE = 'TRACE' in process.env;
-export function logTrace(...args: any[]) { if (TRACE) { console.log(...args); } }
+export function logTrace(...args: any[]): void { if (TRACE) { console.log(...args); } }
 
 function flushAll() {
     levels.map(level => flush(level));

@@ -11,19 +11,19 @@ type RecordRowProps = { record: Record, handleEdit: () => any };
 const RecordRow: React.FC<RecordRowProps> = ({ record, handleEdit }) => {
     const displayType = record.type == 'cost' ? '支出' : record.type == 'income' ? '收入' : '转移';
 
-    return <div className='record-display' onClick={handleEdit}>
+    return <div className='record-display' role='button' onClick={handleEdit}>
         <span className='record-title'>{record.title}</span>
-        <span className='record-tags'>{[displayType].concat(record.tags).map(tag => <Tag className='record-tag'><span>{tag}</span></Tag>)}</span>
+        <span className='record-tags'>{[displayType].concat(record.tags).map(tag => <Tag key={tag} className='record-tag'><span>{tag}</span></Tag>)}</span>
         <span className='record-time'>{record.time}</span>
         <span className='record-amount'>&#x00A5;{record.amount}</span>
     </div>;
-}
+};
 
 // TODO: try antd 4 form later
 type AddModalProps = {
-    originalData?: Record, 
-    handleCancel: () => void, 
-    handleCreateUpdateFinish: (newRecord: Record) => any, 
+    originalData?: Record,
+    handleCancel: () => void,
+    handleCreateUpdateFinish: (newRecord: Record) => any,
     handleDeleteFinish: () => any,
 };
 const AddModal: React.FC<AddModalProps> = ({ originalData, handleCancel, handleCreateUpdateFinish, handleDeleteFinish }) => {
@@ -56,7 +56,7 @@ const AddModal: React.FC<AddModalProps> = ({ originalData, handleCancel, handleC
                 message.error('保存没成功：' + ex.message);
             });
         }
-    }
+    };
 
     const handleDelete = () => {
         Modal.confirm({
@@ -76,9 +76,9 @@ const AddModal: React.FC<AddModalProps> = ({ originalData, handleCancel, handleC
                 });
             },
         });
-    }
+    };
 
-    return <Modal 
+    return <Modal
         title='添加'
         visible={true}
         className='record-edit'
@@ -100,7 +100,7 @@ const AddModal: React.FC<AddModalProps> = ({ originalData, handleCancel, handleC
         <DatePicker className='record-date' value={time} disabled={loading} onChange={newValue => setTime(time.year(newValue.year()).month(newValue.month()).date(newValue.date()))} />
         <TimePicker className='record-time' value={time} disabled={loading} onChange={newValue => setTime(time.hour(newValue.hour()).minute(newValue.minute()).second(newValue.second()))} />
     </Modal>;
-}
+};
 
 function App() {
     const [records, setRecords] = useState<Record[]>([]);
@@ -113,12 +113,12 @@ function App() {
 
     return <>
         <header>WIMM?</header>
-        {records.sort((r1, r2) => dayjs(r1.time).isBefore(dayjs(r2.time)) ? 1 : dayjs(r1.time).isAfter(dayjs(r2.time)) ? -1 : 0).map(record => <RecordRow 
+        {records.sort((r1, r2) => dayjs(r1.time).isBefore(dayjs(r2.time)) ? 1 : dayjs(r1.time).isAfter(dayjs(r2.time)) ? -1 : 0).map(record => <RecordRow
             key={record.id}
             record={record}
-            handleEdit={() => { setAddModalOriginalData(record); setAddModalVisible(true) }}/>)}
+            handleEdit={() => { setAddModalOriginalData(record); setAddModalVisible(true); }} />)}
         <div className='add-container'><Button icon={<PlusOutlined />} shape='circle' onClick={() => { setAddModalOriginalData(null); setAddModalVisible(true); }} /></div>
-        {addModalVisible && <AddModal 
+        {addModalVisible && <AddModal
             originalData={addModalOriginalData}
             handleCancel={() => { setAddModalOriginalData(null); setAddModalVisible(false); }}
             handleDeleteFinish={() => { setRecords(records.filter(r => r.id != addModalOriginalData.id)); setAddModalOriginalData(null); setAddModalVisible(false); }}
@@ -126,4 +126,4 @@ function App() {
     </>;
 }
 
-ReactDOM.render(<App/>, document.querySelector('div#root'));
+ReactDOM.render(<App />, document.querySelector('div#root'));

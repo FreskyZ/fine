@@ -20,8 +20,8 @@ export interface UserClaim {
     password: string,
 }
 export interface UserCredential {
-    id: number;
-    name: string;
+    id: number,
+    name: string,
     deviceId: number,
     deviceName: string,
 }

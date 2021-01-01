@@ -5,7 +5,7 @@ const pool = mysql.createPool(CONNECTION_STRING);
 export const QueryDateTimeFormat = {
     datetime: 'YYYY-MM-DD HH:mm:ss',
     date: 'YYYY-MM-DD',
-}
+};
 
 // query result except array of data
 export interface QueryResult {

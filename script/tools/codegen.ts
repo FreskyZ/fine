@@ -160,7 +160,7 @@ async function generateServerDefinition(app: string, additionalHeader?: string):
     }
 
     resultJs += '\n';
-    resultJs += `export async function dispatch(ctx: WebContext) {\n`;
+    resultJs += `export async function dispatch(ctx: WebContext): Promise<void> {\n`;
     resultJs += `    let match: RegExpExecArray;\n`;
     resultJs += `    if (!ctx.path.startsWith('/${app}/v${version}')) { throw new MyError('not-found', 'invalid invocation version'); }\n`;
     resultJs += `    const methodPath = \`\${ctx.method} \${ctx.path.slice(${app.length + version.length + 3})}\`;\n`; // 3: /{app}/v{version}

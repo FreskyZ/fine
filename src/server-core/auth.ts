@@ -1,7 +1,7 @@
 /// <reference path="../shared/types/config.d.ts" />
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
-import type * as _ from 'dayjs/plugin/utc'; // vscode need this to prevent warning
+// import type {} from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import type { AdminAuthCommand } from '../shared/types/admin';
@@ -30,7 +30,7 @@ const userDeviceStorage: UserDeviceData[] = [];
 // ignore case comparator, this may need to be moved to some utility module
 const collator = Intl.Collator('en', { sensitivity: 'base' });
 
-const loginRegex = /^POST \/login$/; 
+const loginRegex = /^POST \/login$/;
 async function handleLogin(ctx: Ctx) {
 
     // reuse x-access-token for password // actually authenticator token is also a kind of access token
@@ -63,7 +63,7 @@ async function handleLogin(ctx: Ctx) {
     userDevice.Id = userDeviceId!;
     userDeviceStorage.push(userDevice);
 
-    // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body 
+    // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body
     ctx.body = { accessToken };
 }
 
@@ -117,7 +117,7 @@ async function handleGetUserDevices(ctx) {
 
     const { value: userDevices } = await query<UserDeviceData[]>(
         'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', ctx.state.user.id, ctx.state.app);
-    
+
     // update storage
     // // this is how you filter by predicate in place
     while (userDeviceStorage.some(d => d.UserId == ctx.state.user.id)) {
@@ -190,13 +190,15 @@ async function handleRemoveDevice(ctx, parameters) {
     ctx.status = 204;
 }],
 
+/* eslint-disable require-await */
 [/^GET \/user-credential$/,
 async function handleGetUserCredential(ctx) {
     ctx.status = 200;
     ctx.body = ctx.state.user;
 }]];
+/* eslint-enable require-await */
 
-export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next) {
+export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
     // all functions need access control because all of them are called cross origin (from app.domain.com to api.domain.com)
 
@@ -213,7 +215,7 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next) {
     await next();
 }
 
-export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
+export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next): Promise<any> {
     ctx.state.now = dayjs.utc();
 
     const key = `${ctx.method} ${ctx.path}`;
@@ -229,9 +231,9 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next) {
     return await next();
 }
 
-export async function handleApplications(ctx: Ctx) {
+export async function handleApplications(ctx: Ctx): Promise<void> {
     if (!ctx.state.app) { throw new MyError('unreachable'); }
-    
+
     for (const app of APP_NAMES) {
         if (new RegExp('^/' + app).test(ctx.path)) {
 
@@ -256,7 +258,7 @@ export async function handleApplications(ctx: Ctx) {
     throw new MyError('not-found', 'invalid invocation');
 }
 
-export async function handleCommand(data: AdminAuthCommand) {
+export async function handleCommand(data: AdminAuthCommand): Promise<void> {
     logInfo({ type: 'admin command auth', data });
 
     if (data.type == 'reload-server') {

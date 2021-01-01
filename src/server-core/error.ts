@@ -48,7 +48,7 @@ function printStackFrame(frames: StackFrame[]) {
             console.log('  at ' + frame.raw);
             continue;
         }
-        
+
         let result = '  at';
         if (frame.name) {
             result += ` ${frame.async ? 'async ' : ''}${frame.name}`;
@@ -95,7 +95,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
                 frames.push({ file, line, column });
             } else {
                 const position = sourcemap.originalPositionFor({ line, column });
-                frames.push({ file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column })
+                frames.push({ file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
             }
             continue;
         }
@@ -111,7 +111,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
                 frames.push({ name, async, asName, file, line, column });
             } else {
                 const position = sourcemap.originalPositionFor({ line, column });
-                frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column })
+                frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
             }
             continue;
         }
@@ -123,7 +123,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
 
 // catch all request exceptions and continue
 const ErrorCodes: { [errorType in MyErrorType]: number } = { 'common': 400, 'auth': 401, 'not-found': 404, 'method-not-allowed': 405, 'unreachable': 500 };
-export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
+export async function handleRequestError(ctx: koa.Context, next: koa.Next): Promise<void> {
     try {
         await next();
     } catch (error) {
@@ -133,7 +133,7 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
         // so need to check error.name and type assertion
         if (error instanceof MyError || (error instanceof Error && error.name == 'MyError')) {
             const myerror = error as MyError;
-            const message = myerror.type == 'unreachable' ? 'unreachable code reached' 
+            const message = myerror.type == 'unreachable' ? 'unreachable code reached'
                 : myerror.type == 'method-not-allowed' ? 'method not allowed' : myerror.message;
             ctx.status = ErrorCodes[myerror.type];
             ctx.body = { message };
@@ -155,7 +155,7 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next) {
 }
 
 // log and abort for all uncaught exceptions
-export async function handleProcessException(error: Error) {
+export async function handleProcessException(error: Error): Promise<void> {
     if (error.message == 'read ECONNRESET') {
         // ignore read connection reset beceause it does not corrupt state while it seems to be not catchable by many on('error')s
         logError({ type: 'uncaught read connection reset', error });
@@ -184,7 +184,7 @@ export async function handleProcessException(error: Error) {
 }
 
 // log and abort for all unhandled rejections
-export async function handleProcessRejection(reason: any) {
+export async function handleProcessRejection(reason: any): Promise<never> {
     try {
         const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : 'error';
         if ('stack' in reason) {

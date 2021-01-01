@@ -14,6 +14,7 @@ import type { AdminPayload } from '../../src/shared/types/admin';
 import type { WebpackStat } from '../types/webpack';
 import { logInfo, logError, logCritical, watchvar } from '../common';
 import { admin, getServerPort } from '../tools/admin';
+import { eslint } from '../tools/eslint';
 import { codegen } from '../tools/codegen';
 import { Asset as /* compare to webpack asset */ MyAsset, upload } from '../tools/ssh';
 import { SassOptions, sass } from '../tools/sass';
@@ -227,6 +228,7 @@ async function renderHtmlTemplate(app: string, files: [js: string[], css: string
 
 async function buildOnce(app: string): Promise<void> {
     logInfo('akr', chalk`{cyan ${app}-client}`);
+    await eslint(`${app}-client`, 'browser', [`src/${app}/client/**/*.ts`, `src/${app}/client/**/*.tsx`]);
     // mkdir(recursive)
 
     // promise 1: fcg -> tsc -> wpk, return js file list
@@ -247,7 +249,7 @@ async function buildOnce(app: string): Promise<void> {
 
         // their type is very mismatch but they very can work at runtime
         const ifs = memfs.Volume.fromJSON(checkResult.files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {}));
-        const [compiler, additional] = createWebpackCompiler(app, ifs, false);
+        const [compiler, additional] = createWebpackCompiler(app, ifs, false, '');
         const packResult = await new Promise<WebpackResult>(resolve => compiler.run((error, statsObject) => resolve({ error, statsObject })));
         if (packResult.error) {
             logError('wpk', JSON.stringify(packResult.error, undefined, 1));
@@ -255,7 +257,7 @@ async function buildOnce(app: string): Promise<void> {
         }
         const stats = packResult.statsObject!.toJson() as WebpackStat;
 
-        printWebpackResult(stats, additional);
+        printWebpackResult(stats, additional, '');
         if (stats.errorsCount > 0) {
             return logCritical('akr', chalk`{cyan ${app}-client} failed at pack (2)`);
         }

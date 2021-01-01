@@ -45,7 +45,7 @@ const handleSocketServerError = (error: Error) => {
 const socketConnections: net.Socket[] = [];
 socketServer.on('connection', connection => {
     socketConnections.push(connection);
-    
+
     connection.on('close', () => {
         socketConnections.splice(socketConnections.indexOf(connection), 1);
     });
@@ -76,8 +76,8 @@ socketServer.on('connection', connection => {
 
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
-const http2Server = http2.createSecureServer({ 
-    key: fs.readFileSync('SSL_KEY', 'utf-8'), 
+const http2Server = http2.createSecureServer({
+    key: fs.readFileSync('SSL_KEY', 'utf-8'),
     cert: fs.readFileSync('SSL_CERT', 'utf-8'),
 }, app.callback());
 
@@ -89,7 +89,7 @@ httpServer.on('connection', socket => {
         // according to log, these 2 errors happens kind of frequently (several times a day) while **only** on http socket
         // I guess they are sent by some bad guys or auto guys which supprised by my 301 reponse or http2 server (which are both not very normal behavior)
         // like many tries to connect to something like notebook/admin interface logged in this site Jan 2019 version
-        // ignore them 
+        // ignore them
         if (error.code == 'ECONNRESET' && error.syscall == 'read') {
             // ignore
         } else if (error.code == 'HPE_INVALID_METHOD') {
@@ -111,9 +111,9 @@ http2Server.on('connection', (socket: net.Socket) => {
 // servers start and close // that's how they are implemented braceful
 Promise.all([
     new Promise<void>((resolve, reject) => {
-        const handleListenError = (error: Error) => { 
-            console.log(`admin server error: ${error.message}`); 
-            reject(); 
+        const handleListenError = (error: Error) => {
+            console.log(`admin server error: ${error.message}`);
+            reject();
         };
         socketServer.once('error', handleListenError);
         socketServer.listen('/tmp/fps.socket', () => {
@@ -123,15 +123,15 @@ Promise.all([
         });
     }),
     new Promise<void>((resolve, reject) => {
-        const handleListenError = (error: Error) => { 
-            console.log(`http server error: ${error.message}`); 
-            reject(); 
+        const handleListenError = (error: Error) => {
+            console.log(`http server error: ${error.message}`);
+            reject();
         };
-        httpServer.once('error', handleListenError); 
+        httpServer.once('error', handleListenError);
         httpServer.listen(80, () => {
             httpServer.removeListener('error', handleListenError);
             httpServer.on('error', error => {
-                // wrap and goto uncaught exception 
+                // wrap and goto uncaught exception
                 // // currently this is never reached
                 throw new Error('http server error: ' + error.message);
             });
@@ -139,16 +139,16 @@ Promise.all([
         });
     }),
     new Promise<void>((resolve, reject) => {
-        const handleListenError = (error: Error) => { 
-            console.log(`http2 server error: ${error.message}`); 
-            reject(); 
+        const handleListenError = (error: Error) => {
+            console.log(`http2 server error: ${error.message}`);
+            reject();
         };
         http2Server.once('error', handleListenError);
         http2Server.listen(443, () => {
             http2Server.removeListener('error', handleListenError);
             http2Server.on('error', error => {
                 throw new Error('http2 server error: ' + error.message);
-            }); 
+            });
             resolve();
         });
     }),
@@ -175,16 +175,16 @@ function shutdown() {
     // wait all server close
     Promise.all([
         new Promise<void>((resolve, reject) => socketServer.close(error => {
-            if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); } 
+            if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); }
             else { resolve(); }
         })),
-        new Promise<void>((resolve, reject) => httpServer.close(error => { 
-            if (error) { console.log(`failed to close http server: ${error.message}`); reject(); } 
+        new Promise<void>((resolve, reject) => httpServer.close(error => {
+            if (error) { console.log(`failed to close http server: ${error.message}`); reject(); }
             else { resolve(); }
         })),
         new Promise<void>((resolve, reject) => http2Server.close(error => {
             if (error) { console.log(`failed to close http2 server: ${error.message}`); reject(error); }
-            else { resolve(); } 
+            else { resolve(); }
         })),
     ]).then(() => {
         logInfo('server core shutdown');

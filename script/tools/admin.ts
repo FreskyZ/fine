@@ -19,13 +19,13 @@ async function getv(): Promise<V> {
 
         const assets = await download('WEBROOT/akariv', true);
         if (!assets) {
-            return logCritical('adm', 'fail to getv (1)');
+            return logCritical('adm', 'cannot connect akari (server) (1)');
         }
 
         const vs = assets[0].data.toString();
         v = vs.split(':').map(x => parseInt(x)) as V;
         if (v.length != 3 || v.some(x => !x)) {
-            return logCritical('adm', 'fail to getv (2)');
+            return logCritical('adm', 'cannot connect akari (server) (2)');
         }
     }
     return v;

@@ -2,6 +2,7 @@
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
+import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
@@ -30,6 +31,7 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 
 async function buildOnce(): Promise<void> {
     logInfo('akr', chalk`{cyan server-core}`);
+    await eslint('server-core', 'node', ['src/shared/**/*.ts', 'src/server-core/**/*.ts']);
     // mkdir(recursive) is not needed anymore
     // as I'm lazy to investigate ssh version, now it's assumed that server has already full deployed once and all folder already exists
 

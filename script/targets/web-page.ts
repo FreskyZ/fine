@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical, watchvar } from '../common';
 import { admin } from '../tools/admin';
+import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
 import { SassOptions, SassResult, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
@@ -42,6 +43,8 @@ async function buildOnce(pagename: string): Promise<void> {
 
     const checker = typescript(getTypeScriptOptions(pagename, false));
     if (fs.existsSync(checker.options.entry as string)) {
+        await eslint(`${pagename}-page`, 'browser', checker.options.entry);
+
         const checkResult = checker.check();
         if (!checkResult.success) {
             return logCritical('akr', chalk`{cyan ${pagename}-page} failed at check`);

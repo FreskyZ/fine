@@ -7,7 +7,7 @@ import { MyError } from './error';
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';
 
-export type WebContext = ParameterizedContext<{ 
+export type WebContext = ParameterizedContext<{
     user: UserCredential,
 }>;
 

@@ -5,7 +5,7 @@ import { MyError } from '../../shared/error';
 import type { Record, Account } from '../api';
 
 export async function getRecords(ctx: Context): Promise<Record[]> {
-    
+
     const { value } = await query('SELECT `Id`, `Title`, `Type`, `Tags`, `Amount`, `Tags`, `Time` FROM `WIMMRecord` WHERE `UserId` = ?', ctx.user.id);
     if (!Array.isArray(value)) {
         throw new Error('unexpected query result');
