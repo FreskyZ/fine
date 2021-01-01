@@ -241,7 +241,7 @@ export async function handleApplications(ctx: Ctx): Promise<void> {
             try {
                 // always re-require, for hot reloading
                 // this require expression is ignored by tsc and mypack, see docs/build-script
-                dispatch = require(`../${app}/server`).dispatch;
+                dispatch = require(`./${app}/server`).dispatch;
             } catch {
                 // in case module not found, return 500 // actually ak is designed to be no server
                 throw new MyError('unreachable');
@@ -262,7 +262,7 @@ export async function handleCommand(data: AdminServerCoreAuthCommand): Promise<v
     logInfo({ type: 'admin command auth', data });
 
     if (data.type == 'reload-server') {
-        delete require.cache[require.resolve(`../${data.app}/server`)];
+        delete require.cache[require.resolve(`./${data.app}/server`)];
     } else if (data.type == 'expire-device') {
         await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', (dayjs.utc as any)([1970, 1, 1]).format(QueryDateTimeFormat.datetime), data.deviceId);
     } // other not supported for now

@@ -3,13 +3,22 @@ import * as path from 'path';
 import * as stream from 'stream';
 import * as chalk from 'chalk';
 import * as SFTPClient from 'ssh2-sftp-client';
-import { logInfo, logError } from '../common';
+import { logInfo, logError, getCompileTimeConfig } from '../common';
 
 export interface Asset {
     data: Buffer,
     remote: string, // should be absolute
     mode?: number,  // default to 0o644
 }
+
+const config = getCompileTimeConfig();
+const webroot = config['WEB' + 'ROOT'];
+const sshconnect = {
+    host: config['DOMAIN_' + 'NAME'],
+    username: config['SSH_' + 'USER'],
+    privateKey: fs.readFileSync(config['SSH_' + 'KEY']),
+    passphrase: config['SSH_' + 'PASSPHRASE'],
+};
 
 export async function upload(assets: Asset | Asset[], options?: { filenames?: boolean, additionalHeader?: string }): Promise<boolean> {
     assets = Array.isArray(assets) ? assets : [assets];
@@ -23,18 +32,13 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
     }
 
     try {
-        await client.connect({
-            host: 'DOMAIN_NAME',
-            username: 'SSH_USER',
-            privateKey: await fs.promises.readFile('SSH_KEY'),
-            passphrase: 'SSH_PASSPHRASE',
-        });
+        await client.connect(sshconnect);
 
         for (const asset of assets) {
-            await client.put(asset.data, asset.remote, { mode: asset.mode || 0o644 });
+            await client.put(asset.data, path.join(webroot, asset.remote), { mode: asset.mode || 0o644 });
         }
         await client.end();
-        logInfo(`ssh${options?.additionalHeader ?? ''}`, chalk`upload {yellow ${assets.length}} files ${options?.filenames ? assets.map(a => chalk.yellow(path.basename(a.remote))) : ''}`);
+        logInfo(`ssh${options?.additionalHeader ?? ''}`, chalk`upload {yellow ${assets.length}} files ${!options?.filenames ? assets.map(a => chalk.yellow(path.basename(a.remote))) : ''}`);
         return true;
     } catch (ex) {
         logError(`ssh${options?.additionalHeader ?? ''}`, 'error ' + ex.message);
@@ -47,17 +51,12 @@ export async function download(remoteNames: string | string[], silence?: boolean
     const client = new SFTPClient();
 
     try {
-        await client.connect({
-            host: 'DOMAIN_NAME',
-            username: 'SSH_USER',
-            privateKey: await fs.promises.readFile('SSH_KEY'),
-            passphrase: 'SSH_PASSPHRASE',
-        });
+        await client.connect(sshconnect);
 
         const assets: Asset[] = [];
         for (const remoteName of remoteNames) {
             const chunks: Buffer[] = [];
-            await client.get(remoteName, new stream.Writable({
+            await client.get(path.join(webroot, remoteName), new stream.Writable({
                 write(chunk, encoding, callback) {
                     chunks.push(Buffer.from(chunk, encoding));
                     callback();

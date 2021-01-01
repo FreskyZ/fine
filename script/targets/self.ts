@@ -32,7 +32,7 @@ const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
 });
 
 const getUploadAssets = (packResult: MyPackResult): Asset[] => [
-    { data: packResult.resultJs, remote: 'WEBROOT/akari', mode: 0o777 },
+    { data: packResult.resultJs, remote: 'akari', mode: 0o777 },
 ];
 
 export async function build(): Promise<void> {

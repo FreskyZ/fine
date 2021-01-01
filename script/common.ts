@@ -5,8 +5,9 @@ import type { AdminPayload, AdminServerCoreCommand } from '../src/shared/types/a
 
 declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
 
-// this config is read runtime and replace for build normal things
-// so build script itself directly use this instead of replace it while building self
+// for src, typescript uses this config to replace source code
+// for self (local), the values are read runtime
+// for self (server), same as src
 export const getCompileTimeConfig = (): Record<string, string> => JSON.parse(fs.readFileSync('akari.config', 'utf-8'));
 
 // current color schema

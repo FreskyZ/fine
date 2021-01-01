@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
 import type { AdminPayload, AdminServerCoreCommand, AdminWebPageCommand, AdminSelfHostCommand, AdminServiceHostCommand } from '../../src/shared/types/admin';
-import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
+import { logInfo, logError, logCritical, formatAdminPayload, getCompileTimeConfig } from '../common';
 import { download } from './ssh';
 
 // this is akari (local) to akari (server)
@@ -15,7 +15,7 @@ async function getv(): Promise<V> {
         // cannot ssh connect or any error download file or parse content
         // is regarded as critical error and will abort process, because almost all targets need upload file or send command
 
-        const assets = await download('WEBROOT/akariv', true);
+        const assets = await download('akariv', true);
         if (!assets) {
             return logCritical('adm', 'cannot connect akari (server) (1)');
         }
@@ -29,7 +29,10 @@ async function getv(): Promise<V> {
     return v;
 }
 
-const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
+const config = getCompileTimeConfig();
+const domain = config['DOMAIN_' + 'NAME'];
+const codebook = fs.readFileSync(config['CODE' + 'BOOK'], 'utf-8');
+
 const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
     const logHeader = `adm${additionalHeader ?? ''}`;
     const serialized = JSON.stringify(payload);
@@ -48,11 +51,7 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
         // if request.abort() is not called
         //     if most common normal success occassion, request.on('response') is called, then response.on('data') may be called, then response.on('end') is called
         //     else, request.on('error') must be called
-        const request = https.request({
-            host: 'DOMAIN_NAME',
-            method: 'POST',
-            port: v[0],
-        });
+        const request = https.request({ host: domain, method: 'POST', port: v[0] });
         request.on('error', error => {
             if ((error as any).code == 'ECONNREFUSED') {
                 logError(logHeader, 'cannot connect akari (server)');

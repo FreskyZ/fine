@@ -25,13 +25,13 @@ const getSassOptions = (pagename: string): SassOptions => ({
     entry: `src/pages/${pagename}.sass`,
 });
 const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult | 'html'): Asset => result == 'html' ? {
-    remote: `WEBROOT/main/${pagename}.html`,
+    remote: `pages/${pagename}.html`,
     data: fs.readFileSync(`src/pages/${pagename}.html`),
 } : 'files' in result ? {
-    remote: `WEBROOT/main/${pagename}.js`,
+    remote: `pages/${pagename}.js`,
     data: Buffer.from(result.files[0].content),
 } : {
-    remote: `WEBROOT/main/${pagename}.css`,
+    remote: `pages/${pagename}.css`,
     data: result.resultCss,
 };
 

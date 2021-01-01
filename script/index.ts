@@ -4,6 +4,7 @@ import { build as buildServerCore } from './targets/server-core';
 import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
+import { viewlog } from './targets/view-log';
 import { admin } from './tools/admin';
 
 function validatePage(pagename: string) {
@@ -75,6 +76,9 @@ if (a1 == 'self') {
 } else if (a1 == 'stop-self-host') { // reserved in case it does not stop
     admin.selfhost('stop').then(result => process.exit(result ? 1 : 0));
 
+} else if (a1 == 'viewlog') {
+    viewlog(a2);
+
 } else {
     console.log('unknown command');
     process.exit(1);
@@ -85,7 +89,3 @@ process.on('unhandledRejection', error => {
     console.log('unhandled reject: ', error);
     process.exit(0);
 });
-
-// TODO
-// develop local log viewing web page, download log through ssh, host on remote-wsl, browser tab open on win32, command line `akari view-log &`
-// move error stack parser and source map map from server-core into log viewing web page

@@ -6,7 +6,7 @@ import { WebContext, validateId, validateBody } from '../../shared/api-server';
 import { MyError } from '../../shared/error';
 import { getRecords, addRecord, getRecord, updateRecord, deleteRecord, getAccounts } from './default';
 
-export async function dispatch(ctx: WebContext) {
+export async function dispatch(ctx: WebContext): Promise<void> {
     let match: RegExpExecArray;
     if (!ctx.path.startsWith('/cost/v1')) { throw new MyError('not-found', 'invalid invocation version'); }
     const methodPath = `${ctx.method} ${ctx.path.slice(8)}`;

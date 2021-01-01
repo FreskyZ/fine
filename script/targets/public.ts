@@ -10,8 +10,8 @@ async function collectAssets(assets: Asset[], directory: string) {
         if (entry.isDirectory()) {
             await collectAssets(assets, entryName);
         } else {
-            // replace: from 'src/public/*' to 'WEBROOT/public/*'
-            assets.push({ remote: entryName.replace('src', 'WEBROOT'), data: await fs.promises.readFile(entryName) });
+            // replace: from 'src/public/*' to 'public/*'
+            assets.push({ remote: entryName.replace('src/', ''), data: await fs.promises.readFile(entryName) });
         }
     }));
     return assets;

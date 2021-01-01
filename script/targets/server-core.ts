@@ -19,14 +19,14 @@ const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     files,
     entry: '/vbuild/server-core/index.js',
     sourceMap: true,
-    output: 'dist/main/server.js',
+    output: 'index.js',
     printModules: true,
     minify: true,
 });
 
 const getUploadAssets = (packResult: MyPackResult): Asset[] => [
-    { remote: 'WEBROOT/main/server.js', data: packResult.resultJs },
-    { remote: 'WEBROOT/main/server.js.map', data: packResult.resultMap! },
+    { remote: 'index.js', data: packResult.resultJs },
+    { remote: 'index.js.map', data: packResult.resultMap! },
 ];
 
 async function buildOnce(): Promise<void> {

@@ -22,12 +22,15 @@
   },
   "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
+    "async-mutex": "^0.2.6",
+    "chalk": "^4.1.0",
     "dayjs": "^1.9.7",
     "koa": "^2.13.0",
     "koa-bodyparser": "^4.3.0",
     "mysql": "^2.18.1",
     "otplib": "^12.0.1",
-    "source-map": "^0.7.3"
+    "source-map": "^0.7.3",
+    "ws": "^7.4.1"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.0.1",
@@ -51,8 +54,6 @@
     "@typescript-eslint/parser": "^4.10.0",
     "antd": "^4.9.3",
     "antd-dayjs-webpack-plugin": "^1.0.1",
-    "async-mutex": "^0.2.6",
-    "chalk": "^4.1.0",
     "crypto-js": "^4.0.0",
     "csstype": "^3.0.5",
     "eslint": "^7.16.0",
@@ -74,7 +75,6 @@
     "unionfs": "^4.4.0",
     "webpack": "^5.11.0",
     "webpack-bundle-analyzer": "^4.3.0",
-    "ws": "^7.4.1",
     "xml2json": "^0.12.0"
   }
 }

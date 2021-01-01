@@ -8,7 +8,8 @@
     "typescript.suggest.autoImports": false,
     "files.exclude": {
         ".cache": true,
-        "node_modules": true
+        "node_modules": true,
+        ".vscode": true
     },
     "emmet.showExpandedAbbreviation": "never",
     "typescript.tsdk": "node_modules/typescript/lib"

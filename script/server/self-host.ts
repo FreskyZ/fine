@@ -1,6 +1,5 @@
 import * as cp from 'child_process';
 import type * as stream from 'stream';
-import * as path from 'path';
 import type * as http from 'http';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
@@ -31,7 +30,7 @@ class ServerCoreHost {
     private startimpl() {
         logInfo('sch', 'start server-core');
         writeInfo(this.response, 'akr(server)', 'start server-core');
-        this.theProcess = cp.spawn('node', ['dist/main/server.js'], { cwd: /* TODO remove after remove dist */ path.dirname('WEBROOT') });
+        this.theProcess = cp.spawn('node', ['index.js']);
         this.theProcess.stdout.pipe(this.response, { end: false });
         this.theProcess.stderr.pipe(this.response, { end: false });
         this.theProcess.on('error', error => {
@@ -74,6 +73,7 @@ export function handle(command: AdminSelfHostCommand, response: http.ServerRespo
     response.statusCode = 200;
     if (command == 'start') {
         if (serverCoreHost) {
+            logInfo('sch', 'restart server-core');
             response.write('that'); // write these 4 character to indicate this is end
             response.end();
             serverCoreHost.start();
@@ -83,6 +83,7 @@ export function handle(command: AdminSelfHostCommand, response: http.ServerRespo
         }
     } else if (command == 'stop') {
         if (serverCoreHost) {
+            logInfo('sch', 'stop host server-core')
             serverCoreHost.stop(); // this ends that response
             serverCoreHost = null;
         }

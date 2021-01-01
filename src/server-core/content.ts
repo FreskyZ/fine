@@ -38,7 +38,7 @@ let DisableSourceMapTimer: NodeJS.Timeout;
 const htmlStyleRegex = /<link rel="stylesheet" type="text\/css" href="\/(?<filename>[\w\-.]+)">/g;
 const htmlScriptRegex = /<script type="text\/javascript" src="\/(?<filename>[\w\-.]+)"><\/script>/g;
 function getAppFiles(app: string): string[] {
-    const htmlfile = `dist/${app}/index.html`;
+    const htmlfile = `${app}/index.html`;
     if (!fs.existsSync(htmlfile)) { return []; }
 
     const filenames: string[] = [];
@@ -60,15 +60,15 @@ function getAppFiles(app: string): string[] {
 type KnownFile = Readonly<{ virtual: string, real: string, reloadKey: string | false }>;
 const knownFiles: ReadonlyArray<KnownFile> = (() => {
     const result: KnownFile[] =  [
-        { virtual: '/www/', real: 'main/home.html', reloadKey: 'home' },
-        { virtual: '/www/index.css', real: 'main/home.css', reloadKey: 'home' },
+        { virtual: '/www/', real: 'pages/home.html', reloadKey: 'home' },
+        { virtual: '/www/index.css', real: 'pages/home.css', reloadKey: 'home' },
     ];
     for (const any of ['www'].concat(APP_NAMES)) {
-        result.push({ virtual: `/${any}/404`, real: 'main/404.html', reloadKey: false });
-        result.push({ virtual: `/${any}/418`, real: 'main/418.html', reloadKey: false });
-        result.push({ virtual: `/${any}/m`, real: 'main/user.html', reloadKey: 'user' }); // m: me, my space, my account setting, sign in/sign up
-        result.push({ virtual: `/${any}/user.js`, real: 'main/user.js', reloadKey: 'user' });
-        result.push({ virtual: `/${any}/user.css`, real: 'main/user.css', reloadKey: 'user' });
+        result.push({ virtual: `/${any}/404`, real: 'pages/404.html', reloadKey: false });
+        result.push({ virtual: `/${any}/418`, real: 'pages/418.html', reloadKey: false });
+        result.push({ virtual: `/${any}/m`, real: 'pages/user.html', reloadKey: 'user' }); // m: me, my space, my account setting, sign in/sign up
+        result.push({ virtual: `/${any}/user.js`, real: 'pages/user.js', reloadKey: 'user' });
+        result.push({ virtual: `/${any}/user.css`, real: 'pages/user.css', reloadKey: 'user' });
     }
     for (const app of APP_NAMES) {
         result.push(...getAppFiles(app).map(file => ({ virtual: `/${app}/${file}`, real: `${app}/${file}`, reloadKey: app })));

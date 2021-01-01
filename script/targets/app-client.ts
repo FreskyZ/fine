@@ -11,7 +11,7 @@ import * as TerserPlugin from 'terser-webpack-plugin';
 import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
 import type { WebpackStat } from '../types/webpack';
-import { logInfo, logError, logCritical, watchvar } from '../common';
+import { logInfo, logError, logCritical, watchvar, getCompileTimeConfig } from '../common';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { codegen } from '../tools/codegen';
@@ -29,7 +29,7 @@ const getSassOptions = (app: string): SassOptions => ({
     entry: `src/${app}/client/index.sass`,
 });
 const getUploadJsAssets = (app: string, additional: AdditionalStat): MyAsset[] => Object.entries(additional.assets).map((asset) => ({
-    remote: `WEBROOT/${app}/${asset[0]}`,
+    remote: `${app}/${asset[0]}`,
     data: asset[1].data,
 }));
 
@@ -208,13 +208,14 @@ function cleanupMemoryFile(stats: WebpackStat, files: TypeScriptResult['files'],
 }
 
 // watching only means less info
+const config = getCompileTimeConfig();
 async function renderHtmlTemplate(app: string, files: [js: string[], css: string[]], watching: boolean, additionalHeader?: string): Promise<MyAsset> {
     const templateEntry = `src/${app}/index.html`;
     if (!watching) {
         logInfo(`htm${additionalHeader ?? ''}`, chalk`read {yellow ${templateEntry}}`);
     }
 
-    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.DOMAIN_NAME:${await admin.port}/client-dev.js`]);
+    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.${config['DOMAIN_' + 'NAME']}:${await admin.port}/client-dev.js`]);
 
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
     const html = htmlTemplate
@@ -222,7 +223,7 @@ async function renderHtmlTemplate(app: string, files: [js: string[], css: string
         .replace('<stylesheet-placeholder />', files[1].map(cssFile => `<link rel="stylesheet" type="text/css" href="/${cssFile}">`).join('\n  '));
 
     logInfo(`htm${additionalHeader ?? ''}`, 'template rendered');
-    return { remote: `WEBROOT/${app}/index.html`, data: Buffer.from(html) };
+    return { remote: `${app}/index.html`, data: Buffer.from(html) };
 }
 
 async function buildOnce(app: string): Promise<void> {
@@ -273,7 +274,7 @@ async function buildOnce(app: string): Promise<void> {
         if (!transpileResult.success) {
             return logCritical('akr', chalk`{cyan ${app}-client} failed at transpile`);
         }
-        return [{ remote: `WEBROOT/${app}/index.css`, data: transpileResult.resultCss }];
+        return [{ remote: `${app}/index.css`, data: transpileResult.resultCss }];
     })();
 
     const results = await Promise.all([p1, p2]);
@@ -373,7 +374,7 @@ function buildWatch(app: string, additionalHeader?: string) {
     });
 
     sass(getSassOptions(app), additionalHeader).watch(transpileResult => {
-        cssAssets = [{ remote: `WEBROOT/${app}/index.css`, data: transpileResult.resultCss }];
+        cssAssets = [{ remote: `${app}/index.css`, data: transpileResult.resultCss }];
         requestRender();
     });
 }
