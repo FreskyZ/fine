@@ -3,13 +3,12 @@ import * as path from 'path';
 import * as dayjs from 'dayjs';
 import * as utc from 'dayjs/plugin/utc';
 
-// logging
-// usage
-// ```
-// import * as log from './logger'
-// log.info('request', { path: '/', by: 'some user' });
-// log.error('request error', { message: 'message', stack: [{ location, name }] })
-// ```
+// logging, usage
+//
+// import { logInfo, logError } as log from './logger'
+// logInfo({ type: 'request', path: '/', by: 'some user' });
+// logError({ type: 'request error', message: 'message', stack: [{ location, name }] })
+
 // internal
 // normal contents are cached until certain amount of entries added
 // eager contents (errors) are flushed immediately
@@ -74,9 +73,11 @@ function flush(level: Level): void {
     fs.writeFileSync(filename, JSON.stringify(entries));
 
     // every level does their switch log file on their own;
-    if (!date.isSame(dayjs.utc(), 'day')) {
-        // only update chaceDate is enough, because other fields flushed just now
+    if (!date.isSame(dayjs.utc(), 'date')) {
         state[level].date = dayjs.utc();
+        state[level].filename = getLogFileName(date, level);
+        state[level].entries = loadOrInitializeEntries(state[level].filename);
+        // state[level].notFlushedCount = 0; // already cleared
     }
 }
 function write(level: Level, content: any) {

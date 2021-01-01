@@ -94,8 +94,9 @@ httpServer.on('connection', socket => {
             // ignore
         } else if (error.code == 'HPE_INVALID_METHOD') {
             // ignore
+        } else {
+            logError({ type: 'http socket error', error });
         }
-        logError({ type: 'http socket error', error });
     });
     socket.on('close', () => delete httpConnections[key]);
 });
