@@ -1,7 +1,7 @@
 // front end call api common infrastructure, include authentication
 
 async function impl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: any): Promise<any> {
-    const response = await fetch(`https://api.DOMAIN_NAME${path}`, {
+    const response = await fetch(`https://api.domain.com${path}`, {
         method,
         body: body ? JSON.stringify(body) : undefined,
         headers: {

@@ -1,7 +1,8 @@
 import * as path from 'path';
 import * as ts from 'typescript';
 import * as chalk from 'chalk';
-import { logError, logInfo, getCompileTimeConfig } from '../common';
+import { logError, logInfo } from '../common';
+import { config } from '../config';
 
 export type TypeScriptOptions = {
     base: 'normal',
@@ -122,15 +123,14 @@ function printEmitResult(emitResult: ts.EmitResult): boolean {
     return !emitResult.emitSkipped;
 }
 
-// install on ts.sys, already replace by akari.config, call additional hook if exists
-const compileTimeConfig = getCompileTimeConfig();
+// install on ts.sys, already replace by akaric, call additional hook if exists
 function setupReadFileHook() {
     const originalReadFile = ts.sys.readFile;
     ts.sys.readFile = (fileName, encoding) => {
         let fileContent = originalReadFile(fileName, encoding);
         if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
-            for (const configName in compileTimeConfig) {
-                fileContent = fileContent!.replaceAll(configName, compileTimeConfig[configName]);
+            for (const { name, value } of config.items) {
+                fileContent = fileContent!.replaceAll(name, value);
             }
         }
         return fileContent;

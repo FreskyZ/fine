@@ -137,7 +137,7 @@ export async function handleRequestContent(ctx: koa.Context, next: koa.Next): Pr
     // disable app, because reloadKeyToCache is group by'd, so use Object.keys.include
     if (ctx.subdomains.length == 1 && !(ctx.subdomains[0] in reloadKeyToCache)) {
         ctx.status = 307;
-        ctx.set('Location', 'https://DOMAIN_NAME');
+        ctx.set('Location', 'https://domain.com');
         return;
     }
 

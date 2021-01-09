@@ -1,3 +1,5 @@
+import { config } from './config'; 
+import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
 import { build as buildPublic } from './targets/public';
 import { build as buildServerCore } from './targets/server-core';
@@ -5,7 +7,6 @@ import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
 import { viewlog } from './targets/view-log';
-import { admin } from './tools/admin';
 
 function validatePage(pagename: string) {
     if (['home', 'user', '404', '418'].includes(pagename)) {
@@ -16,7 +17,7 @@ function validatePage(pagename: string) {
     }
 }
 function validateApp(appname: string) {
-    if (['wimm', 'collect', 'ak'].includes(appname)) {
+    if (config.apps.includes(appname)) {
         return appname;
     } else {
         console.log('unknown app name');

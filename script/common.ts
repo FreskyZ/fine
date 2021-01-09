@@ -1,20 +1,13 @@
-import * as fs from 'fs';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
 import type { AdminPayload, AdminServerCoreCommand } from '../src/shared/types/admin';
 
 declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
 
-// for src, typescript uses this config to replace source code
-// for self (local), the values are read runtime
-// for self (server), same as src
-export const getCompileTimeConfig = (): Record<string, string> => JSON.parse(fs.readFileSync('akari.config', 'utf-8'));
-
 // current color schema
 // error: red
 // target name: cyan
 // watching (the long displayed long message): blue
-
 export function logInfo(header: string, message: string, error?: any): void {
     if (error) {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);

@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
 import type { AdminPayload, AdminServerCoreCommand, AdminWebPageCommand, AdminSelfHostCommand, AdminServiceHostCommand } from '../../src/shared/types/admin';
-import { logInfo, logError, logCritical, formatAdminPayload, getCompileTimeConfig } from '../common';
+import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
+import { config } from '../config';
 import { download } from './ssh';
 
 // this is akari (local) to akari (server)
@@ -29,10 +30,7 @@ async function getv(): Promise<V> {
     return v;
 }
 
-const config = getCompileTimeConfig();
-const domain = config['DOMAIN_' + 'NAME'];
-const codebook = fs.readFileSync(config['CODE' + 'BOOK'], 'utf-8');
-
+const codebook = fs.readFileSync(config.codebook, 'utf-8');
 const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
     const logHeader = `adm${additionalHeader ?? ''}`;
     const serialized = JSON.stringify(payload);
@@ -51,7 +49,7 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
         // if request.abort() is not called
         //     if most common normal success occassion, request.on('response') is called, then response.on('data') may be called, then response.on('end') is called
         //     else, request.on('error') must be called
-        const request = https.request({ host: domain, method: 'POST', port: v[0] });
+        const request = https.request({ host: config.domain, method: 'POST', port: v[0] });
         request.on('error', error => {
             if ((error as any).code == 'ECONNREFUSED') {
                 logError(logHeader, 'cannot connect akari (server)');

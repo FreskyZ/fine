@@ -20,7 +20,7 @@ type Ctx = koa.ParameterizedContext<ContextState>;
 // app related config
 const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'wimm': true, 'collect': true };
 const allowedOriginConfig: { [origin: string]: string } = APP_NAMES.reduce<{ [origin: string]: string }>(
-    (acc, app) => { acc[`https://${app}.DOMAIN_NAME`] = app; return acc; }, { [`https://DOMAIN_NAME`]: 'www', [`https://www.DOMAIN_NAME`]: 'www' });
+    (acc, app) => { acc[`https://${app}.domain.com`] = app; return acc; }, { [`https://domain.com`]: 'www', [`https://www.domain.com`]: 'www' });
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table

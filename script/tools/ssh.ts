@@ -3,7 +3,8 @@ import * as path from 'path';
 import * as stream from 'stream';
 import * as chalk from 'chalk';
 import * as SFTPClient from 'ssh2-sftp-client';
-import { logInfo, logError, getCompileTimeConfig } from '../common';
+import { config } from '../config';
+import { logInfo, logError } from '../common';
 
 export interface Asset {
     data: Buffer,
@@ -11,13 +12,11 @@ export interface Asset {
     mode?: number,  // default to 0o644
 }
 
-const config = getCompileTimeConfig();
-const webroot = config['WEB' + 'ROOT'];
 const sshconnect = {
-    host: config['DOMAIN_' + 'NAME'],
-    username: config['SSH_' + 'USER'],
-    privateKey: fs.readFileSync(config['SSH_' + 'KEY']),
-    passphrase: config['SSH_' + 'PASSPHRASE'],
+    host: config.domain,
+    username: config.ssh.user,
+    privateKey: fs.readFileSync(config.ssh.identity),
+    passphrase: config.ssh.passphrase,
 };
 
 export async function upload(assets: Asset | Asset[], options?: { filenames?: boolean, additionalHeader?: string }): Promise<boolean> {
@@ -35,7 +34,7 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
         await client.connect(sshconnect);
 
         for (const asset of assets) {
-            await client.put(asset.data, path.join(webroot, asset.remote), { mode: asset.mode || 0o644 });
+            await client.put(asset.data, path.join(config.webroot, asset.remote), { mode: asset.mode || 0o644 });
         }
         await client.end();
         logInfo(`ssh${options?.additionalHeader ?? ''}`, chalk`upload {yellow ${assets.length}} files ${!options?.filenames ? assets.map(a => chalk.yellow(path.basename(a.remote))) : ''}`);
@@ -56,7 +55,7 @@ export async function download(remoteNames: string | string[], silence?: boolean
         const assets: Asset[] = [];
         for (const remoteName of remoteNames) {
             const chunks: Buffer[] = [];
-            await client.get(path.join(webroot, remoteName), new stream.Writable({
+            await client.get(path.join(config.webroot, remoteName), new stream.Writable({
                 write(chunk, encoding, callback) {
                     chunks.push(Buffer.from(chunk, encoding));
                     callback();

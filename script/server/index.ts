@@ -14,7 +14,7 @@ import { send as sendToServerCore, handle as handleToServerCore } from './server
 
 // akari (server) entry, see docs/build-script.md
 
-const httpsServer = https.createServer({ key: fs.readFileSync('SSL_KEY'), cert: fs.readFileSync('SSL_FULLCHAIN') }, handleCommand);
+const httpsServer = https.createServer({ key: fs.readFileSync('SSL-KEY'), cert: fs.readFileSync('SSL-FULLCHAIN') }, handleCommand);
 const wsServer = new WebSocket.Server({ server: httpsServer });
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {

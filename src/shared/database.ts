@@ -1,6 +1,6 @@
 import * as mysql from 'mysql';
 
-const pool = mysql.createPool(CONNECTION_STRING);
+const pool = mysql.createPool(MYSQL_CONNECTION_STRING);
 
 export const QueryDateTimeFormat = {
     datetime: 'YYYY-MM-DD HH:mm:ss',

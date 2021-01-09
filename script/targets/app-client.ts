@@ -11,7 +11,8 @@ import * as TerserPlugin from 'terser-webpack-plugin';
 import * as unionfs from 'unionfs';
 import * as webpack from 'webpack';
 import type { WebpackStat } from '../types/webpack';
-import { logInfo, logError, logCritical, watchvar, getCompileTimeConfig } from '../common';
+import { logInfo, logError, logCritical, watchvar } from '../common';
+import { config } from '../config';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { codegen } from '../tools/codegen';
@@ -208,14 +209,13 @@ function cleanupMemoryFile(stats: WebpackStat, files: TypeScriptResult['files'],
 }
 
 // watching only means less info
-const config = getCompileTimeConfig();
 async function renderHtmlTemplate(app: string, files: [js: string[], css: string[]], watching: boolean, additionalHeader?: string): Promise<MyAsset> {
     const templateEntry = `src/${app}/index.html`;
     if (!watching) {
         logInfo(`htm${additionalHeader ?? ''}`, chalk`read {yellow ${templateEntry}}`);
     }
 
-    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.${config['DOMAIN_' + 'NAME']}:${await admin.port}/client-dev.js`]);
+    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.${config.domain}:${await admin.port}/client-dev.js`]);
 
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
     const html = htmlTemplate

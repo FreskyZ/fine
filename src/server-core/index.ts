@@ -79,11 +79,11 @@ socketServer.on('connection', connection => {
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = 'FPS_CERTIFICATE' in process.env ? https.createServer({
-    key: fs.readFileSync('SSL_KEY', 'utf-8'),
-    cert: fs.readFileSync('SSL_CERT', 'utf-8'),
+    key: fs.readFileSync('SSL-KEY', 'utf-8'),
+    cert: fs.readFileSync('SSL-CERT', 'utf-8'),
 }, app.callback()) : http2.createSecureServer({
-    key: fs.readFileSync('SSL_KEY', 'utf-8'),
-    cert: fs.readFileSync('SSL_CERT', 'utf-8'),
+    key: fs.readFileSync('SSL-KEY', 'utf-8'),
+    cert: fs.readFileSync('SSL-CERT', 'utf-8'),
 }, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};
