@@ -30,18 +30,23 @@ class ServerCoreHost {
     private startimpl() {
         logInfo('sch', 'start server-core');
         writeInfo(this.response, 'akr(server)', 'start server-core');
-        this.theProcess = cp.spawn('node', ['index.js']);
+        this.theProcess = cp.spawn(process.argv0, ['index.js']); // spawn seems to fail to find `node` in PATH when start by systemctl, use argv0 because I use absolute path in systemctl setup
         this.theProcess.stdout.pipe(this.response, { end: false });
         this.theProcess.stderr.pipe(this.response, { end: false });
         this.theProcess.on('error', error => {
+            // document says this happens when process failed to spawn, failed to exit or failed to send message
+            // I do not use the send message feature and do not exit by theProcess.kill() so this should only be happen when failed to spawn
+            // in that case, theProcess reference should also be discard
             writeError(this.response, 'akr(server)', `server-core process error ${error.message}`);
             logError('sch', `process error ${error.message}`, error);
+            this.theProcess = null;
         });
         this.theProcess.on('exit', code => {
             (code == 0 ? writeInfo : writeError)(this.response, 'akr(server)', `server-core process exit with code ${code}`);
             (code == 0 ? logInfo : logError)('sch', `server-core process exit with code ${code}`);
             this.theProcess = null;
         });
+        this.theProcess.unref();
     }
     public start() {
         if (this.theProcess != null) {

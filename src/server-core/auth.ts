@@ -1,9 +1,9 @@
 /// <reference path="../shared/types/config.d.ts" />
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
-// import type {} from 'dayjs/plugin/utc'; // vscode need this to prevent warning
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
+import * as qrcode from 'qrcode';
 import type { AdminServerCoreAuthCommand } from '../shared/types/admin';
 import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
@@ -11,16 +11,15 @@ import { MyError } from '../shared/error';
 import { logInfo } from './logger';
 
 // see docs/authentication.md
-// handle common login and user info requests, and dispatch app api
+// handle sign in, sign out, sign up and user info requests, and dispatch app api
 
-// these additional state actually only used in api
 export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential }
 type Ctx = koa.ParameterizedContext<ContextState>;
 
 // app related config
 const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'wimm': true, 'collect': true };
-const allowedOriginConfig: { [origin: string]: string } = APP_NAMES.reduce<{ [origin: string]: string }>(
-    (acc, app) => { acc[`https://${app}.domain.com`] = app; return acc; }, { [`https://domain.com`]: 'www', [`https://www.domain.com`]: 'www' });
+const allowedOriginConfig = APP_NAMES.concat(['www']).reduce<{ [origin: string]: string }>(
+    (acc, app) => { acc[`https://${app}.domain.com`] = app; return acc; }, { [`https://domain.com`]: 'www' });
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
@@ -30,11 +29,34 @@ const userDeviceStorage: UserDeviceData[] = [];
 // ignore case comparator, this may need to be moved to some utility module
 const collator = Intl.Collator('en', { sensitivity: 'base' });
 
-const loginRegex = /^POST \/login$/;
-async function handleLogin(ctx: Ctx) {
+let AllowSignUp = false;
+let AllowSignUpTimer: NodeJS.Timeout; // similar to some other features, sign up is timeout disabled after 12 hours if not manually disabled or reenabled
 
-    // reuse x-access-token for password // actually authenticator token is also a kind of access token
-    const claim: UserClaim = { username: ctx.get('X-Name'), password: ctx.get('X-Access-Token') };
+// called by signin and signup, return access token
+async function createUserDevice(ctx: Ctx, userId: number): Promise<{ accessToken: string }> {
+    // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
+    // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
+    const accessToken = randomBytes(42).toString('base64').slice(0, 42);
+    const userDevice: UserDeviceData = { Id: 0, App: ctx.state.app, Name: '<unnamed>', Token: accessToken, UserId: userId, LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime) };
+    const { value: { insertId: userDeviceId } } = await query<QueryResult>(
+        'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`) VALUES (?, ?, ?, ?, ?)',
+        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime);
+    userDevice.Id = userDeviceId!;
+    userDeviceStorage.push(userDevice);
+
+    return { accessToken };
+}
+
+// use regex to dispatch special apis
+// // this makes the usage looks like c# property/java annotation/python annotation/typescript metadata
+type Matcher = [RegExp, (ctx: Ctx, parameters: Record<string, string>) => Promise<void>];
+
+const matchers1: Matcher[] = [ // special apis before authenticate
+
+[/^POST \/signin$/,
+async function handleSignIn(ctx) {
+
+    const claim: UserClaim = { username: ctx.get('X-Name'), password: ctx.get('X-Token') };
     if (!claim.username || !claim.password) {
         throw new MyError('common', 'user name or password cannot be empty');
     }
@@ -52,27 +74,66 @@ async function handleLogin(ctx: Ctx) {
         throw new MyError('common', 'unknown user or incorrect password');
     }
 
-    // login always create new device
-    // 42 is a arbitray number, because this is random token, not encoded something token
-    // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
-    const accessToken = randomBytes(42).toString('base64').slice(0, 42);
-    const userDevice: UserDeviceData = { Id: 0, App: ctx.state.app, Name: '<unnamed>', Token: accessToken, UserId: user.Id, LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime) };
-    const { value: { insertId: userDeviceId } } = await query<QueryResult>(
-        'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`) VALUES (?, ?, ?, ?, ?)',
-        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime);
-    userDevice.Id = userDeviceId!;
-    userDeviceStorage.push(userDevice);
+    const accessToken = await createUserDevice(ctx, user.Id);
 
-    // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body
-    ctx.body = { accessToken };
-}
+    ctx.status = 200;
+    ctx.body = accessToken; // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body
+}],
 
-// read X-Access-Token and save user credential to ctx.state is needed by all functions accept login
+[/^GET \/signup\/(?<username>\w+)$/,
+async function handleGetAuthenticatorToken(ctx, parameters) {
+    if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
+
+    const username = parameters['username'];
+    if (!username) {
+        throw new MyError('common', 'invalid user name');
+    }
+
+    const text = `otpauth://totp/domain.com:${username}?secret=${authenticator.generateSecret()}&period=30&digits=6&algorithm=SHA1&issuer=domain.com`;
+    const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
+
+    ctx.status = 200;
+    ctx.body = { data: dataurl };
+}],
+
+[/^POST \/signup/,
+async function handleRegister(ctx) {
+    if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
+
+    const username = ctx.get('X-Name');
+    if (!username) {
+        throw new MyError('common', 'user name cannot be empty');
+    }
+    const rawpassword = ctx.get('X-Token');
+    if (!rawpassword.includes(':')) {
+        throw new MyError('common', 'invalid token format');
+    }
+    const [token, password] = rawpassword.split(':');
+    if (!token || !password) {
+        throw new MyError('common', 'invalid token format');
+    }
+
+    if (!authenticator.check(password, token)) {
+        throw new MyError('common', 'incorrect password');
+    }
+
+    const { value } = await query<QueryResult>('INSERT INTO `User` (`Name`, `Token`) VALUES (?, ?)', username, token);
+    const user: UserData = { Id: value.insertId, Name: username, Token: token };
+    userStorage.push(user);
+
+    const accessToken = await createUserDevice(ctx, user.Id);
+
+    ctx.status = 201;
+    ctx.body = accessToken;
+}]];
+
+// read X-Token and save user credential to ctx.state is needed by all functions accept sign in
 async function authenticate(ctx: Ctx) {
     if (!requireAuthConfig[ctx.state.app]) { return; } // ignore allow annoymous
-    if (!ctx.get('X-Access-Token')) { throw new MyError('auth', 'unauthorized'); }
 
-    const accessToken = ctx.get('X-Access-Token');
+    const accessToken = ctx.get('X-Token');
+    if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
+
     const userDevice = userDeviceStorage.find(d => d.Token == accessToken) ?? await (async () => {
         const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Token` = ?', accessToken);
         if (!Array.isArray(value) || value.length == 0) {
@@ -106,9 +167,7 @@ async function authenticate(ctx: Ctx) {
     ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
 }
 
-// use regex to dispatch user and device handlers
-// now this format looks very like c# property/java annotation/python annotation/typescript metadata
-const matchers: [RegExp, (ctx: Ctx, parameters: Record<string, string>) => Promise<void>][] = [
+const matchers2: Matcher[] = [ // special apis after authenticate
 
 [/^GET \/user-devices$/,
 async function handleGetUserDevices(ctx) {
@@ -208,7 +267,7 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Prom
     ctx.vary('Origin');
     ctx.set('Access-Control-Allow-Origin', origin);
     ctx.set('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,DELETE,PATCH');
-    ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Access-Token');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Token');
     if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // handling of OPTIONS is finished here
 
     ctx.state.app = allowedOriginConfig[origin];
@@ -217,13 +276,16 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Prom
 
 export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next): Promise<any> {
     ctx.state.now = dayjs.utc();
-
     const key = `${ctx.method} ${ctx.path}`;
-    if (loginRegex.test(key)) { await handleLogin(ctx); return; }
+
+    for (const [regex, handler] of matchers1) {
+        const match = regex.exec(key);
+        if (match) { await handler(ctx, match.groups!); return; }
+    }
 
     await authenticate(ctx);
 
-    for (const [regex, handler] of matchers) {
+    for (const [regex, handler] of matchers2) {
         const match = regex.exec(key);
         if (match) { await handler(ctx, match.groups!); return; }
     }
@@ -240,30 +302,36 @@ export async function handleApplications(ctx: Ctx): Promise<void> {
             let dispatch: (ctx: Ctx) => Promise<void>;
             try {
                 // always re-require, for hot reloading
-                // this require expression is ignored by tsc and mypack, see docs/build-script
+                // this require expression is ignored by both tsc and mypack, see docs/build-script
                 dispatch = require(`./${app}/server`).dispatch;
             } catch {
-                // in case module not found, return 500 // actually ak is designed to be no server
                 throw new MyError('unreachable');
             }
             if (typeof dispatch !== 'function') {
                 throw new MyError('unreachable');
             }
 
-            await dispatch(ctx);
-            return;
+            return await dispatch(ctx);
         }
     }
 
     throw new MyError('not-found', 'invalid invocation');
 }
 
-export async function handleCommand(data: AdminServerCoreAuthCommand): Promise<void> {
-    logInfo({ type: 'admin command auth', data });
+export async function handleCommand(command: AdminServerCoreAuthCommand): Promise<void> {
+    logInfo({ type: 'admin command auth', data: command });
 
-    if (data.type == 'reload-server') {
-        delete require.cache[require.resolve(`./${data.app}/server`)];
-    } else if (data.type == 'expire-device') {
-        await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', (dayjs.utc as any)([1970, 1, 1]).format(QueryDateTimeFormat.datetime), data.deviceId);
+    if (command.type == 'reload-server') {
+        delete require.cache[require.resolve(`./${command.app}/server`)];
+    } else if (command.type == 'remove-device') {
+        await query('DELETE FROM `UserDevice` WHERE `Id` = ?', command.deviceId);
+        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == command.deviceId), 1);
+    } else if (command.type == 'enable-signup') {
+        AllowSignUp = true;
+        if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
+        AllowSignUpTimer = setTimeout(() => AllowSignUp = false, 43200_000);
+    } else if (command.type == 'disable-signup') {
+        AllowSignUp = false;
+        if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
     } // other not supported for now
 }

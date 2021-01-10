@@ -5,7 +5,7 @@ export type AdminServerCoreAuthCommand =
     | { type: 'disable-signup' }
     | { type: 'enable-user', userId: number }
     | { type: 'disable-user', userId: number }
-    | { type: 'expire-device', deviceId: number };
+    | { type: 'remove-device', deviceId: number };
 
 export type AdminServerCoreContentCommand =
     | { type: 'reload-client', app: string }

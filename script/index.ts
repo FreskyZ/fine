@@ -74,6 +74,9 @@ if (a1 == 'self') {
 } else if (a1 == 'service' && a2 == 'is-active') {
     admin.servicehost('is-active').then(result => process.exit(result ? 1 : 0));
 
+} else if (a1 == 'signup') {
+    admin.servercore({ type: 'auth', sub: { type: a2 == 'enable' ? 'enable-signup' : 'disable-signup' } })
+
 } else if (a1 == 'stop-self-host') { // reserved in case it does not stop
     admin.selfhost('stop').then(result => process.exit(result ? 1 : 0));
 
