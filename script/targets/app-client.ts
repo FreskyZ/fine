@@ -21,7 +21,7 @@ import { SassOptions, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
 const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
-    base: 'jsx',
+    base: 'jsx-app',
     entry: `src/${app}/client/index.tsx`,
     sourceMap: 'normal',
     watch,

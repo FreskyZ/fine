@@ -12,7 +12,12 @@ export type TypeScriptOptions = {
     watch: boolean,
     additionalLib?: string[],
 } | {
-    base: 'jsx',
+    base: 'jsx-page', // user-page
+    entry: string,
+    sourceMap: 'no',
+    watch: boolean,
+} | {
+    base: 'jsx-app', // app-client
     entry: string,
     sourceMap: 'normal', // only normal available for jsx
     watch: boolean,
@@ -53,7 +58,16 @@ function mergeOptions(options: TypeScriptOptions): ts.CompilerOptions {
         outDir: '/vbuild', // git simply virtual path to normal config
         sourceMap: options.sourceMap != 'no',
         lib: 'additionalLib' in options ? [...basicOptions.lib!, ...options.additionalLib!.map(b => `lib.${b}.d.ts`)] : basicOptions.lib,
-    } : {
+    } : options.base == 'jsx-page' ? {
+        ...basicOptions,
+        outDir: '/vbuild',
+        target: ts.ScriptTarget.ES2018, // edge chromium android is not supporting es2020
+        sourceMap: false,
+        esModuleInterop: true,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX,
+        lib: [...basicOptions.lib!, 'lib.dom.d.ts'],
+    } : /* jsx-app */ {
         ...basicOptions,
         outDir: path.resolve('src'), // outdir should make output file look similar to original ts file to make webpack some path related things look proper
         target: ts.ScriptTarget.ES2018, // edge chromium android is not supporting es2020

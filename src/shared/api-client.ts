@@ -5,7 +5,7 @@ async function impl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: s
         method,
         body: body ? JSON.stringify(body) : undefined,
         headers: {
-            'X-Access-Token': localStorage['access-token'],
+            'X-Token': localStorage['access-token'],
             'Content-Type': body ? 'application/json' : 'application/octec-stream',
         },
     });

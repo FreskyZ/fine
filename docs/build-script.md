@@ -182,6 +182,76 @@ $ akari service restart
 $ akari service is-active
 ```
 
+## My JSX Runtime
+
+react 17.0.1 introduces new jsx factory https://reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html,
+which is great readability improvement for `web-page` targets where no bundler is involved and browser and devtools gets typescript transpile result
+
+it generates import from 'react/jsx-runtime' module instead of original React.createElement, 
+but this module seems not available on unpkg.com which I'm using,
+while the production version is very small and simple (slightly pretty printed):
+
+```js
+// node_modules/react/cjs/react-jsx-runtime.production.min.js
+var f=require("react"),
+   g=60103;
+exports.Fragment=60107;
+if("function"===typeof Symbol&&Symbol.for){ // my environment must have Symbol.for, so omitted
+   var h=Symbol.for;
+   g=h("react.element");
+   exports.Fragment=h("react.fragment")
+}
+var m=f.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner,
+   n=Object.prototype.hasOwnProperty, // I assume typescript always generates plain props parameter and I'm not using spread props feature, so omitted
+   p={
+      key: !0,
+      ref: !0,
+      __self:!0,
+      __source:!0
+   }; // I'm using ['key', 'ref', ...].includes because that's simple and I do not expect performance loss because web-pages are always small
+function q(c,a,k){
+   var b,
+      d={},
+      e=null,
+      l=null;
+   void 0!==k&&(e=""+k);
+   void 0!==a.key&&(e=""+a.key);
+   void 0!==a.ref&&(l=a.ref);
+   for(b in a)n.call(a,b)&&!p.hasOwnProperty(b)&&(d[b]=a[b]);
+   if(c&&c.defaultProps)for(b in a=c.defaultProps,a)void 0===d[b]&&(d[b]=a[b]); // I'm not using any defaultProps
+   return{$$typeof:g,type:c,key:e,ref:l,props:d,_owner:m.current}
+}
+exports.jsx=q;
+exports.jsxs=q;
+```
+
+so my jsx runtime looks like
+
+```js
+    function myjsx(type,rawprops,maybekey){
+        const props={};
+        for(const n in rawprops){
+            if(!['key','ref','__self','__source'].includes(n)){
+                props[n]=rawprops[n]
+            }
+        }
+        return{
+            $$typeof:Symbol.for('react.element'),
+            type,
+            key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,
+            ref:rawprops.ref!== void 0?rawprops.ref:null,
+            props,
+            _owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current // then fire me
+        }
+    }
+    function myjsxf(p,k){
+       return myjsx(Symbol.for('react.fragment'),p,k);
+    }
+```
+insert previous code without newline, then replace `_jsx(_Fragment)` and `_jsxs(_Fragment` as `myjsxf` and `_jsxs` and `_jsx` as `myjsx`
+
+this is directly put at generated js file header, because web-page does not have multiple file
+
 ## Security Considerations
 
 1. akari (server) can only start by hand and auto shutdown after 3 hours of inactivity (3 hour is, I think, the longest time I will spend thinking or write raw code while developing)

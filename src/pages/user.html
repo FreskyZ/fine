@@ -1,37 +1,41 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>fps/login</title>
+  <title>fps</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="ROBOTS" content="INDEX">
   <link rel="icon" type='image/x-icon' href="/favicon.ico">
   <link rel="stylesheet" type="text/css" href="https://unpkg.com/antd@4.9.3/dist/antd.min.css">
   <link rel="stylesheet" type="text/css" href="/user.css">
 </head>
-<body>
-
+<body style="width:320px;margin:calc(50vh - 180px) auto;height:calc(50vh + 180px)">
   <header>
-    <span id="title">fps</span>
-    <span id="title-explain">Nianqinren's first personal website</span>
+    <span style="text-decoration:none;font-family:Georgia,serif;font-size:24px"><a href="/#">fps</a></span>
+    <span id="subtitle" style="font-size:12px;margin-left:12px;font-family:sans-serif">Nianqinren's first personal website</span>
   </header>
 
   <main>
-    <input type="text" id="username" required placeholder="User name" />
-    <input type="password" id="password" required placeholder="Password" />
-    <button id="login">LOGIN</button>
-    <span id='message'></span>
+    <div style="text-align:center;margin-top:32px"><span style="font-size:20px">Loading...</span></div>
   </main>
 
-  <footer>
-    <div id="avatar-wrapper" title="All's right with the world">
-      <span id="mea-emoji">&#x1F365;</span>
-      <img id="my-avatar" src="/avatar.webp"></img>
+  <footer style="position:absolute;bottom:16px;width:320px">
+    <div title="All's right with the world" style="display:flex;width:36px;margin:auto">
+      <span style="width:16px;height:16px">&#x1F365;</span>
+      <img style="width:16px;height:16px;margin-left:4px;margin-top:3px;border-radius:8px" src="/avatar.webp"></img>
     </div>
-    <span class="link-wrapper"><a href='mailto:FreskyZ@outlook.com'>FreskyZ@outlook.com</a></span>
-    <span class="link-wrapper"><a href='https://github.com/FreskyZ' target="_blank">GitHub@FreskyZ</a></span>
-    <span class="link-wrapper"><a href="http://www.miitbeian.gov.cn" target=="_blank">浙ICP备 19005835号</a></span>
+    <span style="display:block;width:100%;text-align:center;font-size:14px;">
+      <a href='mailto:FreskyZ@outlook.com' style="text-decoration:none">FreskyZ@outlook.com</a>
+    </span>
+    <span style="display:block;width:100%;text-align:center;font-size:14px;">
+      <a href='https://github.com/FreskyZ' target="_blank" style="text-decoration:none">GitHub@FreskyZ</a>
+    </span>
+    <span style="display:block;width:100%;text-align:center;font-size:12px;margin-top:4px">
+      <a href="http://www.miitbeian.gov.cn" target=="_blank" style="text-decoration:none">浙ICP备 19005835号</a>
+    </span>
   </footer>
   
-  <script type="text/javascript" src="/user.js"></script>
+  <script defer crossorigin src="https://unpkg.com/react@17.0.1/umd/react.production.min.js"></script>
+  <script defer crossorigin src="https://unpkg.com/react-dom@17.0.1/umd/react-dom.production.min.js"></script>
+  <script defer src="/user.js"></script>
 </body>
 </html>
