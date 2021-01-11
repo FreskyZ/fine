@@ -61,13 +61,14 @@ async function handleSignIn(ctx) {
         throw new MyError('common', 'user name or password cannot be empty');
     }
 
-    const user = userStorage.find(u => collator.compare(u.Name, claim.username)) ?? await (async () => {
+    const user = userStorage.find(u => !collator.compare(u.Name, claim.username)) ?? await (async () => {
         const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
         if (!Array.isArray(value) || value.length == 0) {
             throw new MyError('common', 'unknonw user or incorrect password');
         }
-        userStorage.push(value[0]);
-        return value[0];
+        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Token: value[0].Token };
+        userStorage.push(user);
+        return user;
     })();
 
     if (!authenticator.check(claim.password, user.Token)) {
@@ -80,6 +81,12 @@ async function handleSignIn(ctx) {
     ctx.body = accessToken; // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body
 }],
 
+[/^GET \/signup$/,
+async function handleGetAllowSignUp(ctx) {
+    ctx.status = 200;
+    ctx.body = { a: AllowSignUp };
+}],
+
 [/^GET \/signup\/(?<username>\w+)$/,
 async function handleGetAuthenticatorToken(ctx, parameters) {
     if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
@@ -89,11 +96,12 @@ async function handleGetAuthenticatorToken(ctx, parameters) {
         throw new MyError('common', 'invalid user name');
     }
 
-    const text = `otpauth://totp/domain.com:${username}?secret=${authenticator.generateSecret()}&period=30&digits=6&algorithm=SHA1&issuer=domain.com`;
+    const secret = authenticator.generateSecret();
+    const text = `otpauth://totp/domain.com:${username}?secret=${secret}&period=30&digits=6&algorithm=SHA1&issuer=domain.com`;
     const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
 
     ctx.status = 200;
-    ctx.body = { data: dataurl };
+    ctx.body = { secret, dataurl };
 }],
 
 [/^POST \/signup/,
@@ -158,10 +166,11 @@ async function authenticate(ctx: Ctx) {
     userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
     await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', userDevice.LastAccessTime, userDevice.Id);
 
-    const user = userStorage.find(u => u.Id = userDevice.UserId) ?? await (async () => {
+    const user = userStorage.find(u => u.Id == userDevice.UserId) ?? await (async () => {
         const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
-        userStorage.push(value[0]); // db foreign key constraint will make this correct
-        return value[0];
+        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Token: value[0].Token };
+        userStorage.push(user);
+        return user;
     })();
 
     ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };

@@ -5,10 +5,22 @@ main
     overflow: hidden
     transition: height ease 0.25s
 
+    div.initial-loading
+        text-align: center
+        margin-top: 32px
+        font-size: 18px
+
+    button
+        cursor: pointer
+    button:disabled
+        cursor: not-allowed
+
+div.signin-tab
     input
         display: block
         width: 100%
         height: 28px
+        margin-top: 12px
         border-width: 0px 0px 1px 0px
         border-color: #AFAFAF
         border-top-left-radius: 4px
@@ -18,31 +30,111 @@ main
         border-color: #3F3F3F
     input:disabled
         cursor: not-allowed
-    input#username
-        margin-top: 36px
-    input#password
-        margin-top: 12px
 
     button
-        display: block
-        margin: 20px auto
+        margin-top: 20px
+        margin-left: 20px
         width: 120px
         height: 28px
         border-radius: 4px
         border-width: 0
-        cursor: pointer
-    button:focus
         outline: none
-        border-width: 1px
+
+div.signup-tab
+    input
+        display: block
+        width: 100%
+        height: 28px
+        margin-top: 12px
+        border-width: 0px 0px 1px 0px
+        border-color: #AFAFAF
+        border-top-left-radius: 4px
+        border-top-right-radius: 4px
+    input:focus
+        outline-width: 0
         border-color: #3F3F3F
-    button:disabled
+    input:disabled
         cursor: not-allowed
 
-    span#message
-        display: block
-        width: 320px
-        text-align: center
+    img
+        margin-left: 52px
+
+    button
+        width: 120px
+        height: 28px
+        border-radius: 4px
+        border-width: 0
+        outline: none
+    button.signin, button.signup
+        margin-top: 20px
+        margin-left: 20px
+    button.get-secret
+        margin: 10px 90px 6px 90px
+
+div.manage-tab
+    padding-top: 8px
+
+    div.editable-item
+        display: flex
+        height: 32px
+        padding-top: 4px
+        border-top: 1px solid lightgray
+
+        input, span, button
+            margin-left: 8px
+        input
+            height: 22px
+            width: 160px
+            border-width: 0px 0px 1px 0px
+            border-color: #AFAFAF
+            border-top-left-radius: 4px
+            border-top-right-radius: 4px
+        input:focus
+            outline-width: 0
+            border-color: #3F3F3F
+        input:disabled
+            cursor: not-allowed
+        button
+            height: 24px
+            border: none
+            background: none
+            outline: none
+
+    div.table-header
+        padding-top: 4px
+        border-top: 1px solid lightgray
+    table
+        margin-bottom: 4px
         font-size: 12px
-        font-family: sans-serif
-        color: #1c9dda
-        cursor: default
+        tr
+            border-radius: 4px
+        tr:hover 
+            background-color: #F4F4F4
+        td
+            padding: 2px 4px
+        td.last-access
+            max-width: 150px
+            span
+                padding: 0 4px
+                border-left: 1px solid #AAAAAA
+                border-right: 1px solid #AAAAAA
+        button
+            height: 24px
+            border: none
+            background: none
+            outline: none
+            padding: 0 12px
+
+    div.logout-container
+        padding-top: 4px
+        border-top: 1px solid lightgray
+        button
+            display: block
+            height: 28px
+            width: 90px
+            border: none
+            outline: none
+            background: #c73b3d
+            color: white
+        button:hover
+            background: #db6765

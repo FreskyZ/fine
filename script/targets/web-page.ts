@@ -121,7 +121,7 @@ function buildWatch(pagename: string) {
 
     const requestReload = watchvar(() => {
         admin.servercore({ type: 'content', sub: { type: 'reload-page', pagename } });
-    });
+    }, { interval: 2021 });
 
     const checker = typescript(getTypeScriptOptions(pagename, true));
     if (fs.existsSync(checker.options.entry as string)) {
@@ -145,7 +145,7 @@ function buildWatch(pagename: string) {
     const requestReupload = watchvar(async () => {
         logInfo('htm', 'reupload');
         if (await upload(getUploadAsset(pagename, 'html'))) { requestReload(); }
-    }, { initialCall: true });
+    }, { interval: 2021, initialCall: true });
 
     const htmlEntry = `src/pages/${pagename}.html`;
     logInfo('htm', chalk`watch {yellow ${htmlEntry}}`);

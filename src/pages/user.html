@@ -10,12 +10,13 @@
 </head>
 <body style="width:320px;margin:calc(50vh - 180px) auto;height:calc(50vh + 180px)">
   <header>
-    <span style="text-decoration:none;font-family:Georgia,serif;font-size:24px"><a href="/#">fps</a></span>
-    <span id="subtitle" style="font-size:12px;margin-left:12px;font-family:sans-serif">Nianqinren's first personal website</span>
+    <span style="text-decoration:none;font-family:Georgia,serif;font-size:24px" title='返回首页'><a href="/#">fps</a></span>
+    <span id="subtitle1" style="font-size:12px;margin-left:12px;font-family:sans-serif">Nianqinren's first personal website</span>
+    <span id="subtitle2" style="font-size:14px;margin-left:12px;font-family:sans-serif;display:none"></span>
   </header>
 
   <main>
-    <div style="text-align:center;margin-top:32px"><span style="font-size:20px">Loading...</span></div>
+    <div class='initial-loading'>正在加载</div>
   </main>
 
   <footer style="position:absolute;bottom:16px;width:320px">
@@ -33,6 +34,10 @@
       <a href="http://www.miitbeian.gov.cn" target=="_blank" style="text-decoration:none">浙ICP备 19005835号</a>
     </span>
   </footer>
+
+  <div style="position:fixed;top:32px;width:320px;text-align:center;cursor:default">
+    <span id="the-notification" style="padding:8px;background-color:white;border-radius:4px;display:none;box-shadow:3px 3px 10px 4px rgba(0,0,0,0.15)"></span>
+  </div>
   
   <script defer crossorigin src="https://unpkg.com/react@17.0.1/umd/react.production.min.js"></script>
   <script defer crossorigin src="https://unpkg.com/react-dom@17.0.1/umd/react-dom.production.min.js"></script>

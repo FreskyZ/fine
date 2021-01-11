@@ -72,7 +72,7 @@ CREATE TABLE `UserDevice` (
 - `GET /api/user-devices`
   - response status `200` body `{ id: number, name: string }[]`
 
-- `PATCH /api/user-device/:deviceid`
+- `PATCH /api/user-devices/:deviceid`
   - request body `{ name: string }`
   - response status `201`
 
