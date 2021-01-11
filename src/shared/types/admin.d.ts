@@ -3,8 +3,8 @@ export type AdminServerCoreAuthCommand =
     | { type: 'reload-server', app: string }
     | { type: 'enable-signup' }
     | { type: 'disable-signup' }
-    | { type: 'enable-user', userId: number }
-    | { type: 'disable-user', userId: number }
+    | { type: 'activate-user', userId: number }
+    | { type: 'inactivate-user', userId: number }
     | { type: 'remove-device', deviceId: number };
 
 export type AdminServerCoreContentCommand =

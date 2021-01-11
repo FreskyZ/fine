@@ -6,7 +6,6 @@ import { build as buildServerCore } from './targets/server-core';
 import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
-import { viewlog } from './targets/view-log';
 
 function validatePage(pagename: string) {
     if (['home', 'user', '404', '418'].includes(pagename)) {
@@ -24,72 +23,58 @@ function validateApp(appname: string) {
         process.exit(1);
     }
 }
+function calladmin(result: Promise<boolean>) {
+    result.then(result => process.exit(result ? 0 : 1));
+}
+process.on('unhandledRejection', error => { console.log('unhandled reject: ', error); process.exit(0); });
 
-const [a1, a2] = [process.argv[2] || '', process.argv[3] || '']; // 0 is node, 1 is akari
-if (a1 == 'self') {
-    buildSelf();
-} else if (a1 == 'public') {
-    buildPublic();
+const args = [process.argv[2], process.argv[3]].filter(a => a).join(' '); // 0 is node, 1 is akari
 
-} else if (a1 == 'server-core') {
-    buildServerCore(false);
-} else if (a1 == 'watch' && a2 == 'server-core') {
-    buildServerCore(true);
+// self, public
+if ('self' == args) { buildSelf(); }
+else if ('public' == args) { buildPublic(); }
 
-} else if (a1.endsWith('-page')) {
-    buildSimplePage(validatePage(a1.slice(0, -5)), false);
-} else if (a1 == 'watch' && a2.endsWith('-page')) {
-    buildSimplePage(validatePage(a2.slice(0, -5)), true);
-} else if (a1.endsWith('-client')) {
-    buildAppClient(validateApp(a1.slice(0, -7)), false);
-} else if (a1 == 'watch' && a2.endsWith('-client')) {
-    buildAppClient(validateApp(a2.slice(0, -7)), true);
-} else if (a1.endsWith('-server')) {
-    buildAppServer(validateApp(a1.slice(0, -7)), false);
-} else if (a1 == 'watch' && a2.endsWith('-server')) {
-    buildAppServer(validateApp(a2.slice(0, -7)), true);
-} else if (a1 == 'watch' && a2.endsWith('-both')) { // both client and server
-    buildAppClient(validateApp(a2.slice(0, -5)), true, '(c)');
-    buildAppServer(validateApp(a2.slice(0, -5)), true, '(s)');
+// server-core
+else if ('server-core' == args) { buildServerCore(false); }
+else if ('watch server-core' == args) { buildServerCore(true); }
 
-} else if (a1 == 'all') {
+// simple page
+else if (/^\w+-page$/.test(args)) { buildSimplePage(validatePage(args.slice(0, -5)), false); }
+else if (/^watch \w+-page$/.test(args)) { buildSimplePage(validatePage(args.slice(6, -5)), true); }
+
+// app client, app server
+else if (/^\w+-client/.test(args)) { buildAppClient(validateApp(args.slice(0, -7)), false); }
+else if (/^\w+-server/.test(args)) { buildAppServer(validateApp(args.slice(0, -7)), false); }
+else if (/^\w+-both/.test(args)) { buildAppClient(validateApp(args.slice(0, -5)), false, 'c'); buildAppServer(validateApp(args.slice(0, -5)), false, 's'); }
+else if (/^watch \w+-client/.test(args)) { buildAppClient(validateApp(args.slice(6, -7)), true); }
+else if (/^watch \w+-server/.test(args)) { buildAppServer(validateApp(args.slice(6, -7)), true); }
+else if (/^watch \w+-both/.test(args)) { buildAppClient(validateApp(args.slice(6, -5)), true, 'c'); buildAppServer(validateApp(args.slice(6, -5)), true, 's'); }
+
+// all build
+else if ('all' == args) {
     buildPublic();
     buildServerCore(false);
     buildSimplePage('home', false);
     buildSimplePage('user', false);
     buildSimplePage('404', false);
     buildSimplePage('418', false);
-    buildAppServer('cost', false);
-    buildAppClient('cost', false);
-    buildAppClient('ak', false);
-
-} else if (a1 == 'service' && a2 == 'start') {
-    admin.servicehost('start').then(result => process.exit(result ? 1 : 0));
-} else if (a1 == 'service' && a2 == 'status') {
-    admin.servicehost('status').then(result => process.exit(result ? 1 : 0));
-} else if (a1 == 'service' && a2 == 'stop') {
-    admin.servicehost('stop').then(result => process.exit(result ? 1 : 0));
-} else if (a1 == 'service' && a2 == 'restart') {
-    admin.servicehost('restart').then(result => process.exit(result ? 1 : 0));
-} else if (a1 == 'service' && a2 == 'is-active') {
-    admin.servicehost('is-active').then(result => process.exit(result ? 1 : 0));
-
-} else if (a1 == 'signup') {
-    admin.servercore({ type: 'auth', sub: { type: a2 == 'enable' ? 'enable-signup' : 'disable-signup' } })
-
-} else if (a1 == 'stop-self-host') { // reserved in case it does not stop
-    admin.selfhost('stop').then(result => process.exit(result ? 1 : 0));
-
-} else if (a1 == 'viewlog') {
-    viewlog(a2);
-
-} else {
-    console.log('unknown command');
-    process.exit(1);
+    buildAppServer('wimm', false);
+    buildAppClient('wimm', false);
 }
 
-// this is moved from common because it seems not suitable for fpsd
-process.on('unhandledRejection', error => {
-    console.log('unhandled reject: ', error);
-    process.exit(0);
-});
+// service host
+else if ('service start' == args) { calladmin(admin.servicehost('start')); }
+else if ('service stop' == args) { calladmin(admin.servicehost('stop')); }
+else if ('service status' == args) { calladmin(admin.servicehost('status')); }
+else if ('service restart' == args) { calladmin(admin.servicehost('restart')); }
+
+// self-host, in case it failed to stop
+else if ('stop-self-host' == args) { calladmin(admin.selfhost('stop')); }
+
+// auth
+else if ('signup enable' == args) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'enable-signup' } })); }
+else if ('signup disable' == args) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'disable-signup' } })); }
+else if (/^active-user \d+$/.test(args)) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'activate-user', userId: parseInt(args.slice(12)) } })); }
+else if (/^inactive-user \d+$/.test(args)) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'inactivate-user', userId: parseInt(args.slice(14)) } })); }
+
+else { console.log('unknown command'); process.exit(1); }

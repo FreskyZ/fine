@@ -1,11 +1,27 @@
 import { FC, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { UserCredential } from '../shared/types/auth';
+import type { UserCredential, UserDevice } from '../shared/types/auth';
 
 // not in react root elements
 const subtitle1 = document.querySelector('span#subtitle1') as HTMLSpanElement;
 const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;
 const thenotification = document.querySelector('span#the-notification') as HTMLSpanElement;
+
+declare global {
+    interface DayjsPlugin { } // markup type
+    interface Dayjs {
+        extend: (plugin: DayjsPlugin) => void,
+        utc: (v: string) => Dayjs,
+        format: (f: string) => string,
+        tz: (z?: string) => Dayjs,
+    }
+    const dayjs: Dayjs;
+    const dayjs_plugin_utc: DayjsPlugin;
+    const dayjs_plugin_timezone: DayjsPlugin;
+    type UserDeviceF = UserDevice & { lastTimeF: Dayjs };
+}
+dayjs.extend(dayjs_plugin_utc);
+dayjs.extend(dayjs_plugin_timezone);
 
 type Tab = 
     | 'initial' // displays 'loading', transfer to signin if no user credential, transfer to manage if have user credential
@@ -86,19 +102,24 @@ const SignUpTab: FC<{ handleSignIn: () => void, handleComplete: () => void }> = 
 
     const handleGetSecret = async () => {
         if (!username) { return notification('x 用户名不能是空的'); }
-        setLoading(true);
 
+        setLoading(true);
         const response = await fetch(
             `https://api.domain.com/signup/${username}`);
-        if (response.status != 200) { return notification('x 看起来坏掉了'); }
-        setSecret((await response.json()));
+        if (response.status == 400) {
+            setLoading(false);
+            return notification('x ' + (await response.json()).message);
+        } else if (response.status != 200) {
+            return notification('x 看起来坏掉了');
+        }
+        setSecret(await response.json());
         setLoading(false);
     };
 
     const handleSignUp = async () => {
         if (!username || !password) { return notification('x 用户名或密码不能是空的'); }
-        setLoading(true);
 
+        setLoading(true);
         const response = await fetch(
             `https://api.domain.com/signup`,
             { method: 'POST', headers: { 'X-Name': username, 'X-Token': `${secret.secret}:${password}` } });
@@ -129,10 +150,15 @@ const SignUpTab: FC<{ handleSignIn: () => void, handleComplete: () => void }> = 
     </div>;
 }
 
-const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName: string) => void, handleLogOut: () => void }> = ({ user, handleSetDeviceName, handleLogOut: handleLogOutComplete }) => {
+const ManageTab: FC<{ 
+    user: UserCredential,
+    handleSetUserName: (newUserName: string) => void,
+    handleSetDeviceName: (newDeviceName: string) => void, 
+    handleLogOut: () => void,
+}> = ({ user, handleSetUserName, handleSetDeviceName, handleLogOut: handleLogOutComplete }) => {
     const [username, setUserName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.name, editing: false, loading: false });
     const [deviceName, setDeviceName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.deviceName, editing: false, loading: false });
-    const [devices, setDevices] = useState<{ id: number, name: string }[]>([]);
+    const [devices, setDevices] = useState<UserDeviceF[]>([]);
     const [removingDevice, setRemovingDevice] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
 
@@ -141,10 +167,29 @@ const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName:
         if (response.status != 200) {
             return notification('x 看起来坏掉了');
         }
-        const devices = (await response.json()) as { id: number, name: string }[];
-        setDevices([devices.find(d => d.id == user.deviceId)].concat(devices.filter(d => d.id != user.deviceId))); // put this device on top
+        const devices = (await response.json()) as UserDevice[];
+        const devicesf = devices.map<UserDeviceF>(d => ({ ...d, lastTimeF: dayjs.utc(d.lastTime) }));
+        setDevices([devicesf.find(d => d.id == user.deviceId)].concat(devicesf.filter(d => d.id != user.deviceId))); // put this device on top
     })(); }, []);
 
+    const handleUpdateUserName = async() => {
+        if (!username.value) { return notification('x 用户名不能为空'); }
+
+        setUserName({ ...username, loading: true });
+        const response = await fetch(
+            `https://api.domain.com/user-credential`,
+            { method: 'PATCH', headers: { 'X-Token': localStorage['access-token'], 'Content-Type': 'application/json', }, body: JSON.stringify({ name: username.value }) });
+        if (response.status == 400) {
+            setUserName({ ...username, loading: false });
+            return notification('x ' + (await response.json()).message);
+        } if (response.status != 201) {
+            setUserName({ ...username, loading: false });
+            return notification('x 看起来坏掉了');
+        }
+
+        handleSetUserName(username.value);
+        setUserName({ ...username, editing: false, loading: false });
+    };
     const handleUpdateDeviceName = async () => {
         if (!deviceName.value) { return notification('x 设备名不能为空'); }
 
@@ -153,11 +198,13 @@ const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName:
             `https://api.domain.com/user-devices/${user.deviceId}`, 
             { method: 'PATCH', headers: { 'X-Token': localStorage['access-token'], 'Content-Type': 'application/json' }, body: JSON.stringify({ name: deviceName.value }) });
         if (response.status != 201) {
+            setDeviceName({ ...deviceName, loading: false });
             return notification('x 看起来坏掉了');
         }
+
         handleSetDeviceName(deviceName.value);
         setDeviceName({ ...deviceName, editing: false, loading: false });
-        setDevices(devices.map<{ id: number, name: string }>(d => d.id == user.deviceId ? { ...d, name: deviceName.value } : d));
+        setDevices(devices.map<UserDeviceF>(d => d.id == user.deviceId ? { ...d, name: deviceName.value } : d));
     }
     const handleRemoveDevice = async (deviceId: number) => {
         if (!confirm(`你确定要删除“${devices.find(d => d.id == deviceId).name}”吗？`)) { return; }
@@ -173,7 +220,7 @@ const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName:
         setRemovingDevice(false);
     }
     const handleLogOut = async () => {
-        //if (!confirm(`你确定要退出登录吗？`)) { return; }
+        if (!confirm(`你确定要退出登录吗？`)) { return; }
 
         setLoggingOut(true);
         const response = await fetch(
@@ -191,12 +238,14 @@ const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName:
         <div className='editable-item user-name'>
             <label>用户名</label>
             {username.editing ? <>
-                <input value={username.value} disabled={username.loading} onChange={e => setUserName({ ...username, value: e.target.value })}></input>
-                <button className='confirm' disabled={username.loading}>确认</button>
+                <input value={username.value} disabled={username.loading} 
+                    onChange={e => setUserName({ ...username, value: e.target.value })}
+                    onKeyDown={e => e.key == 'Enter' && handleUpdateUserName()}></input>
+                <button className='confirm' disabled={username.loading} onClick={handleUpdateUserName}>确认</button>
                 <button className='cancel' disabled={username.loading} onClick={() => setUserName({ ...username, value: user.name, editing: false })}>取消</button>
             </> : <>
                 <span>{username.value}</span>
-                <button className='edit' disabled={loggingOut} onClick={() => notification('! 现在不行')/* setUserName({ ...username, editing: true }) */}>编辑</button>
+                <button className='edit' disabled={loggingOut} onClick={() => setUserName({ ...username, editing: true })}>编辑</button>
             </>}
         </div>
         <div className='editable-item device-name'>
@@ -221,7 +270,11 @@ const ManageTab: FC<{ user: UserCredential, handleSetDeviceName: (newDeviceName:
             </tr></thead>
             <tbody>{devices.map(d => <tr>
                 <td className='device-name'>{d.name}</td>
-                <td className='last-access'><span title='2021-01-10 14:25:00 192.168.0.1'>{'2021-01-10 192.168.0.1'}</span></td>
+                <td className='last-access'>
+                    <span>
+                        <span className='last-time'>{d.lastTimeF.tz().format('YYYY-MM-DD HH:mm:ss')}</span>
+                        <span className='last-address'>{d.lastAddress}</span>
+                    </span></td>
                 <td className='operations'>{d.id == user.deviceId
                     ? <span>当前设备</span>
                     : <button disabled={removingDevice || loggingOut} onClick={() => handleRemoveDevice(d.id)}>删除</button>}</td>
@@ -263,9 +316,20 @@ const Page: FC<{}> = () => {
 
     switch (tab) {
         case 'initial': return <InitialTab />;
-        case 'signin': return <SignInTab handleComplete={getUserCredential} handleSignUp={() => setTab('signup')}/>;
-        case 'signup': return <SignUpTab handleComplete={getUserCredential} handleSignIn={() => setTab('signin')} />
-        case 'manage': return <ManageTab user={user} handleSetDeviceName={newDeviceName => setUser({ ...user, deviceName: newDeviceName })} handleLogOut={() => setTab('signin')} />;
+
+        case 'signin': return <SignInTab 
+            handleComplete={getUserCredential} 
+            handleSignUp={() => setTab('signup')}/>;
+
+        case 'signup': return <SignUpTab 
+            handleComplete={getUserCredential} 
+            handleSignIn={() => setTab('signin')} />
+
+        case 'manage': return <ManageTab 
+            user={user}
+            handleSetUserName={newUserName => setUser({ ...user, name: newUserName })}
+            handleSetDeviceName={newDeviceName => setUser({ ...user, deviceName: newDeviceName })} 
+            handleLogOut={() => setTab('signin')} />;
     }
 }
 

@@ -56,8 +56,8 @@ export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): s
             case 'reload-server': return `reload-server ${command.sub.app}`;
             case 'enable-signup': return `enable-signup`;
             case 'disable-signup': return `disable-signup`;
-            case 'enable-user': return `enable-user ${command.sub.userId}`;
-            case 'disable-user': return `disable-user ${command.sub.userId}`;
+            case 'activate-user': return `activate-user ${command.sub.userId}`;
+            case 'inactivate-user': return `inactivate-user ${command.sub.userId}`;
             case 'remove-device': return `remove-device ${command.sub.deviceId}`;
         }
     }

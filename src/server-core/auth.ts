@@ -5,7 +5,7 @@ import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import type { AdminServerCoreAuthCommand } from '../shared/types/admin';
-import type { UserClaim, UserCredential, UserData, UserDeviceData } from '../shared/types/auth';
+import type { UserClaim, UserCredential, UserData, UserDeviceData, UserDevice } from '../shared/types/auth';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
@@ -37,10 +37,18 @@ async function createUserDevice(ctx: Ctx, userId: number): Promise<{ accessToken
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
     const accessToken = randomBytes(42).toString('base64').slice(0, 42);
-    const userDevice: UserDeviceData = { Id: 0, App: ctx.state.app, Name: '<unnamed>', Token: accessToken, UserId: userId, LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime) };
+    const userDevice: UserDeviceData = { 
+        Id: 0, 
+        App: ctx.state.app, 
+        Name: '<unnamed>', 
+        Token: accessToken, 
+        UserId: userId, 
+        LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime),
+        LastAccessAddress: ctx.socket.remoteAddress,
+    };
     const { value: { insertId: userDeviceId } } = await query<QueryResult>(
-        'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`) VALUES (?, ?, ?, ?, ?)',
-        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime);
+        'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?, ?)',
+        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime, userDevice.LastAccessAddress);
     userDevice.Id = userDeviceId!;
     userDeviceStorage.push(userDevice);
 
@@ -62,15 +70,18 @@ async function handleSignIn(ctx) {
     }
 
     const user = userStorage.find(u => !collator.compare(u.Name, claim.username)) ?? await (async () => {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
         if (!Array.isArray(value) || value.length == 0) {
             throw new MyError('common', 'unknonw user or incorrect password');
         }
-        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Token: value[0].Token };
+        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token };
         userStorage.push(user);
         return user;
     })();
 
+    if (!user.Active) {
+        throw new MyError('common', 'user is not active');
+    }
     if (!authenticator.check(claim.password, user.Token)) {
         throw new MyError('common', 'unknown user or incorrect password');
     }
@@ -93,7 +104,16 @@ async function handleGetAuthenticatorToken(ctx, parameters) {
 
     const username = parameters['username'];
     if (!username) {
-        throw new MyError('common', 'invalid user name');
+        throw new MyError('common', 'user name cannot be empty');
+    }
+    if (userStorage.some(u => !collator.compare(u.Name, username))) {
+        throw new MyError('common', 'user name already exists');
+    } else {
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
+        if (Array.isArray(value) && value.length != 0) {
+            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+            throw new MyError('common', 'user name already exists');
+        }
     }
 
     const secret = authenticator.generateSecret();
@@ -112,6 +132,16 @@ async function handleRegister(ctx) {
     if (!username) {
         throw new MyError('common', 'user name cannot be empty');
     }
+    if (userStorage.some(u => !collator.compare(u.Name, username))) {
+        throw new MyError('common', 'user name already exists');
+    } else {
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
+        if (Array.isArray(value) && value.length != 0) {
+            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+            throw new MyError('common', 'user name already exists');
+        }
+    }
+
     const rawpassword = ctx.get('X-Token');
     if (!rawpassword.includes(':')) {
         throw new MyError('common', 'invalid token format');
@@ -125,8 +155,9 @@ async function handleRegister(ctx) {
         throw new MyError('common', 'incorrect password');
     }
 
-    const { value } = await query<QueryResult>('INSERT INTO `User` (`Name`, `Token`) VALUES (?, ?)', username, token);
-    const user: UserData = { Id: value.insertId, Name: username, Token: token };
+    const { value } = await query<QueryResult>(
+        'INSERT INTO `User` (`Name`, `Token`, `Active`) VALUES (?, ?, 1)', username, token);
+    const user: UserData = { Id: value.insertId, Name: username, Active: true, Token: token };
     userStorage.push(user);
 
     const accessToken = await createUserDevice(ctx, user.Id);
@@ -142,8 +173,9 @@ async function authenticate(ctx: Ctx) {
     const accessToken = ctx.get('X-Token');
     if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
 
+    // this means ctx.state.user.deviceId must be in userDeviceStorage after pass authentication
     const userDevice = userDeviceStorage.find(d => d.Token == accessToken) ?? await (async () => {
-        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Token` = ?', accessToken);
+        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `Token` = ?', accessToken);
         if (!Array.isArray(value) || value.length == 0) {
             throw new MyError('auth', 'unauthorized');
         }
@@ -163,20 +195,59 @@ async function authenticate(ctx: Ctx) {
         throw new MyError('auth', 'authorization expired');
     }
 
-    userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
-    await query('UPDATE `UserDevice` SET `LastAccessTime` = ? WHERE `Id` = ?', userDevice.LastAccessTime, userDevice.Id);
-
+    // this means ctx.state.user.id must be in userStorage after pass authentication
     const user = userStorage.find(u => u.Id == userDevice.UserId) ?? await (async () => {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
-        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Token: value[0].Token };
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
+        // no need to check value is not empty because foreign key will be validated by db
+        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token };
         userStorage.push(user);
         return user;
     })();
+    if (!user.Active) {
+        throw new MyError('auth', 'authorization inactive');
+    }
+
+    userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
+    userDevice.LastAccessAddress = ctx.socket.remoteAddress;
+    await query(
+        'UPDATE `UserDevice` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
+        userDevice.LastAccessTime, userDevice.LastAccessAddress, userDevice.Id);
 
     ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
 }
 
 const matchers2: Matcher[] = [ // special apis after authenticate
+
+[/^GET \/user-credential$/,
+async function handleGetUserCredential(ctx) {
+    ctx.status = 200;
+    ctx.body = ctx.state.user;
+}],
+
+// use PATCH /user-credential instead of PATCH /users/:userid because I do not have /users related features
+[/^PATCH \/user-credential$/,
+async function handleUpdateUserName(ctx) {
+    const newUserName = ctx.request.body?.name;
+    if (!newUserName) { throw new MyError('common', 'invalid new user name'); }
+
+    const user = userStorage.find(u => u.Id == ctx.state.user.id);
+    if (user.Name == newUserName) { ctx.status = 201; return; } // ignore no change but allow case change
+
+    if (userStorage.some(u => u.Id != user.Id && !collator.compare(u.Name, newUserName))) {
+        throw new MyError('common', 'user name already exists');
+    } else {
+        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` <> ? AND `Name` = ?', user.Id, newUserName);
+        if (Array.isArray(value) && value.length != 0) {
+            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+            throw new MyError('common', 'user name already exists');
+        }
+    }
+    
+    user.Name = newUserName;
+    await query('UPDATE `User` SET `Name` = ? WHERE `Id` = ?', newUserName, user.Id);
+
+    ctx.status = 201;
+}],
 
 [/^GET \/user-devices$/,
 async function handleGetUserDevices(ctx) {
@@ -184,7 +255,7 @@ async function handleGetUserDevices(ctx) {
     // so always load from db and replace user device storage
 
     const { value: userDevices } = await query<UserDeviceData[]>(
-        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', ctx.state.user.id, ctx.state.app);
+        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', ctx.state.user.id, ctx.state.app);
 
     // update storage
     // // this is how you filter by predicate in place
@@ -194,7 +265,7 @@ async function handleGetUserDevices(ctx) {
     userDeviceStorage.push(...userDevices);
 
     ctx.status = 200;
-    ctx.body = userDevices.map(d => ({ id: d.Id, name: d.Name }));
+    ctx.body = userDevices.map<UserDevice>(d => ({ id: d.Id, name: d.Name, lastTime: d.LastAccessTime, lastAddress: d.LastAccessAddress }));
 }],
 
 [/^PATCH \/user-devices\/(?<device_id>\d+)$/,
@@ -206,15 +277,7 @@ async function handleUpdateDeviceName(ctx, parameters) {
     const newDeviceName = ctx.request.body?.name;
     if (!newDeviceName) { throw new MyError('common', 'invalid new device name'); }
 
-    const userDevice = userDeviceStorage.find(d => d.Id == deviceId) ?? await (async () => {
-        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Id` = ?', deviceId);
-        if (!Array.isArray(value) || value.length == 0) {
-            throw new MyError('common', 'invalid device id');
-        }
-        userDeviceStorage.push(value[0]);
-        return value[0];
-    })();
-
+    const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
     if (userDevice.UserId != ctx.state.user.id) {
         throw new MyError('common', 'not my device');
     }
@@ -226,7 +289,6 @@ async function handleUpdateDeviceName(ctx, parameters) {
     await query('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', newDeviceName, deviceId);
 
     ctx.status = 201;
-    ctx.body = { id: userDevice.Id, name: userDevice.Name };
 }],
 
 [/^DELETE \/user-devices\/(?<device_id>\d+)$/,
@@ -235,15 +297,10 @@ async function handleRemoveDevice(ctx, parameters) {
     const deviceId = parseInt(parameters['device_id']);
     if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
 
-    // if the request fail by common error, add it to cache helps later request
-    const userDevice = userDeviceStorage.find(d => d.Id == deviceId) ?? await (async () => {
-        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime` FROM `UserDevice` WHERE `Id` = ?', deviceId);
-        if (!Array.isArray(value) || value.length == 0) {
-            throw new MyError('common', 'invalid device id');
-        }
-        userDeviceStorage.push(value[0]);
-        return value[0];
-    })();
+    const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
+    if (!userDevice) {
+        throw new MyError('common', 'invalid device id');
+    };
 
     if (userDevice.UserId != ctx.state.user.id) {
         throw new MyError('common', 'not my device');
@@ -256,15 +313,7 @@ async function handleRemoveDevice(ctx, parameters) {
     await query('DELETE FROM `UserDevice` WHERE `Id` = ?', deviceId);
 
     ctx.status = 204;
-}],
-
-/* eslint-disable require-await */
-[/^GET \/user-credential$/,
-async function handleGetUserCredential(ctx) {
-    ctx.status = 200;
-    ctx.body = ctx.state.user;
 }]];
-/* eslint-enable require-await */
 
 export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
@@ -330,11 +379,32 @@ export async function handleApplications(ctx: Ctx): Promise<void> {
 export async function handleCommand(command: AdminServerCoreAuthCommand): Promise<void> {
     logInfo({ type: 'admin command auth', data: command });
 
+    // reload server component
     if (command.type == 'reload-server') {
         delete require.cache[require.resolve(`./${command.app}/server`)];
+
+    // activate/inactivate user
+    } else if (command.type == 'activate-user') {
+        await query('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', command.userId);
+        const maybeCache = userStorage.find(u => u.Id == command.userId);
+        if (maybeCache) { maybeCache.Active = true; }
+    } else if (command.type == 'inactivate-user') {
+        await query('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', command.userId);
+        const maybeCache = userStorage.find(u => u.Id == command.userId);
+        if (maybeCache) { maybeCache.Active = false; }
+        // remove all user devices because front end when get unauthorized will discard access token
+        await query('DELETE FROM `UserDevice` WHERE `UserId` = ?', command.userId);
+        while (userDeviceStorage.some(d => d.UserId == command.userId)) {
+            userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.UserId == command.userId), 1);
+        }
+
+    // force unauthenciate
     } else if (command.type == 'remove-device') {
         await query('DELETE FROM `UserDevice` WHERE `Id` = ?', command.deviceId);
-        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == command.deviceId), 1);
+        const maybeIndex = userDeviceStorage.findIndex(d => d.Id == command.deviceId);
+        if (maybeIndex >= 0) { userDeviceStorage.splice(maybeIndex, 1); }
+
+    // enable/disable signup
     } else if (command.type == 'enable-signup') {
         AllowSignUp = true;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
@@ -342,5 +412,5 @@ export async function handleCommand(command: AdminServerCoreAuthCommand): Promis
     } else if (command.type == 'disable-signup') {
         AllowSignUp = false;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
-    } // other not supported for now
+    }
 }

@@ -3,6 +3,7 @@
 export interface UserData {
     Id: number,
     Name: string,
+    Active: boolean,
     Token: string,
 }
 export interface UserDeviceData {
@@ -12,16 +13,24 @@ export interface UserDeviceData {
     Token: string,
     UserId: number,
     LastAccessTime: string,
-    // CreateClientIp is create only and will not be selected from db
+    LastAccessAddress: string,
 }
 
 export interface UserClaim {
     username: string,
     password: string,
 }
+
 export interface UserCredential {
     id: number,
     name: string,
     deviceId: number,
     deviceName: string,
+}
+
+export interface UserDevice {
+    id: number,
+    name: string,
+    lastTime: string,
+    lastAddress: string,
 }

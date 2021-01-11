@@ -5,5 +5,5 @@ import type { PoolConfig } from 'mysql';
 
 declare global {
     const APP_NAMES: string[];
-    const MYSQL_CONNECTION_STRING: string | PoolConfig;
+    const MYSQL_CONNECTION_STRING: PoolConfig;
 }

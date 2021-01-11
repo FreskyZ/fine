@@ -23,6 +23,7 @@ CREATE TABLE `User` (
   `Id` INT NOT NULL AUTO_INCREMENT,
   `Name` VARCHAR(100) NOT NULL,
   `Token` CHAR(16) NOT NULL,    -- authenticator token
+  `Active` BIT(1) NOT NULL,
   `CreateTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `PK_User` PRIMARY KEY (`Id`)
 );
@@ -34,8 +35,8 @@ CREATE TABLE `UserDevice` (
   `Token` CHAR(42) DEFAULT NULL,
   `UserId` INT NOT NULL,
   `LastAccessTime` DATETIME DEFAULT NULL,  -- token expires after 1 month no access
+  `LastAccessAddress` VARCHAR(50) DEFAULT NULL, -- ip
   `CreateTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `CreateClientIp` INT UNSIGNED DEFAULT NULL, -- use INET_ATON, INET_NTOA, INET6_ATON, INET6_NTOA to convert from and to
   CONSTRAINT `PK_UserDevice` PRIMARY KEY (`Id`),
   CONSTRAINT `FK_UserDevice_User` FOREIGN KEY (`UserId`) REFERENCES `User` (`Id`)
 );
@@ -69,12 +70,18 @@ CREATE TABLE `UserDevice` (
   - request custom header `X-Token`, all apis except signin/signup need this header
   - response status `200` body `{ id: number, name: string, deviceId: number, deviceName: string }`
 
+- `PATCH /api/user-credential`
+  - request body `{ name: string }`
+  - response status `201`
+  - update user name
+
 - `GET /api/user-devices`
   - response status `200` body `{ id: number, name: string }[]`
 
 - `PATCH /api/user-devices/:deviceid`
   - request body `{ name: string }`
   - response status `201`
+  - update device name
 
 - `DELETE /api/user-devices/:deviceid`
   - amazingly this is logout, although device management page will not allow delete self, logout actually can use this while clearing local stored token
