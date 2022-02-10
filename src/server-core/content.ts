@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
+import type { DefaultState, DefaultContext } from 'koa';
 import type { AdminServerCoreContentCommand } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
@@ -130,7 +131,7 @@ const reloadKeyToCache: ReloadKeyToCache = knownFiles
 
 const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json' };
 const encodingToEncoder: { [encoding: string]: (input: Buffer) => Buffer } = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
-export async function handleRequestContent(ctx: koa.Context, next: koa.Next): Promise<any> {
+export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
     if (ctx.subdomains[0] == 'api') { return await next(); } // goto api
     if (ctx.method != 'GET') { throw new MyError('method-not-allowed'); } // reject not GET
 

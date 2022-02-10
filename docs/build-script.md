@@ -228,25 +228,25 @@ exports.jsxs=q;
 so my jsx runtime looks like
 
 ```js
-    function myjsx(type,rawprops,maybekey){
-        const props={};
-        for(const n in rawprops){
-            if(!['key','ref','__self','__source'].includes(n)){
-                props[n]=rawprops[n]
-            }
-        }
-        return{
-            $$typeof:Symbol.for('react.element'),
-            type,
-            key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,
-            ref:rawprops.ref!== void 0?rawprops.ref:null,
-            props,
-            _owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current // then fire me
-        }
-    }
-    function myjsxf(p,k){
-       return myjsx(Symbol.for('react.fragment'),p,k);
-    }
+function myjsx(type,rawprops,maybekey){
+   const props={};
+   for(const n in rawprops){
+      if(!['key','ref','__self','__source'].includes(n)){
+            props[n]=rawprops[n]
+      }
+   }
+   return{
+      $$typeof:Symbol.for('react.element'),
+      type,
+      key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,
+      ref:rawprops.ref!== void 0?rawprops.ref:null,
+      props,
+      _owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current // then fire me
+   }
+}
+function myjsxf(p,k){
+   return myjsx(Symbol.for('react.fragment'),p,k);
+}
 ```
 insert previous code without newline, then replace `_jsx(_Fragment)` and `_jsxs(_Fragment` as `myjsxf` and `_jsxs` and `_jsx` as `myjsx`
 

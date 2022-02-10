@@ -255,7 +255,7 @@ async function buildOnce(app: string): Promise<void> {
             logError('wpk', JSON.stringify(packResult.error, undefined, 1));
             return logCritical('akr', chalk`{yellow ${app}-client} failed at pack (1)`);
         }
-        const stats = packResult.statsObject!.toJson() as WebpackStat;
+        const stats = packResult.statsObject!.toJson() as unknown as WebpackStat;
 
         printWebpackResult(stats, additional, '');
         if (stats.errorsCount > 0) {
@@ -352,7 +352,7 @@ function buildWatch(app: string, additionalHeader?: string) {
                 logError(`wpk${additionalHeader}`, 'webpack fatal error', error);
                 return;
             }
-            const stats = statsObject!.toJson() as WebpackStat;
+            const stats = statsObject!.toJson() as unknown as WebpackStat;
 
             printWebpackResult(stats, additional, additionalHeader);
             cleanupMemoryFile(stats, typescriptResultFiles, mfs as memfs.IFs); // this writer still cannot write his type clearly, again

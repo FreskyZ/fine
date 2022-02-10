@@ -1,4 +1,4 @@
-import { config } from './config'; 
+import { config } from './config';
 import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
 import { build as buildPublic } from './targets/public';

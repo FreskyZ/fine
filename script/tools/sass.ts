@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
-import { Options, render } from 'sass';
+import { Exception, compile } from 'sass';
+import { render, LegacyOptions } from 'sass';
 import { logInfo, logError } from '../common';
 
 export interface SassOptions {
@@ -20,18 +21,21 @@ class SassTranspiler {
     public transpile = () => new Promise<{ success: false } | SassResult>(resolve => {
         logInfo('css', chalk`once {yellow ${this.options.entry}}`);
 
-        render({
-            file: this.options.entry,
-            outputStyle: 'compressed',
-        }, (error, result) => {
-            if (error) {
-                logError('css', `error at ${error.file}:${error.line}:${error.column}: ${error.message}`);
-                resolve({ success: false });
+        try {
+            const result = compile(this.options.entry, {
+                alertAscii: true,
+                style: 'compressed',
+            });
+            logInfo('css', `completed in ?ms`);
+            resolve({ success: true, resultCss: Buffer.from(result.css, 'utf-8') });
+        } catch (error) {
+            if (error instanceof Exception) {
+                logError('css', `error at ${error.span.url}:${error.span.start.line}:${error.span.start.column}: ${error.message}`);
             } else {
-                logInfo('css', `completed in ${result.stats.duration}ms`);
-                resolve({ success: true, resultCss: result.css });
+                logError('css', `error ${error}`);
             }
-        });
+            resolve({ success: false });
+        }
     });
 
     // single entry, watch all included files, any change will invalidate all watchers and restart all watch again
@@ -41,7 +45,7 @@ class SassTranspiler {
         logInfo(logHeader, chalk`watch {yellow ${this.options.entry}}`);
 
         const watchers: fs.FSWatcher[] = [];
-        const renderOptions: Options = {
+        const renderOptions: LegacyOptions<'async'> = {
             file: this.options.entry,
             outputStyle: 'compressed',
         };
@@ -65,6 +69,7 @@ class SassTranspiler {
                 } else {
                     logInfo(logHeader, `completed in ${result.stats.duration}ms`);
                     callback({ success: true, resultCss: result.css });
+                    // I cannot find result stat in new api, use legacy for now // may be that's why all legacy is preserved
                     previousFiles = result.stats.includedFiles;
                 }
 

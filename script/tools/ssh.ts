@@ -34,7 +34,7 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
         await client.connect(sshconnect);
 
         for (const asset of assets) {
-            await client.put(asset.data, path.join(config.webroot, asset.remote), { mode: asset.mode || 0o644 });
+            await client.put(asset.data, path.join(config.webroot, asset.remote), { writeStreamOptions: { mode: asset.mode || 0o644 } });
         }
         await client.end();
         logInfo(`ssh${options?.additionalHeader ?? ''}`, chalk`upload {yellow ${assets.length}} files ${!options?.filenames ? assets.map(a => chalk.yellow(path.basename(a.remote))) : ''}`);
