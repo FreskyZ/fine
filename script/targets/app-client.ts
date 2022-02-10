@@ -2,7 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import * as AntdDayjsWebpackPlugin from 'antd-dayjs-webpack-plugin';
+// import * as AntdDayjsWebpackPlugin from 'antd-dayjs-webpack-plugin';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
 import * as filesize from 'filesize';
@@ -40,7 +40,7 @@ const sizeOptimizeLevelKey = 'AKARIN_APP_CLIENT_OSIZE';
 const sizeOptimizeLevel = sizeOptimizeLevelKey in process.env ? (process.env[sizeOptimizeLevelKey] === '0' ? 0 : parseInt(process.env[sizeOptimizeLevelKey]!) || 2) : 2;
 const getWebpackConfiguration = (app: string): webpack.Configuration => ({
     mode: 'development', // production force disable cache, so use development mode with production optimization settings
-    entry: { 'client': path.resolve('src', app, 'client/index.js') },
+    entry: { 'client': path.resolve('src', app, 'client', 'index.js') },
     module: { rules: [{ test: /\.js$/, exclude: /node_modules/, enforce: 'pre', use: ['source-map-loader'] }] },
     output: { filename: 'client.js', path: '/vbuild', pathinfo: false },
     devtool: false, // use SourceMapDevToolPlugin instead of this
@@ -54,7 +54,7 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
             hidePathInfo: true,
             cacheGroups: {
                 // NOTE: they are manually balanced for "min max size", rebalance them if they lost balance
-                /* eslint-disable prefer-named-capture-group */ // webpack not I match them, do not name the capture group
+                /* eslint-disable prefer-named-capture-group */ // test only, no reason to have capture group name
                 '1': { test: /node_modules\/react-dom/, priority: 20, chunks: 'all', filename: 'client-vendor1.js' },
                 '2': { test: /node_modules\/(rc|@ant-design)/, priority: 20, chunks: 'all', filename: 'client-vendor2.js' },
                 '3': { test: /node_modules\/(antd|lodash)/, priority: 20, chunks: 'all', filename: 'client-vendor3.js' },
@@ -69,7 +69,15 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
         }, extractComments: false })],
     },
     plugins: [
-        new AntdDayjsWebpackPlugin(),
+        // ATTENTION: 
+        // 1. antd-dayjs-webpack-plugin does not compatible with 
+        //    current webpack version (5.68) where loader-utils is deprecated and completely removed
+        //    it should be simply adding and entry with file content node_modules/antd-dayjs-webpack-plugin/src/init-loader.js
+        //    and resolve all import moment to dayjs module directory, but this no parameter constructor call actually did not do that
+        // 2. so I assume my code currently does not need this plugin,
+        //    BUT does not correctly replaces moment as dayjs in antd source file bundled content
+        // 3. comment this out to make webpack pass bundle, bundle size seems increases, check later
+        // new AntdDayjsWebpackPlugin(),
         new webpack.SourceMapDevToolPlugin({
             // NOTE: this plugin or the devtool option is about whether or how to put source map not whether generate source map when packing and minimizing
             // so the test/include/exclude is applied on asset name not module/chunk name
