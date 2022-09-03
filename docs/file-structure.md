@@ -24,18 +24,18 @@ shared types, component and logics by all of the above, regardless of client of 
 ## Distribute Folder Structure
 the website itself, now build script always directly deploy build results to deploy server
 
-### dist/index.js
+### webroot/index.js
 server entry, change to server entry requires server restart
 
-### dist/pages
+### webroot/pages
 contains home page and other shared simple pages, change to web pages requires admin script.
 
-### dist/public
+### webroot/public
 contains not interesting things at `/*`, like `robots.txt` and `sitemap.xml`,
 all subdomains can access these files, content is dynamic (can hot add or remove file) and always read from disk (can hot update file),
 except html files, because server route like /xxx/xxx.html looks not good, they should be served without .html postfix
 
-### dist/\<app\>
+### webroot/\<app\>
 contains application's main page `index.html`, application server entry `server.js` and web page content `js`/`css` files,
 web page contents are also served at `/*` at their own subdomain, mixed with shared public files,
 add, remove or update web page content file list or file content requries admin script.
