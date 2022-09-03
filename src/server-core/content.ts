@@ -27,7 +27,7 @@ import { logInfo } from './logger';
 
 // if enabled by environment variable, return dummy value for required domains
 export async function handleCertificate(ctx: koa.Context, next: koa.Next): Promise<any> {
-    if (!('FPS_CERTIFICATE' in process.env)) {
+    if (!('FINE_CERTIFICATE' in process.env)) {
         return await next();
     }
     

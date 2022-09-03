@@ -1,18 +1,14 @@
 {
-  "name": "fps",
-  "version": "0.2.0",
-  "description": "a personal website for fun",
+  "name": "fine",
+  "version": "0.3.0",
+  "description": "a simple reverse proxy service",
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FreskyZ/home-fresky.git"
+    "url": "git+https://github.com/FreskyZ/FINE.git"
   },
   "author": "FreskyZ",
   "license": "Apache-2.0",
-  "bugs": {
-    "url": "https://github.com/FreskyZ/home-fresky/issues"
-  },
-  "homepage": "https://github.com/FreskyZ/home-fresky#readme",
   "dependencies": {
     "async-mutex": "^0.3.2",
     "chalk": "^4.1.2",

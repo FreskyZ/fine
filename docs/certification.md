@@ -12,7 +12,7 @@
    use privkey.pem as key, cert.pem as certificate and chain.pem as ca
 4. use `certbot renew` to renew
 5. use `certbot certonly --cert-name domain.com --webroot -w webroot/public -d domain.com,www.domain.com,sub.domain.com...` to add new domains
-6. it seems to have error on http2, use `FPS_CERTIFICATE=1 node index.js` before `certbot renew`
+6. it seems to have error on http2, use `FINE_CERTIFICATE=1 node index.js` before `certbot renew`
 7. to backup `/etc/letsencrypt` directory
    ```
    $ tar zcvf /tmp/letsencrypt_backup.tar.gz /etc/letsencrypt

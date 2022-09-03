@@ -1,8 +1,15 @@
-# freskyz.com
+# FINE
 
-Nianqinren's first personal website
+A simple reverse proxy service
 
-A website with a few kind of useful web apps while mainly focus on
+## Features
+
+- https and multiple certificate
+- static files and cache control
+- authentication
+- application service management
+
+and also
 
 ### DevOps
 - mono repo with no various `tsconfig.xxx.json` and `webpack.config.xxx.js` config files but one unified build script
@@ -13,3 +20,5 @@ A website with a few kind of useful web apps while mainly focus on
 - what can be shared, what can be omitted
 - how is it affecting devops
 - comparing to isomerism web apps
+
+> `fine`: Fresky's websIte iNfrastructure Experiment

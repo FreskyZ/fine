@@ -16,7 +16,7 @@ async function sendimpl(command: AdminServerCoreCommand, internal: boolean): Pro
     return await mutex.runExclusive(async () => await impl());
 
     function impl(): Promise<boolean> {
-        const socket = net.createConnection('/tmp/fps.socket');
+        const socket = net.createConnection('/tmp/fine.socket');
         return new Promise<boolean>(resolve => {
             const serialized = JSON.stringify(command);
             socket.on('error', error => {

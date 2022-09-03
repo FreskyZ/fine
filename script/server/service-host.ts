@@ -9,7 +9,7 @@ import { logInfo, logError } from '../common';
 export function handle(command: AdminServiceHostCommand, response: http.ServerResponse) {
     response.statusCode = 200;
     logInfo('svc', `systemctl ${command}`);
-    const systemctlProcess = cp.spawn('systemctl', [command, 'fps']);
+    const systemctlProcess = cp.spawn('systemctl', [command, 'fine']);
     systemctlProcess.stdout.pipe(response, { end: false });
     systemctlProcess.stderr.pipe(response, { end: false });
     systemctlProcess.on('error', error => {

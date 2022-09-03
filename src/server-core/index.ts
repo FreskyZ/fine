@@ -35,8 +35,8 @@ function handleInsecureRequest(request: http.IncomingMessage, response: http.Ser
 }
 
 // admin server
-if (fs.existsSync('/tmp/fps.socket')) {
-    fs.unlinkSync('/tmp/fps.socket');
+if (fs.existsSync('/tmp/fine.socket')) {
+    fs.unlinkSync('/tmp/fine.socket');
 }
 
 const socketServer = net.createServer();
@@ -78,7 +78,7 @@ socketServer.on('connection', connection => {
 
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
-const http2Server = 'FPS_CERTIFICATE' in process.env ? https.createServer({
+const http2Server = 'FINE_CERTIFICATE' in process.env ? https.createServer({
     key: fs.readFileSync('SSL-KEY', 'utf-8'),
     cert: fs.readFileSync('SSL-CERT', 'utf-8'),
 }, app.callback()) : http2.createSecureServer({
@@ -122,7 +122,7 @@ Promise.all([
             reject();
         };
         socketServer.once('error', handleListenError);
-        socketServer.listen('/tmp/fps.socket', () => {
+        socketServer.listen('/tmp/fine.socket', () => {
             socketServer.removeListener('error', handleListenError);
             socketServer.on('error', handleSocketServerError); // install normal error handler after listen success
             resolve();
@@ -160,7 +160,7 @@ Promise.all([
     }),
 ]).then(() => {
     logInfo('server core startup');
-    console.log('server core startup' + ('FPS_CERTIFICATE' in process.env ? ' CERTIFICATE' : ''));
+    console.log('server core startup' + ('FINE_CERTIFICATE' in process.env ? ' CERTIFICATE' : ''));
 }).catch(() => {
     console.error('server core startup failed');
     process.exit(101);

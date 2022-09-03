@@ -294,7 +294,7 @@ const Page: FC<{}> = () => {
     useEffect(() => {
         subtitle1.style.display = tab == 'initial' ? 'inline' : 'none';
         subtitle2.style.display = tab != 'initial' ? 'inline' : 'none';
-        subtitle2.innerText = tab == 'initial' ? 'Nianqinren\'s first personal website' : tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
+        subtitle2.innerText = tab == 'initial' ? '' : tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
     }, [tab]);
 
     // initial fetch user-credential

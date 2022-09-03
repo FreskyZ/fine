@@ -106,7 +106,7 @@ export function logInfo(content: any): void { write('info', content); }
 export function logError(content: any): void { write('error', content); }
 
 // this currently is simply add a switch to console.log, to be designed later
-const TRACE = 'FPS_TRACE' in process.env;
+const TRACE = 'FINE_TRACE' in process.env;
 export function logTrace(...args: any[]): void { if (TRACE) { console.log(...args); } }
 
 function flushAll() {
