@@ -47,10 +47,10 @@ async function sendimpl(command: AdminServerCoreCommand, internal: boolean): Pro
     }
 }
 
-export function send(command: AdminServerCoreCommand): Promise<boolean> { 
-    return sendimpl(command, true); 
+export function send(command: AdminServerCoreCommand): Promise<boolean> {
+    return sendimpl(command, true);
 }
-export function handle(command: AdminServerCoreCommand, response: http.ServerResponse, rawPayload: string) {
+export function handle(command: AdminServerCoreCommand, response: http.ServerResponse, rawPayload: string): void {
     sendimpl(command, false).then(result => {
         if (result) {
             response.write('ACK ' + rawPayload);

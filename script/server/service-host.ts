@@ -6,7 +6,7 @@ import { logInfo, logError } from '../common';
 // call systemctl
 // svc: service
 
-export function handle(command: AdminServiceHostCommand, response: http.ServerResponse) {
+export function handle(command: AdminServiceHostCommand, response: http.ServerResponse): void {
     response.statusCode = 200;
     logInfo('svc', `systemctl ${command}`);
     const systemctlProcess = cp.spawn('systemctl', [command, 'fine']);

@@ -37,12 +37,12 @@ async function createUserDevice(ctx: Ctx, userId: number): Promise<{ accessToken
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
     const accessToken = randomBytes(42).toString('base64').slice(0, 42);
-    const userDevice: UserDeviceData = { 
-        Id: 0, 
-        App: ctx.state.app, 
-        Name: '<unnamed>', 
-        Token: accessToken, 
-        UserId: userId, 
+    const userDevice: UserDeviceData = {
+        Id: 0,
+        App: ctx.state.app,
+        Name: '<unnamed>',
+        Token: accessToken,
+        UserId: userId,
         LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime),
         LastAccessAddress: ctx.socket.remoteAddress,
     };
@@ -242,7 +242,7 @@ async function handleUpdateUserName(ctx) {
             throw new MyError('common', 'user name already exists');
         }
     }
-    
+
     user.Name = newUserName;
     await query('UPDATE `User` SET `Name` = ? WHERE `Id` = ?', newUserName, user.Id);
 
@@ -300,7 +300,7 @@ async function handleRemoveDevice(ctx, parameters) {
     const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
     if (!userDevice) {
         throw new MyError('common', 'invalid device id');
-    };
+    }
 
     if (userDevice.UserId != ctx.state.user.id) {
         throw new MyError('common', 'not my device');

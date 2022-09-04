@@ -65,7 +65,7 @@ const jsxruntime = '' +
 `}`;
 
 function setupjsx(result: TypeScriptResult) {
-    let content = result.files[0].content;
+    const content = result.files[0].content;
 
     const match = /import (?<pat>{[\w\s,]+}) from 'react';/.exec(content); // pat: deconstruction pattern // rust call this syntax node pattern, js world seems using other name but I don't know
     const importreact = `const ${match.groups['pat']} = React;`; // this match is expected to be sucess

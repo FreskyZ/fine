@@ -49,6 +49,7 @@ export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): s
             case 'reload-page': return `reload-page ${command.sub.pagename}`;
             case 'enable-source-map': return `source-map enable`;
             case 'disable-source-map': return `source-map disable`;
+            default: return 'unknown content command';
         }
         case 'auth': switch (command.sub.type) {
             case 'reload-server': return `reload-server ${command.sub.app}`;
@@ -57,7 +58,9 @@ export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): s
             case 'activate-user': return `activate-user ${command.sub.userId}`;
             case 'inactivate-user': return `inactivate-user ${command.sub.userId}`;
             case 'remove-device': return `remove-device ${command.sub.deviceId}`;
+            default: return 'unknown auth command';
         }
+        default: return JSON.stringify(command);
     }
 }
 
@@ -67,6 +70,7 @@ export function formatAdminPayload(payload: AdminPayload): string {
         case 'web-page': switch (payload.data) {
             case 'reload-js': return 'web-page reload-js';
             case 'reload-css': return 'web-page reload-css';
+            default: return 'unknown web-page payload';
         }
         case 'service-host': switch (payload.data) {
             case 'start': return `systemctl start`;
@@ -74,10 +78,12 @@ export function formatAdminPayload(payload: AdminPayload): string {
             case 'stop': return `systemctl stop`;
             case 'restart': return `systemctl restart`;
             case 'is-active': return `systemctl is-active`;
+            default: 'unknown service-host payload';
         }
         case 'self-host': switch (payload.data) {
             case 'start': return 'self-host start server-core';
             case 'stop': return 'self-host stop server-core';
+            default: 'unknown self-host payload';
         }
         default: return JSON.stringify(payload);
     }

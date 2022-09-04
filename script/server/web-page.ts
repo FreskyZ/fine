@@ -57,7 +57,7 @@ async function send(clients: Iterable<WebSocket>, command: AdminWebPageCommand):
     });
 }
 
-export function handle(clients: Iterable<WebSocket>, command: AdminWebPageCommand, response: http.ServerResponse, rawPayload: string) {
+export function handle(clients: Iterable<WebSocket>, command: AdminWebPageCommand, response: http.ServerResponse, rawPayload: string): void {
     send(clients, command).then(result => {
         if (result) {
             response.write('ACK ' + rawPayload);

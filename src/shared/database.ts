@@ -7,7 +7,7 @@ const pool = mysql.createPool({
             return field.buffer()[0] == 1;
         }
         return next();
-    }
+    },
 });
 
 export const QueryDateTimeFormat = {

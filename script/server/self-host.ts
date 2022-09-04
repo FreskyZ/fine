@@ -19,8 +19,8 @@ function writeError(writable: stream.Writable, header: string, message: string) 
 
 // host server core by akari (server) when watch server-core
 let serverCoreHost: ServerCoreHost | null = null;
-export function stop() { if (serverCoreHost) { serverCoreHost.stop(); } } // stop when shutdown
- 
+export function stop(): void { if (serverCoreHost) { serverCoreHost.stop(); } } // stop when shutdown
+
 class ServerCoreHost {
     private theProcess: cp.ChildProcessWithoutNullStreams | null = null;
     public constructor(private readonly response: http.ServerResponse) {
@@ -74,7 +74,7 @@ class ServerCoreHost {
     }
 }
 
-export function handle(command: AdminSelfHostCommand, response: http.ServerResponse) {
+export function handle(command: AdminSelfHostCommand, response: http.ServerResponse): void {
     response.statusCode = 200;
     if (command == 'start') {
         if (serverCoreHost) {
@@ -88,7 +88,7 @@ export function handle(command: AdminSelfHostCommand, response: http.ServerRespo
         }
     } else if (command == 'stop') {
         if (serverCoreHost) {
-            logInfo('sch', 'stop host server-core')
+            logInfo('sch', 'stop host server-core');
             serverCoreHost.stop(); // this ends that response
             serverCoreHost = null;
         }

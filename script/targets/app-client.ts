@@ -69,8 +69,8 @@ const getWebpackConfiguration = (app: string): webpack.Configuration => ({
         }, extractComments: false })],
     },
     plugins: [
-        // ATTENTION: 
-        // 1. antd-dayjs-webpack-plugin does not compatible with 
+        // ATTENTION:
+        // 1. antd-dayjs-webpack-plugin does not compatible with
         //    current webpack version (5.68) where loader-utils is deprecated and completely removed
         //    it should be simply adding and entry with file content node_modules/antd-dayjs-webpack-plugin/src/init-loader.js
         //    and resolve all import moment to dayjs module directory, but this no parameter constructor call actually did not do that

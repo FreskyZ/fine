@@ -30,7 +30,7 @@ export async function handleCertificate(ctx: koa.Context, next: koa.Next): Promi
     if (!('FINE_CERTIFICATE' in process.env)) {
         return await next();
     }
-    
+
     if (ctx.path == '/') {
         ctx.status = 200;
     } else {
