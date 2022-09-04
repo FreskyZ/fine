@@ -2,8 +2,6 @@ import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
 import type { AdminPayload, AdminServerCoreCommand } from '../src/shared/types/admin';
 
-declare global { interface String { replaceAll(searchValue: string | RegExp, replaceValue: string): string } }
-
 // current color schema
 // error: red
 // target name: cyan

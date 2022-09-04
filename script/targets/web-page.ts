@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical, watchvar } from '../common';
+import { config } from '../config';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
@@ -31,7 +32,8 @@ const getSassOptions = (pagename: string): SassOptions => ({
 });
 const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult | 'html'): Asset => result == 'html' ? {
     remote: `pages/${pagename}.html`,
-    data: fs.readFileSync(`src/pages/${pagename}.html`),
+    // apply domain.com for index.html
+    data: Buffer.from(fs.readFileSync(`src/pages/${pagename}.html`, 'utf-8').replaceAll(['domain', 'com'].join('.'), config.domain)),
 } : 'files' in result ? {
     remote: `pages/${pagename}.js`,
     data: Buffer.from(result.files[0].content),

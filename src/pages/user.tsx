@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom';
 import type { UserCredential, UserDevice } from '../shared/types/auth';
 
 // not in react root elements
-const subtitle1 = document.querySelector('span#subtitle1') as HTMLSpanElement;
 const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;
 const thenotification = document.querySelector('span#the-notification') as HTMLSpanElement;
 
@@ -292,7 +291,6 @@ const Page: FC<{}> = () => {
 
     // header subtitle is not in react root, control by side effect
     useEffect(() => {
-        subtitle1.style.display = tab == 'initial' ? 'inline' : 'none';
         subtitle2.style.display = tab != 'initial' ? 'inline' : 'none';
         subtitle2.innerText = tab == 'initial' ? '' : tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
     }, [tab]);
