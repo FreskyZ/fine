@@ -1,6 +1,17 @@
 # Server Routing
 
-### Background
+There are multiple sites hosted on this service, they have different domains, subdomains or (theoritically) subpaths.
+This document *was* used to describe precisely how each request is responded, but they are too complex and prune to change,
+so they are now in configuration, making this document and content handling in core module simpler.
+
+## Design Principles
+
+- public files are available in all domains' (subdomains') root path
+- apis are available at one `api.domain.com` with authentication
+- only api invocation can handle non-GET requests
+- only api invocation returns status 404 for unknown api, others temporary redirect to 404 page
+
+### (Legacy) Background
 
 > It proves that express (expressjs/express) is kind of complex and difficult to update when server routing becoming complex, 
   e.g. now (a72827e) I need to move `/login` and `/refresh-token` from api subdomain to no subdomain, 
@@ -14,18 +25,9 @@
 
 > (updated) after refactor finish, I actually use naive operations for server-core and should use regex for apps
 
-### Features
-
-1. multiple sites
-   1. a main site hosting all web apps, call `domain.com` in following content
-   2. an interesting static multi page site, call `happy.net`
-   3. a short url service, call `short.link`
-2. multiple web apps
-   - web apps call `app.domain.com`
-   - their static file are at `app.domain.com/filename`
-   - api at `api.domain.com/app/path`, all api (except login) require logged in
-
 ### Routes
+
+// these are OUTDATED, leave here to make sure I don't forget something, remove after refactor complete
 
 1. original http request is in form `METHOD 3LD.2LD.TLD/PATH`, where
    - `METHOD`: GET | POST | PUT | PATCH | DELETE | OPTION

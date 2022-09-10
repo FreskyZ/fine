@@ -1,41 +1,25 @@
 # File Structure
 
-## logs
-runtime logs, now only support download and remote analysis, no admin page provided
+- `akari`: the build script executable, it is complex to bootstrap so it is tracked by version control
+- `akaric`: the build script configuration, it is not tracked, see `script/config.ts`
+- `script`: source of the build script, see more at [build-script.md](./build-script.md)
+  - `script/index.ts` is the (client side) build script entry
+  - `script/server/index.ts` is the (server side) management utility entry
+- `src`: normal source code, or 'runtime' related source code
+  - `core`: server entry, certificate, cache control and authentication
+  - `home-page`, `user-page`: the two special simple pages are in tree
+  - `public`: not interesting public files like `robots.txt`, they are copied to distribution location as-is
+  - `shared`, `wimm`: TBD?
+  - (not in tree) web app's source code: in their own repository while only shares build script
 
-## script
-build script, invoke typescript compiler and webpack directly to implement complex build process,
-also include other dev tool configs like eslint.
+### Distribution Directory Structure
 
-## src
-
-### src/server-core
-server entry, environment setup, application hot reload support
-
-### src/pages
-simple web pages html/ts/sass
-
-### src/\<app\>
-application server and client, index.html is outside of client/server folder because it is just a placeholder (react root holder)
-
-### src/shared
-shared types, component and logics by all of the above, regardless of client of server
-
-## Distribute Folder Structure
-the website itself, now build script always directly deploy build results to deploy server
-
-### webroot/index.js
-server entry, change to server entry requires server restart
-
-### webroot/pages
-contains home page and other shared simple pages, change to web pages requires admin script.
-
-### webroot/public
-contains not interesting things at `/*`, like `robots.txt` and `sitemap.xml`,
-all subdomains can access these files, content is dynamic (can hot add or remove file) and always read from disk (can hot update file),
-except html files, because server route like /xxx/xxx.html looks not good, they should be served without .html postfix
-
-### webroot/\<app\>
-contains application's main page `index.html`, application server entry `server.js` and web page content `js`/`css` files,
-web page contents are also served at `/*` at their own subdomain, mixed with shared public files,
-add, remove or update web page content file list or file content requries admin script.
+- `akari`: the management utility, helper for deployments and debug process and proxy for all admin commands
+- `index.js`: the server entry
+- `public`: not interesting public files, same as `src/public`, not cached in memory and use weak cache policy
+- `static`: other build result (except `src/core`) html/js/css files (also source map), 
+  they are cached in memory and use strong cache policy, while watch file system is unstable,
+  not compatible and affect performance, they are hot reloaded by admin command not watch file system
+  - `static/index.html`, `static/user.html` the two special simple pages are directly in `static` directory
+  - `static/<app>` each app's front end files are in their own directory to resolve name collision
+- (not in same directory) app's server is deployed and run separately 
