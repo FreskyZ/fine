@@ -1,9 +1,9 @@
 import { config } from './config';
 import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
-import { build as buildPublic } from './targets/public';
 import { build as buildCore } from './targets/core';
-import { build as buildSimplePage } from './targets/web-page';
+import { build as buildPublic } from './targets/public';
+import { build as buildStatic } from './targets/static';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
 
@@ -39,8 +39,8 @@ else if ('core' == args) { buildCore(false); }
 else if ('watch core' == args) { buildCore(true); }
 
 // simple page
-else if (/^\w+-page$/.test(args)) { buildSimplePage(validatePage(args.slice(0, -5)), false); }
-else if (/^watch \w+-page$/.test(args)) { buildSimplePage(validatePage(args.slice(6, -5)), true); }
+else if (/^\w+-page$/.test(args)) { buildStatic(validatePage(args.slice(0, -5)), false); }
+else if (/^watch \w+-page$/.test(args)) { buildStatic(validatePage(args.slice(6, -5)), true); }
 
 // app client, app server
 else if (/^\w+-client/.test(args)) { buildAppClient(validateApp(args.slice(0, -7)), false); }
@@ -54,10 +54,10 @@ else if (/^watch \w+-both/.test(args)) { buildAppClient(validateApp(args.slice(6
 else if ('all' == args) {
     buildPublic();
     buildCore(false);
-    buildSimplePage('home', false);
-    buildSimplePage('user', false);
-    buildSimplePage('404', false);
-    buildSimplePage('418', false);
+    buildStatic('home', false);
+    buildStatic('user', false);
+    buildStatic('404', false);
+    buildStatic('418', false);
     buildAppServer('wimm', false);
     buildAppClient('wimm', false);
 }

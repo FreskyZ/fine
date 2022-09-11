@@ -8,37 +8,35 @@ import { Asset, upload } from '../tools/ssh';
 import { SassOptions, SassResult, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
-// web page, not web app, they contains hand written html
-//    and at most one sass file which transpiles into one compressed css
+// builtin static pages, they have hand written html,
+//    and at most one sass file which transpiles into one compressed css,
 //    and at most one ts file which transpiles into look-like-hand-written javascript
-// 1. except the index page, others are available at all domains without the html extension,
-// 2. except 404/418, they are reloadable via admin script, reload key is same as PageName
-// 3. source file name is same as PageName, url path may not be same as PageName
+// build results are all copied to webroot/static/
 
 const getTypeScriptOptions = (pagename: string, watch: boolean): TypeScriptOptions => pagename == 'user' ? {
     base: 'jsx-page',
-    entry: `src/pages/${pagename}.tsx`,
+    entry: `src/static/${pagename}.tsx`,
     sourceMap: 'no',
     watch,
 } : {
     base: 'normal',
-    entry: `src/pages/${pagename}.ts`,
+    entry: `src/static/${pagename}.ts`,
     additionalLib: ['dom'],
     sourceMap: 'no',
     watch,
 };
 const getSassOptions = (pagename: string): SassOptions => ({
-    entry: `src/pages/${pagename}.sass`,
+    entry: `src/static/${pagename}.sass`,
 });
 const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult | 'html'): Asset => result == 'html' ? {
-    remote: `pages/${pagename}.html`,
+    remote: `static/${pagename}.html`,
     // apply domain.com for index.html
-    data: Buffer.from(fs.readFileSync(`src/pages/${pagename}.html`, 'utf-8').replaceAll(['domain', 'com'].join('.'), config.domain)),
+    data: Buffer.from(fs.readFileSync(`src/static/${pagename}.html`, 'utf-8').replaceAll(['domain', 'com'].join('.'), config.domain)),
 } : 'files' in result ? {
-    remote: `pages/${pagename}.js`,
+    remote: `static/${pagename}.js`,
     data: Buffer.from(result.files[0].content),
 } : {
-    remote: `pages/${pagename}.css`,
+    remote: `static/${pagename}.css`,
     data: result.resultCss,
 };
 
@@ -55,7 +53,7 @@ const jsxruntime = '' +
         `$$typeof:Symbol.for('react.element'),` +
         `type,` +
         `key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,` +
-        `ref:rawprops.ref!== void 0?rawprops.ref:null,` +
+        `ref:rawprops.ref!==void 0?rawprops.ref:null,` +
         `props,` +
         `_owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current` + // then fire me
     `}` +
@@ -109,7 +107,7 @@ async function buildOnce(pagename: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at upload`);
     }
-    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-page', pagename } });
+    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-static', pagename } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at reload`);
     }
@@ -122,7 +120,7 @@ function buildWatch(pagename: string) {
     // mkdir(recursive)
 
     const requestReload = watchvar(() => {
-        admin.core({ type: 'content', sub: { type: 'reload-page', pagename } });
+        admin.core({ type: 'content', sub: { type: 'reload-static', pagename } });
     }, { interval: 2021 });
 
     const checker = typescript(getTypeScriptOptions(pagename, true));
@@ -149,7 +147,7 @@ function buildWatch(pagename: string) {
         if (await upload(getUploadAsset(pagename, 'html'))) { requestReload(); }
     }, { interval: 2021, initialCall: true });
 
-    const htmlEntry = `src/pages/${pagename}.html`;
+    const htmlEntry = `src/static/${pagename}.html`;
     logInfo('htm', chalk`watch {yellow ${htmlEntry}}`);
     fs.watch(htmlEntry, { persistent: false }, requestReupload);
 }

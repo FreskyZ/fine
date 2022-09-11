@@ -9,7 +9,7 @@ export type AdminAuthCommand =
 
 export type AdminContentCommand =
     | { type: 'reload-client', app: string }
-    | { type: 'reload-page', pagename: string }
+    | { type: 'reload-static', pagename: string }
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 

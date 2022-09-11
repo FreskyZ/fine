@@ -75,15 +75,15 @@ function getAppFiles(app: string): string[] {
 type KnownFile = Readonly<{ virtual: string, real: string, reloadKey: string | false }>;
 const knownFiles: ReadonlyArray<KnownFile> = (() => {
     const result: KnownFile[] =  [
-        { virtual: '/www/', real: 'pages/home.html', reloadKey: 'home' },
-        { virtual: '/www/index.css', real: 'pages/home.css', reloadKey: 'home' },
+        { virtual: '/www/', real: 'static/home.html', reloadKey: 'home' },
+        { virtual: '/www/index.css', real: 'static/home.css', reloadKey: 'home' },
     ];
     for (const any of ['www'].concat(APP_NAMES)) {
-        result.push({ virtual: `/${any}/404`, real: 'pages/404.html', reloadKey: false });
-        result.push({ virtual: `/${any}/418`, real: 'pages/418.html', reloadKey: false });
-        result.push({ virtual: `/${any}/m`, real: 'pages/user.html', reloadKey: 'user' }); // m: me, my space, my account setting, sign in/sign up
-        result.push({ virtual: `/${any}/user.js`, real: 'pages/user.js', reloadKey: 'user' });
-        result.push({ virtual: `/${any}/user.css`, real: 'pages/user.css', reloadKey: 'user' });
+        result.push({ virtual: `/${any}/404`, real: 'static/404.html', reloadKey: false });
+        result.push({ virtual: `/${any}/418`, real: 'static/418.html', reloadKey: false });
+        result.push({ virtual: `/${any}/m`, real: 'static/user.html', reloadKey: 'user' }); // m: me, my space, my account setting, sign in/sign up
+        result.push({ virtual: `/${any}/user.js`, real: 'static/user.js', reloadKey: 'user' });
+        result.push({ virtual: `/${any}/user.css`, real: 'static/user.css', reloadKey: 'user' });
     }
     for (const app of APP_NAMES) {
         result.push(...getAppFiles(app).map(file => ({ virtual: `/${app}/${file}`, real: `${app}/${file}`, reloadKey: app })));
@@ -205,7 +205,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     }
 }
 
-function handleReloadPage(pagename: string) {
+function handleReloadStatic(pagename: string) {
     const now = `"${dayjs.utc().unix().toString(16)}"`;
     for (const file of reloadKeyToCache[pagename]) {
         if (!fs.existsSync(file.realpath)) {
@@ -267,8 +267,8 @@ function handleReloadClient(appname: string) {
 export function handleCommand(data: AdminContentCommand): void {
     logInfo({ type: 'admin command content', data });
 
-    if (data.type == 'reload-page') {
-        handleReloadPage(data.pagename);
+    if (data.type == 'reload-static') {
+        handleReloadStatic(data.pagename);
     } else if (data.type == 'reload-client') {
         handleReloadClient(data.app);
     } else if (data.type == 'enable-source-map') {
