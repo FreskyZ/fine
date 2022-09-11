@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
-import type { AdminPayload, AdminServerCoreCommand, AdminWebPageCommand, AdminSelfHostCommand, AdminServiceHostCommand } from '../../src/shared/types/admin';
+import type { AdminCommand, AdminCoreCommand, AdminDevPageCommand, AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/types/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
 import { config } from '../config';
 import { download } from './ssh';
@@ -31,7 +31,7 @@ async function getv(): Promise<V> {
 }
 
 const codebook = fs.readFileSync(config.codebook, 'utf-8');
-const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
+const sendAdminPayload = (payload: AdminCommand, additionalHeader?: string): Promise<boolean> => new Promise(resolve => {
     const logHeader = `adm${additionalHeader ?? ''}`;
     const serialized = JSON.stringify(payload);
     getv().then(v => {
@@ -71,7 +71,7 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
             if (response.statusCode != 200) {
                 logError(logHeader, `response ${response.statusCode}`);
                 resolve(false);
-            } else if (payload.target == 'service-host') {
+            } else if (payload.target == 'service') {
                 response.pipe(process.stdout);
                 response.on('end', () => resolve(true));
             } else if (payload.target == 'self-host') {
@@ -80,7 +80,7 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
                     response.on('data', () => {});
                     /* eslint-enable @typescript-eslint/no-empty-function */
                     response.on('end', () => {
-                        logInfo(logHeader, chalk`ack stop watch server-core`);
+                        logInfo(logHeader, chalk`ack stop watch core`);
                         resolve(true);
                     });
                 } else if (payload.data == 'start') {
@@ -95,14 +95,14 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
                                 headerReceived = true;
                                 const header = receivingHeader.slice(0, 4).toString();
                                 if (header == 'that') {
-                                    logInfo(logHeader, chalk`ack {yellow restart watch server-core}`);
+                                    logInfo(logHeader, chalk`ack {yellow restart watch core}`);
                                     resolve(true);
                                 } else if (header == 'this') {
                                     // write remaining to stdout and start direct pipe
                                     process.stdout.write(receivingHeader.slice(4));
                                     response.pipe(process.stdout);
                                 } else {
-                                    logError(logHeader, `start watch server-core received unexpected header ${header}`);
+                                    logError(logHeader, `start watch core received unexpected header ${header}`);
                                     resolve(false);
                                 }
                             }
@@ -131,9 +131,9 @@ const sendAdminPayload = (payload: AdminPayload, additionalHeader?: string): Pro
 
 class AdminLocal {
     public get port(): Promise<number> { return getv().then(v => v[0]); } // akari (server) port
-    public servercore(command: AdminServerCoreCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'server-core', data: command }, additionalHeader); }
-    public webpage(command: AdminWebPageCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'web-page', data: command }, additionalHeader); }
+    public core(command: AdminCoreCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'core', data: command }, additionalHeader); }
+    public devpage(command: AdminDevPageCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'dev-page', data: command }, additionalHeader); }
     public selfhost(command: AdminSelfHostCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'self-host', data: command }, additionalHeader); }
-    public servicehost(command: AdminServiceHostCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'service-host', data: command }, additionalHeader); }
+    public service(command: AdminServiceCommand, additionalHeader?: string): Promise<boolean> { return sendAdminPayload({ target: 'service', data: command }, additionalHeader); }
 }
 export const admin = new AdminLocal();

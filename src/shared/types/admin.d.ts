@@ -1,5 +1,5 @@
 
-export type AdminServerCoreAuthCommand =
+export type AdminAuthCommand =
     | { type: 'reload-server', app: string }
     | { type: 'enable-signup' }
     | { type: 'disable-signup' }
@@ -7,23 +7,23 @@ export type AdminServerCoreAuthCommand =
     | { type: 'inactivate-user', userId: number }
     | { type: 'remove-device', deviceId: number };
 
-export type AdminServerCoreContentCommand =
+export type AdminContentCommand =
     | { type: 'reload-client', app: string }
     | { type: 'reload-page', pagename: string }
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 
-export type AdminServerCoreCommand =
+export type AdminCoreCommand =
     | { type: 'ping' }
     | { type: 'shutdown' }
-    | { type: 'auth', sub: AdminServerCoreAuthCommand }
-    | { type: 'content', sub: AdminServerCoreContentCommand };
+    | { type: 'auth', sub: AdminAuthCommand }
+    | { type: 'content', sub: AdminContentCommand };
 
-export type AdminWebPageCommand =
+export type AdminDevPageCommand =
     | 'reload-js'
     | 'reload-css';
 
-export type AdminServiceHostCommand =
+export type AdminServiceCommand =
     | 'start'
     | 'stop'
     | 'restart'
@@ -34,8 +34,8 @@ export type AdminSelfHostCommand =
     | 'start'
     | 'stop';
 
-export type AdminPayload =
-    | { target: 'server-core', data: AdminServerCoreCommand }
-    | { target: 'web-page', data: AdminWebPageCommand }
-    | { target: 'service-host', data: AdminServiceHostCommand }
+export type AdminCommand =
+    | { target: 'core', data: AdminCoreCommand }
+    | { target: 'dev-page', data: AdminDevPageCommand }
+    | { target: 'service', data: AdminServiceCommand }
     | { target: 'self-host', data: AdminSelfHostCommand };

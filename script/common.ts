@@ -1,6 +1,6 @@
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
-import type { AdminPayload, AdminServerCoreCommand } from '../src/shared/types/admin';
+import type { AdminCommand, AdminCoreCommand } from '../src/shared/types/admin';
 
 // current color schema
 // error: red
@@ -40,7 +40,7 @@ export function watchvar(callback: () => any, options?: { interval?: number, ini
     return () => requested = true;
 }
 
-export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): string {
+export function formatAdminCoreCommand(command: AdminCoreCommand): string {
     switch (command.type) {
         case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
@@ -49,7 +49,7 @@ export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): s
             case 'reload-page': return `reload-page ${command.sub.pagename}`;
             case 'enable-source-map': return `source-map enable`;
             case 'disable-source-map': return `source-map disable`;
-            default: return 'unknown content command';
+            default: return `unknown content command ${command}`;
         }
         case 'auth': switch (command.sub.type) {
             case 'reload-server': return `reload-server ${command.sub.app}`;
@@ -58,33 +58,33 @@ export function formatAdminServerCoreCommand(command: AdminServerCoreCommand): s
             case 'activate-user': return `activate-user ${command.sub.userId}`;
             case 'inactivate-user': return `inactivate-user ${command.sub.userId}`;
             case 'remove-device': return `remove-device ${command.sub.deviceId}`;
-            default: return 'unknown auth command';
+            default: return `unknown auth command ${command}`;
         }
-        default: return JSON.stringify(command);
+        default: return `unknown core command ${JSON.stringify(command)}`;
     }
 }
 
-export function formatAdminPayload(payload: AdminPayload): string {
-    switch (payload.target) {
-        case 'server-core': return formatAdminServerCoreCommand(payload.data);
-        case 'web-page': switch (payload.data) {
-            case 'reload-js': return 'web-page reload-js';
-            case 'reload-css': return 'web-page reload-css';
-            default: return 'unknown web-page payload';
+export function formatAdminPayload(command: AdminCommand): string {
+    switch (command.target) {
+        case 'core': return formatAdminCoreCommand(command.data);
+        case 'dev-page': switch (command.data) {
+            case 'reload-js': return 'dev-page reload-js';
+            case 'reload-css': return 'dev-page reload-css';
+            default: return `unknown dev-page command ${command}`;
         }
-        case 'service-host': switch (payload.data) {
+        case 'service': switch (command.data) {
             case 'start': return `systemctl start`;
             case 'status': return `systemctl status`;
             case 'stop': return `systemctl stop`;
             case 'restart': return `systemctl restart`;
             case 'is-active': return `systemctl is-active`;
-            default: 'unknown service-host payload';
+            default: return `unknown service payload ${command}`;
         }
-        case 'self-host': switch (payload.data) {
-            case 'start': return 'self-host start server-core';
-            case 'stop': return 'self-host stop server-core';
-            default: 'unknown self-host payload';
+        case 'self-host': switch (command.data) {
+            case 'start': return 'self-host start core';
+            case 'stop': return 'self-host stop core';
+            default: return `unknown self-host command ${command}`;
         }
-        default: return JSON.stringify(payload);
+        default: return `unknown command ${JSON.stringify(command)}`;
     }
 }

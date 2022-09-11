@@ -9,7 +9,7 @@ import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
-    entry: 'src/server-core/index.ts',
+    entry: 'src/core/index.ts',
     sourceMap: 'hide',
     watch,
 });
@@ -17,7 +17,7 @@ const getTypescriptOptions = (watch: boolean): TypeScriptOptions => ({
 const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
     files,
-    entry: '/vbuild/server-core/index.js',
+    entry: '/vbuild/core/index.js',
     sourceMap: true,
     output: 'index.js',
     printModules: true,
@@ -30,31 +30,31 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 ];
 
 async function buildOnce(): Promise<void> {
-    logInfo('akr', chalk`{cyan server-core}`);
-    await eslint('server-core', 'node', ['src/shared/**/*.ts', 'src/server-core/**/*.ts']);
+    logInfo('akr', chalk`{cyan core}`);
+    await eslint('core', 'node', ['src/shared/**/*.ts', 'src/core/**/*.ts']);
     // mkdir(recursive) is not needed anymore
     // as I'm lazy to investigate ssh version, now it's assumed that server has already full deployed once and all folder already exists
 
     const checkResult = typescript(getTypescriptOptions(false)).check();
     if (!checkResult.success) {
-        return logCritical('akr', chalk`{cyan server-core} failed at check`);
+        return logCritical('akr', chalk`{cyan core} failed at check`);
     }
 
     const packResult = await mypack(getMyPackOptions(checkResult.files)).run();
     if (!packResult.success) {
-        return logCritical('akr', chalk`{cyan server-core} failed at pack`);
+        return logCritical('akr', chalk`{cyan core} failed at pack`);
     }
 
     const uploadResult = await upload(getUploadAssets(packResult));
     if (!uploadResult) {
-        return logCritical('akr', chalk`{cyan server-core} failed at upload`);
+        return logCritical('akr', chalk`{cyan core} failed at upload`);
     }
 
-    logInfo('akr', chalk`{cyan server-core} completed successfully`);
+    logInfo('akr', chalk`{cyan core} completed successfully`);
 }
 
 function buildWatch() {
-    logInfo('akr', chalk`watch {cyan server-core}`);
+    logInfo('akr', chalk`watch {cyan core}`);
     // mkdir(recursive)
 
     const packer = mypack(getMyPackOptions([]));

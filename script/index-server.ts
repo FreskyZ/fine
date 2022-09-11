@@ -4,13 +4,11 @@ import type * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
 import * as WebSocket from 'ws';
-import { logInfo, logError } from '../common';
-import { port, decrypt } from './secure-command';
-import { handle as handleClientDev } from './client-dev';
-import { handle as handleToWebPage } from './web-page';
-import { handle as handleToServiceHost } from './service-host';
-import { handle as handleToSelfHost, stop as stopSelfHost } from './self-host';
-import { send as sendToServerCore, handle as handleToServerCore } from './server-core';
+import { logInfo, logError } from './common';
+import { port, decrypt } from './server/security';
+import { sendCoreCommand, handleCoreCommand } from './server/core';
+import { handleDevScriptRequest, handleDevPageCommand } from './server/dev-page';
+import { handleServiceCommand, handleSelfHostCommand, stopSelfHost } from './server/host';
 
 // akari (server) entry, see docs/build-script.md
 
@@ -18,7 +16,7 @@ const httpsServer = https.createServer({ key: fs.readFileSync('SSL-KEY'), cert: 
 const wsServer = new WebSocket.Server({ server: httpsServer });
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {
-    if (handleClientDev(port, request, response)) { return; } // only this one do not require encrypted command
+    if (handleDevScriptRequest(port, request, response)) { return; } // only this one do not require encrypted command
 
     let requestBody = ''; // I don't know when this small request will be splitted, but collect full data in case
     request.on('data', data => { requestBody += Buffer.isBuffer(data) ? data.toString() : data; });
@@ -27,10 +25,10 @@ function handleCommand(request: http.IncomingMessage, response: http.ServerRespo
         if (!payload) { return; }
 
         switch (payload.target) {
-            case 'server-core': return handleToServerCore(payload.data, response, rawPayload);
-            case 'web-page': return handleToWebPage(wsServer.clients, payload.data, response, rawPayload);
-            case 'service-host': return handleToServiceHost(payload.data, response);
-            case 'self-host': return handleToSelfHost(payload.data, response);
+            case 'core': return handleCoreCommand(payload.data, response, rawPayload);
+            case 'dev-page': return handleDevPageCommand(wsServer.clients, payload.data, response, rawPayload);
+            case 'service': return handleServiceCommand(payload.data, response);
+            case 'self-host': return handleSelfHostCommand(payload.data, response);
         }
     });
 }
@@ -43,7 +41,7 @@ httpsServer.on('connection', (socket: net.Socket) => {
     // logInfo('htt', `https connected from ${key}`);
     httpsConnections[key] = socket;
     socket.on('error', (error: any) => {
-        // see src/server-core/index.ts
+        // see src/core/index.ts
         if (error.code == 'ECONNRESET' && error.syscall == 'read') {
             // ignore
         } else if (error.code == 'HPE_INVALID_METHOD') {
@@ -110,7 +108,7 @@ function startup() {
     });
 
     resetShutdownTimeout();
-    sendToServerCore({ type: 'content', sub: { type: 'enable-source-map' } }); // send and ignore
+    sendCoreCommand({ type: 'content', sub: { type: 'enable-source-map' } }); // send and ignore
 }
 
 let shuttingdown = false;

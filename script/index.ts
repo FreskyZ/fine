@@ -2,7 +2,7 @@ import { config } from './config';
 import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
 import { build as buildPublic } from './targets/public';
-import { build as buildServerCore } from './targets/server-core';
+import { build as buildCore } from './targets/core';
 import { build as buildSimplePage } from './targets/web-page';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
@@ -34,9 +34,9 @@ const args = [process.argv[2], process.argv[3]].filter(a => a).join(' '); // 0 i
 if ('self' == args) { buildSelf(); }
 else if ('public' == args) { buildPublic(); }
 
-// server-core
-else if ('server-core' == args) { buildServerCore(false); }
-else if ('watch server-core' == args) { buildServerCore(true); }
+// core
+else if ('core' == args) { buildCore(false); }
+else if ('watch core' == args) { buildCore(true); }
 
 // simple page
 else if (/^\w+-page$/.test(args)) { buildSimplePage(validatePage(args.slice(0, -5)), false); }
@@ -53,7 +53,7 @@ else if (/^watch \w+-both/.test(args)) { buildAppClient(validateApp(args.slice(6
 // all build
 else if ('all' == args) {
     buildPublic();
-    buildServerCore(false);
+    buildCore(false);
     buildSimplePage('home', false);
     buildSimplePage('user', false);
     buildSimplePage('404', false);
@@ -63,18 +63,18 @@ else if ('all' == args) {
 }
 
 // service host
-else if ('service start' == args) { calladmin(admin.servicehost('start')); }
-else if ('service stop' == args) { calladmin(admin.servicehost('stop')); }
-else if ('service status' == args) { calladmin(admin.servicehost('status')); }
-else if ('service restart' == args) { calladmin(admin.servicehost('restart')); }
+else if ('service start' == args) { calladmin(admin.service('start')); }
+else if ('service stop' == args) { calladmin(admin.service('stop')); }
+else if ('service status' == args) { calladmin(admin.service('status')); }
+else if ('service restart' == args) { calladmin(admin.service('restart')); }
 
 // self-host, in case it failed to stop
 else if ('stop-self-host' == args) { calladmin(admin.selfhost('stop')); }
 
 // auth
-else if ('signup enable' == args) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'enable-signup' } })); }
-else if ('signup disable' == args) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'disable-signup' } })); }
-else if (/^active-user \d+$/.test(args)) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'activate-user', userId: parseInt(args.slice(12)) } })); }
-else if (/^inactive-user \d+$/.test(args)) { calladmin(admin.servercore({ type: 'auth', sub: { type: 'inactivate-user', userId: parseInt(args.slice(14)) } })); }
+else if ('signup enable' == args) { calladmin(admin.core({ type: 'auth', sub: { type: 'enable-signup' } })); }
+else if ('signup disable' == args) { calladmin(admin.core({ type: 'auth', sub: { type: 'disable-signup' } })); }
+else if (/^active-user \d+$/.test(args)) { calladmin(admin.core({ type: 'auth', sub: { type: 'activate-user', userId: parseInt(args.slice(12)) } })); }
+else if (/^inactive-user \d+$/.test(args)) { calladmin(admin.core({ type: 'auth', sub: { type: 'inactivate-user', userId: parseInt(args.slice(14)) } })); }
 
 else { console.log('unknown command'); process.exit(1); }

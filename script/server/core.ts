@@ -2,15 +2,15 @@ import type * as http from 'http';
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
 import * as chalk from 'chalk';
-import type { AdminServerCoreCommand } from '../../src/shared/types/admin';
-import { logInfo, logError, formatAdminServerCoreCommand } from '../common';
+import type { AdminCoreCommand } from '../../src/shared/types/admin';
+import { logInfo, logError, formatAdminCoreCommand } from '../common';
 
 // to server-core admin socket
 // uxs: unix socket
 
 const mutex = new Mutex();
-async function sendimpl(command: AdminServerCoreCommand, internal: boolean): Promise<boolean> {
-    const displayCommand = formatAdminServerCoreCommand(command);
+async function sendimpl(command: AdminCoreCommand, internal: boolean): Promise<boolean> {
+    const displayCommand = formatAdminCoreCommand(command);
     // internal commands does not print 'forward command' message
     if (!internal) { logInfo('uxs', chalk`forward {blue ${displayCommand}}`); }
     return await mutex.runExclusive(async () => await impl());
@@ -47,10 +47,10 @@ async function sendimpl(command: AdminServerCoreCommand, internal: boolean): Pro
     }
 }
 
-export function send(command: AdminServerCoreCommand): Promise<boolean> {
+export function sendCoreCommand(command: AdminCoreCommand): Promise<boolean> {
     return sendimpl(command, true);
 }
-export function handle(command: AdminServerCoreCommand, response: http.ServerResponse, rawPayload: string): void {
+export function handleCoreCommand(command: AdminCoreCommand, response: http.ServerResponse, rawPayload: string): void {
     sendimpl(command, false).then(result => {
         if (result) {
             response.write('ACK ' + rawPayload);

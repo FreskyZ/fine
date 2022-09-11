@@ -8,7 +8,7 @@ import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
-    entry: ['script/index.ts', 'script/server/index.ts'],
+    entry: ['script/index.ts', 'script/index-server.ts'],
     sourceMap: 'no',
     watch: false,
 };
@@ -24,7 +24,7 @@ const getMyPackOptions1 = (files: MyPackOptions['files']): MyPackOptions => ({
 });
 const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: '/vbuild/server/index.js',
+    entry: '/vbuild/index-server.js',
     files,
     minify: true,
     shebang: true,

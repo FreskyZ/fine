@@ -46,7 +46,7 @@ export async function eslint(target: string, preset: 'node' | 'browser', pattern
                 '@typescript-eslint/no-non-null-assertion': 'off', // explained in tools/typescript note for strict mode
                 '@typescript-eslint/no-unnecessary-condition': 'off',     // this want a tsconfig file
                 '@typescript-eslint/no-unused-expressions': 'error',
-                '@typescript-eslint/no-var-requires': 'off', // see docs/build-script.md for src/server-core/auto require function call
+                '@typescript-eslint/no-var-requires': 'off', // see docs/build-script.md for src/core/auto require function call
                 '@typescript-eslint/prefer-includes': 'off',              // this want a tsconfig file
                 '@typescript-eslint/prefer-readonly': 'off',              // this want a tsconfig file
                 '@typescript-eslint/semi': 'error',
@@ -87,7 +87,7 @@ export async function eslint(target: string, preset: 'node' | 'browser', pattern
                 '@typescript-eslint/no-non-null-assertion': 'off', // explained in tools/typescript note for strict mode
                 '@typescript-eslint/no-unnecessary-condition': 'off',     // this want a tsconfig file
                 '@typescript-eslint/no-unused-expressions': 'error',
-                '@typescript-eslint/no-var-requires': 'off', // see docs/build-script.md for src/server-core/auto require function call
+                '@typescript-eslint/no-var-requires': 'off',
                 '@typescript-eslint/prefer-includes': 'off',              // this want a tsconfig file
                 '@typescript-eslint/prefer-readonly': 'off',              // this want a tsconfig file
                 '@typescript-eslint/semi': 'error',

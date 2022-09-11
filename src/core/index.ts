@@ -5,7 +5,7 @@ import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
-import type { AdminServerCoreCommand } from '../shared/types/admin';
+import type { AdminCoreCommand } from '../shared/types/admin';
 import type { ContextState } from './auth';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
@@ -56,7 +56,7 @@ socketServer.on('connection', connection => {
     });
     connection.on('data', data => {
         const payload = data.toString('utf-8');
-        let message = { type: 'ping' } as AdminServerCoreCommand;
+        let message = { type: 'ping' } as AdminCoreCommand;
         try {
             message = JSON.parse(payload);
         } catch {

@@ -294,7 +294,7 @@ async function buildOnce(app: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${app}-client} failed at upload`);
     }
-    const adminResult = await admin.servercore({ type: 'content', sub: { type: 'reload-client', app } });
+    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-client', app } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${app}-client} failed at reload`);
     }
@@ -319,8 +319,8 @@ function buildWatch(app: string, additionalHeader?: string) {
 
         if (jsAssets.length > 0) {
             if (await upload(jsAssets.concat(cssAssets).concat([html]), { filenames: false, additionalHeader })) {
-                await admin.servercore({ type: 'content', sub: { type: 'reload-client', app } }, additionalHeader);
-                await admin.webpage(thisRenderJsHasChange ? 'reload-js' : 'reload-css', additionalHeader);
+                await admin.core({ type: 'content', sub: { type: 'reload-client', app } }, additionalHeader);
+                await admin.devpage(thisRenderJsHasChange ? 'reload-js' : 'reload-css', additionalHeader);
             }
         }
     });

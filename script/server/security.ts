@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import type * as http from 'http';
-import type { AdminPayload } from '../../src/shared/types/admin';
+import type { AdminCommand } from '../../src/shared/types/admin';
 
 // encrypt and decrypt command
 
@@ -14,7 +14,7 @@ const scryptPasswordIndex = Math.floor(Math.random() * 899_900 + 99);
 const scryptSaltIndex = Math.floor(Math.random() * 899_900 + 99);
 fs.writeFileSync('akariv', `${port}:${scryptPasswordIndex}:${scryptSaltIndex}`);
 
-export function decrypt(requestBody: string, response: http.ServerResponse): [rawPayload: string, payload: AdminPayload] {
+export function decrypt(requestBody: string, response: http.ServerResponse): [raw: string, command: AdminCommand] {
     if (requestBody.length <= 32) { // smaller than initial vector
         response.statusCode = 400;
         response.end();
@@ -37,7 +37,7 @@ export function decrypt(requestBody: string, response: http.ServerResponse): [ra
     }
 
     try {
-        return [decryptedData, JSON.parse(decryptedData) as AdminPayload];
+        return [decryptedData, JSON.parse(decryptedData) as AdminCommand];
     } catch {
         response.statusCode = 400;
         response.end();

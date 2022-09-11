@@ -5,7 +5,7 @@ import * as zlib from 'zlib';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
-import type { AdminServerCoreContentCommand } from '../shared/types/admin';
+import type { AdminContentCommand } from '../shared/types/admin';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
 
@@ -264,7 +264,7 @@ function handleReloadClient(appname: string) {
         reloadKeyToCache[appname] = files;
     }
 }
-export function handleCommand(data: AdminServerCoreContentCommand): void {
+export function handleCommand(data: AdminContentCommand): void {
     logInfo({ type: 'admin command content', data });
 
     if (data.type == 'reload-page') {

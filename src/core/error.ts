@@ -129,7 +129,7 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
     } catch (error) {
         const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
 
-        // NOTE: after included by server-core and app-server, the definition of MyError will be duplicated and with different reference at runtime
+        // NOTE: after included by core and app-server, the definition of MyError will be duplicated and with different reference at runtime
         // so need to check error.name and type assertion
         if (error instanceof MyError || (error instanceof Error && error.name == 'MyError')) {
             const myerror = error as MyError;
