@@ -45,8 +45,9 @@ export function formatAdminCoreCommand(command: AdminCoreCommand): string {
         case 'ping': return 'ping';
         case 'shutdown': return 'shutdown';
         case 'content': switch (command.sub.type) {
-            case 'reload-client': return `reload-client ${command.sub.app}`;
-            case 'reload-static': return `reload-static ${command.sub.pagename}`;
+            case 'reload-static': return `reload-static ${command.sub.key}`;
+            case 'enable-static': return `enable-static ${command.sub.key}`;
+            case 'disable-static': return `disable-static ${command.sub.key}`;
             case 'enable-source-map': return `source-map enable`;
             case 'disable-source-map': return `source-map disable`;
             default: return `unknown content command ${command}`;

@@ -8,8 +8,9 @@ export type AdminAuthCommand =
     | { type: 'remove-device', deviceId: number };
 
 export type AdminContentCommand =
-    | { type: 'reload-client', app: string }
-    | { type: 'reload-static', pagename: string }
+    | { type: 'reload-static', key: string }
+    | { type: 'enable-static', key: string }
+    | { type: 'disable-static', key: string }
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 

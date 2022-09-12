@@ -7,14 +7,6 @@ import { build as buildStatic } from './targets/static';
 import { build as buildAppServer } from './targets/app-server';
 import { build as buildAppClient } from './targets/app-client';
 
-function validatePage(pagename: string) {
-    if (['home', 'user', '404', '418'].includes(pagename)) {
-        return pagename;
-    } else {
-        console.log('unknown page name');
-        process.exit(1);
-    }
-}
 function validateApp(appname: string) {
     if (config.apps.includes(appname)) {
         return appname;
@@ -30,17 +22,14 @@ process.on('unhandledRejection', error => { console.log('unhandled reject: ', er
 
 const args = [process.argv[2], process.argv[3]].filter(a => a).join(' '); // 0 is node, 1 is akari
 
-// self, public
-if ('self' == args) { buildSelf(); }
-else if ('public' == args) { buildPublic(); }
-
-// core
-else if ('core' == args) { buildCore(false); }
-else if ('watch core' == args) { buildCore(true); }
-
-// simple page
-else if (/^\w+-page$/.test(args)) { buildStatic(validatePage(args.slice(0, -5)), false); }
-else if (/^watch \w+-page$/.test(args)) { buildStatic(validatePage(args.slice(6, -5)), true); }
+/**/ if (args == 'self') { buildSelf(); }
+else if (args == 'public') { buildPublic(); }
+else if (args == 'core') { buildCore(false); }
+else if (args == 'watch core') { buildCore(true); }
+else if (args == 'home') { buildStatic('home', false); }
+else if (args == 'watch home') { buildStatic('home', true); }
+else if (args == 'user') { buildStatic('user', false); }
+else if (args == 'watch user') { buildStatic('user', true); }
 
 // app client, app server
 else if (/^\w+-client/.test(args)) { buildAppClient(validateApp(args.slice(0, -7)), false); }
@@ -49,18 +38,6 @@ else if (/^\w+-both/.test(args)) { buildAppClient(validateApp(args.slice(0, -5))
 else if (/^watch \w+-client/.test(args)) { buildAppClient(validateApp(args.slice(6, -7)), true); }
 else if (/^watch \w+-server/.test(args)) { buildAppServer(validateApp(args.slice(6, -7)), true); }
 else if (/^watch \w+-both/.test(args)) { buildAppClient(validateApp(args.slice(6, -5)), true, 'c'); buildAppServer(validateApp(args.slice(6, -5)), true, 's'); }
-
-// all build
-else if ('all' == args) {
-    buildPublic();
-    buildCore(false);
-    buildStatic('home', false);
-    buildStatic('user', false);
-    buildStatic('404', false);
-    buildStatic('418', false);
-    buildAppServer('wimm', false);
-    buildAppClient('wimm', false);
-}
 
 // service host
 else if ('service start' == args) { calladmin(admin.service('start')); }
@@ -76,5 +53,12 @@ else if ('signup enable' == args) { calladmin(admin.core({ type: 'auth', sub: { 
 else if ('signup disable' == args) { calladmin(admin.core({ type: 'auth', sub: { type: 'disable-signup' } })); }
 else if (/^active-user \d+$/.test(args)) { calladmin(admin.core({ type: 'auth', sub: { type: 'activate-user', userId: parseInt(args.slice(12)) } })); }
 else if (/^inactive-user \d+$/.test(args)) { calladmin(admin.core({ type: 'auth', sub: { type: 'inactivate-user', userId: parseInt(args.slice(14)) } })); }
+
+// content
+else if (/^reload-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'reload-static', key: args.slice(14) } })) }
+else if (/^disable-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'disable-static', key: args.slice(15) } })) }
+else if (/^enable-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'enable-static', key: args.slice(14) } })) }
+else if (args == 'disable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'disable-source-map' } })) }
+else if (args == 'enable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'enable-source-map' } })) }
 
 else { console.log('unknown command'); process.exit(1); }

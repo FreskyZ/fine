@@ -159,10 +159,10 @@ Promise.all([
         });
     }),
 ]).then(() => {
-    logInfo('server core startup');
-    console.log('server core startup' + ('FINE_CERTIFICATE' in process.env ? ' CERTIFICATE' : ''));
+    logInfo('fine core startup');
+    console.log('fine core startup' + ('FINE_CERTIFICATE' in process.env ? ' CERTIFICATE' : ''));
 }).catch(() => {
-    console.error('server core startup failed');
+    console.error('fine core startup failed');
     process.exit(101);
 });
 
@@ -193,11 +193,11 @@ function shutdown() {
             else { resolve(); }
         })),
     ]).then(() => {
-        logInfo('server core shutdown');
-        console.log('server core shutdown');
+        logInfo('fine core shutdown');
+        console.log('fine core shutdown');
         process.exit(0);
     }, () => {
-        console.log('server core shutdown with error');
+        console.log('fine core shutdown with error');
         process.exit(102);
     });
 }

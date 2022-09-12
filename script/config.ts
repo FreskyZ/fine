@@ -9,16 +9,18 @@ import * as fs from 'fs';
 // akari (local) is not and should not use this feature because akari (local) executable file is tracked by version control
 // this module is included only by akari (local) and has paid attention that not accidentally replaced by tools/typescript
 //
+// the can-be-variable names are designed to be used as variable, e.g. mysql.createPool(MYSQL_CONNECTION_STRING)
+// the cannot-be-variable names are designed to be used in string literal, e.g. { key: fs.readFileSync('SSL-KEY'), cert: fs.readFileSync('SSL-CERT') }
+//
 // currently these items are used
 // - APP_NAMES  // csv, will be replaced as array of string literal
 // - domain.com // string
 // - WEBROOT    // deploy location
-// - CODEBOOK   // ?
+// - CODEBOOK   // ?, any random >1MiB file should be ok
 // - ssl: SSL-KEY, SSL-CERT, SSL-FULLCHAIN       // all file paths
 // - ssh: SSH-USER, SSH-IDENTITY, SSH-PASSPHRASE // string, file path, string
 // - db: MYSQL_CONNECTION_STRING                 // mysql.createPool parameter
-// the can-be-variable names are designed to be used as variable, e.g. mysql.createPool(MYSQL_CONNECTION_STRING)
-// the cannot-be-variable names are designed to be used in string literal, e.g. { key: fs.readFileSync('SSL-KEY'), cert: fs.readFileSync('SSL-CERT') }
+// - INIT_STATIC_CONTENT // see src/core/content.ts for explaination and example
 
 class Config {
     private readonly values: Record<string, string>;
@@ -33,6 +35,9 @@ class Config {
 
     public constructor() {
         this.values = JSON.parse(fs.readFileSync('akaric', 'utf-8'));
+        // convert large object back to string, or else they will be [Object object]
+        this.values = Object.fromEntries(Object.entries(this.values).map(([n, v]) => [n, typeof v == 'object' ? JSON.stringify(v) : v]));
+
         this.items = Object.entries(this.values)
             .map<{ name: string, value: string }>(([name, value]) => name == ['APP', 'NAMES'].join('_') ? { name, value: `[${value.split(',').map(v => `'${v}'`).join(', ')}]` } : { name, value });
 

@@ -107,7 +107,7 @@ async function buildOnce(pagename: string): Promise<void> {
     if (!uploadResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at upload`);
     }
-    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-static', pagename } });
+    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-static', key: pagename } });
     if (!adminResult) {
         return logCritical('akr', chalk`{cyan ${pagename}-page} failed at reload`);
     }
@@ -120,7 +120,7 @@ function buildWatch(pagename: string) {
     // mkdir(recursive)
 
     const requestReload = watchvar(() => {
-        admin.core({ type: 'content', sub: { type: 'reload-static', pagename } });
+        admin.core({ type: 'content', sub: { type: 'reload-static', key: pagename } });
     }, { interval: 2021 });
 
     const checker = typescript(getTypeScriptOptions(pagename, true));
