@@ -1,6 +1,9 @@
-import { FC, useState, useEffect } from 'react';
-import ReactDOM from 'react-dom';
+import React, { FC, useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
 import type { UserCredential, UserDevice } from '../shared/types/auth';
+
+// vscode default setting (without tsconfig require import React, but it's actually not used because of the jsx-runtime)
+if (!window.React) { console.log(React); }
 
 // not in react root elements
 const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;
@@ -72,7 +75,7 @@ const SignInTab: FC<{ handleComplete: () => void, handleSignUp: () => void }> = 
             notification('y 登录成功');
             handleComplete();
         } else {
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(9)');
         }
     };
 
@@ -109,7 +112,7 @@ const SignUpTab: FC<{ handleSignIn: () => void, handleComplete: () => void }> = 
             setLoading(false);
             return notification('x ' + (await response.json()).message);
         } else if (response.status != 200) {
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(1)');
         }
         setSecret(await response.json());
         setLoading(false);
@@ -131,7 +134,7 @@ const SignUpTab: FC<{ handleSignIn: () => void, handleComplete: () => void }> = 
             handleComplete();
         } else {
             setLoading(false);
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(2)');
         }
     
         setLoading(false);
@@ -164,7 +167,7 @@ const ManageTab: FC<{
     useEffect(() => { (async() => {
         const response = await fetch('https://api.domain.com/user-devices', { headers: { 'X-Token': localStorage['access-token'] } });
         if (response.status != 200) {
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(3)');
         }
         const devices = (await response.json()) as UserDevice[];
         const devicesf = devices.map<UserDeviceF>(d => ({ ...d, lastTimeF: dayjs.utc(d.lastTime) }));
@@ -183,7 +186,7 @@ const ManageTab: FC<{
             return notification('x ' + (await response.json()).message);
         } if (response.status != 201) {
             setUserName({ ...username, loading: false });
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(4)');
         }
 
         handleSetUserName(username.value);
@@ -198,7 +201,7 @@ const ManageTab: FC<{
             { method: 'PATCH', headers: { 'X-Token': localStorage['access-token'], 'Content-Type': 'application/json' }, body: JSON.stringify({ name: deviceName.value }) });
         if (response.status != 201) {
             setDeviceName({ ...deviceName, loading: false });
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(5)');
         }
 
         handleSetDeviceName(deviceName.value);
@@ -213,7 +216,7 @@ const ManageTab: FC<{
             `https://api.domain.com/user-devices/${deviceId}`,
             { method: 'DELETE', headers: { 'X-Token': localStorage['access-token'] } });
         if (response.status != 204) {
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(6)');
         }
         setDevices(devices.filter(d => d.id != deviceId));
         setRemovingDevice(false);
@@ -227,7 +230,7 @@ const ManageTab: FC<{
             { method: 'DELETE', headers: { 'X-Token': localStorage['access-token'] } });
         if (response.status != 204) {
             setLoggingOut(false);
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(7)');
         }
         localStorage.removeItem('access-token');
         handleLogOutComplete();
@@ -307,7 +310,7 @@ const Page: FC<{}> = () => {
             localStorage.removeItem('access-token');
             setTab('signin');
         } else {
-            return notification('x 看起来坏掉了');
+            return notification('x 看起来坏掉了(8)');
         }
     };
     useEffect(() => { /* ATTENTION do not await because useEffect does not accept this and async hook is designed to be use in this way */ getUserCredential(); }, []);
@@ -331,4 +334,4 @@ const Page: FC<{}> = () => {
     }
 }
 
-ReactDOM.render(<Page />, document.querySelector('main'));
+ReactDOM.createRoot(document.querySelector('main')).render(<Page />);

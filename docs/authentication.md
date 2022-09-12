@@ -3,7 +3,7 @@
 ### Design Principle
 
 - no normal password, only user name and authenticator password
-- only require authorization for api call (request to api subdomain)
+- only require authentication for api call (request to api subdomain)
 - random token, live for 1 month, self refresh
 - after sign in user should name the device, user is able to remove some device from authorized device list
 - each app has its own login page and device list

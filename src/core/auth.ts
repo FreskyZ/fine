@@ -16,10 +16,10 @@ import { logInfo } from './logger';
 export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential }
 type Ctx = koa.ParameterizedContext<ContextState>;
 
-// app related config
-const requireAuthConfig: { [app: string]: boolean } = { 'www': true, 'ak': false, 'wimm': true, 'collect': true };
-const allowedOriginConfig = APP_NAMES.concat(['www']).reduce<{ [origin: string]: string }>(
-    (acc, app) => { acc[`https://${app}.domain.com`] = app; return acc; }, { [`https://domain.com`]: 'www' });
+// AUTHABLE is a { origin: string, app: string }[] for now (more properties may be added)
+// NOTE that origin includes the beginning 'https://'
+// e.g. [{ origin: "app1.domain.com", app: "app1" }, { origin: "app2.domain.com", app: "app2" }]
+const allowedOriginConfig = AUTHABLE.reduce<{ [origin: string]: string }>((acc, item) => { acc[item.origin] = item.app; return acc; }, {});
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
@@ -168,7 +168,6 @@ async function handleRegister(ctx) {
 
 // read X-Token and save user credential to ctx.state is needed by all functions accept sign in
 async function authenticate(ctx: Ctx) {
-    if (!requireAuthConfig[ctx.state.app]) { return; } // ignore allow annoymous
 
     const accessToken = ctx.get('X-Token');
     if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
@@ -317,7 +316,7 @@ async function handleRemoveDevice(ctx, parameters) {
 
 export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
-    // all functions need access control because all of them are called cross origin (from app.domain.com to api.domain.com)
+    // all functions need access control because all of them are called cross origin (from app.domain.com or even anotherdomain.com to api.domain.com)
 
     const origin = ctx.get('origin');
     if (!(origin in allowedOriginConfig)) { return; } // do not set access-control-* and let browser reject it

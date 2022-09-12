@@ -20,7 +20,8 @@ import * as fs from 'fs';
 // - ssl: SSL-KEY, SSL-CERT, SSL-FULLCHAIN       // all file paths
 // - ssh: SSH-USER, SSH-IDENTITY, SSH-PASSPHRASE // string, file path, string
 // - db: MYSQL_CONNECTION_STRING                 // mysql.createPool parameter
-// - INIT_STATIC_CONTENT // see src/core/content.ts for explaination and example
+// - AUTHABLE // see src/core/auth.ts for explain and example
+// - INIT_STATIC_CONTENT // see src/core/content.ts for explain and example
 
 class Config {
     private readonly values: Record<string, string>;
@@ -36,7 +37,7 @@ class Config {
     public constructor() {
         this.values = JSON.parse(fs.readFileSync('akaric', 'utf-8'));
         // convert large object back to string, or else they will be [Object object]
-        this.values = Object.fromEntries(Object.entries(this.values).map(([n, v]) => [n, typeof v == 'object' ? JSON.stringify(v) : v]));
+        this.values = Object.fromEntries(Object.entries(this.values).map(([n, v]) => [n, Array.isArray(v) || typeof v == 'object' ? JSON.stringify(v) : v]));
 
         this.items = Object.entries(this.values)
             .map<{ name: string, value: string }>(([name, value]) => name == ['APP', 'NAMES'].join('_') ? { name, value: `[${value.split(',').map(v => `'${v}'`).join(', ')}]` } : { name, value });

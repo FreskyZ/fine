@@ -204,6 +204,10 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             }
         }
     } else {
+        // when new domain/subdomain added and no included in static content config,
+        // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
+        if (ctx.path == '/') { ctx.status = 404; return; }
+
         const real = path.join("WEBROOT", 'public', ctx.path);
         if (!fs.existsSync(real)) { ctx.status = 404; return; }
 
