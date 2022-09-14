@@ -1,14 +1,18 @@
 import * as mysql from 'mysql';
 
-const pool = mysql.createPool({
-    ...MYSQL_CONNECTION_STRING,
-    typeCast: (field, next) => {
-        if (field.type == 'BIT' && field.length == 1) {
-            return field.buffer()[0] == 1;
-        }
-        return next();
-    },
-});
+let pool: mysql.Pool;
+
+export function initializePool(config: mysql.PoolConfig) {
+    pool = mysql.createPool({
+        ...config,
+        typeCast: (field, next) => {
+            if (field.type == 'BIT' && field.length == 1) {
+                return field.buffer()[0] == 1;
+            }
+            return next();
+        },
+    });
+}
 
 export const QueryDateTimeFormat = {
     datetime: 'YYYY-MM-DD HH:mm:ss',

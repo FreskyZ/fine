@@ -1,4 +1,5 @@
 
+import * as fs from 'fs/promises';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
@@ -28,6 +29,10 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
     { remote: 'index.js', data: packResult.resultJs },
     { remote: 'index.js.map', data: packResult.resultMap! },
 ];
+
+export async function uploadConfig(): Promise<void> {
+    await upload({ remote: 'config', data: await fs.readFile('src/core/config') });
+}
 
 async function buildOnce(): Promise<void> {
     logInfo('akr', chalk`{cyan core}`);

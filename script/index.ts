@@ -1,6 +1,6 @@
 import { admin } from './tools/admin';
 import { build as buildSelf } from './targets/self';
-import { build as buildCore } from './targets/core';
+import { build as buildCore, uploadConfig } from './targets/core';
 import { build as buildPublic } from './targets/public';
 import { build as buildStatic } from './targets/static';
 
@@ -39,9 +39,10 @@ else if (/^inactive-user \d+$/.test(args)) { calladmin(admin.core({ type: 'auth'
 
 // content
 else if (/^reload-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'reload-static', key: args.slice(14) } })) }
-else if (/^disable-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'disable-static', key: args.slice(15) } })) }
-else if (/^enable-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'enable-static', key: args.slice(14) } })) }
 else if (args == 'disable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'disable-source-map' } })) }
 else if (args == 'enable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'enable-source-map' } })) }
+
+// upload config and reload config for static content
+else if (args == 'config') { uploadConfig().then(() => calladmin(admin.core({ type: 'content', sub: { type: 'reload-config' } }))) }
 
 else { console.log('unknown command'); process.exit(1); }

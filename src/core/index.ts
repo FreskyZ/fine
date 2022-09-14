@@ -5,11 +5,14 @@ import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
+import type { PoolConfig } from 'mysql';
 import type { AdminCoreCommand } from '../shared/types/admin';
 import type { ContextState } from './auth';
+import type { StaticContentConfig } from './content';
 import { MyError } from '../shared/error';
 import { logInfo, logError } from './logger';
-import { handleCertificate, handleRequestContent } from './content';
+import { initializePool } from '../shared/database';
+import { handleCertificate, handleRequestContent, initializeContent } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
 import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
 import { handleCommand as handleAuthCommand } from './auth';
@@ -28,6 +31,15 @@ app.use(() => { throw new MyError('unreachable'); }); // assert route correctly 
 
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
+
+// load config
+const config = JSON.parse(fs.readFileSync('config', 'utf-8')) as {
+    ssl: { key: string, cert: string },
+    database: PoolConfig,
+    'static-content': StaticContentConfig,
+};
+initializePool(config.database);
+initializeContent(config['static-content']);
 
 // redirect to secure server from insecure server
 function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {
@@ -79,11 +91,11 @@ socketServer.on('connection', connection => {
 // http server
 const httpServer = http.createServer(handleInsecureRequest);
 const http2Server = 'FINE_CERTIFICATE' in process.env ? https.createServer({
-    key: fs.readFileSync('SSL-KEY', 'utf-8'),
-    cert: fs.readFileSync('SSL-CERT', 'utf-8'),
+    key: fs.readFileSync(config.ssl.key, 'utf-8'),
+    cert: fs.readFileSync(config.ssl.cert, 'utf-8'),
 }, app.callback()) : http2.createSecureServer({
-    key: fs.readFileSync('SSL-KEY', 'utf-8'),
-    cert: fs.readFileSync('SSL-CERT', 'utf-8'),
+    key: fs.readFileSync(config.ssl.key, 'utf-8'),
+    cert: fs.readFileSync(config.ssl.cert, 'utf-8'),
 }, app.callback());
 
 const httpConnections: { [key: string]: net.Socket } = {};

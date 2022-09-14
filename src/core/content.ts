@@ -33,21 +33,6 @@ export async function handleCertificate(ctx: koa.Context, next: koa.Next): Promi
     }
 }
 
-// initial config in akaric: domain => path => realpath mapping
-// - domain is an origin in same origin policy, which is protocol + host + port,
-//   because protocol and port is all https and https default, this key is the host, note that domain.com and www.domain.com is not same origin
-// - path can be "." which means empty
-// - real path must be one of html/js/css or source map's .js.map
-// - last path can be a "*" point to a real path ends with "/*", like "real/path/*",
-//   which loads and mapps are file in webroot/static/real/path directory, not recursive
-// - example: {
-//     "domain.com": { ".": "index.html", "index.css": "index.css", "user": "user.html", "user.js": "user.js" },
-//     "www.domain.com": /* same as domain.com */,
-//     "myapp.domain.com": { ".": "myapp/index.html", "index.js": "myapp/index.js", "index.css": "myapp/index.css", "user": "user.html" },
-//     "anotherdomain.com": { ".": "anotherapp/index.html", "*": "anotherapp/*" }
-// }
-// declare const INIT_STATIC_CONTENT: Record<string, Record<string, string>>;
-
 // if source map is enabled and source map name related js file exists, will try to find the source map file and compress and return
 let AllowSourceMap = false;
 // auto close source map after 2 hours in case akari (server) does not close it
@@ -55,10 +40,21 @@ let DisableSourceMapTimer: NodeJS.Timeout;
 
 // monotonically nondecreasing now used for cache key
 function getnow(): string { return process.hrtime.bigint().toString(16); }
-// file extension to content type (as mime.lookup)
+// file extension to content type (as require('mime').lookup)
 const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json' };
+// compress encodings
+type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Buffer }
+const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
 
-type StaticCacheItem = {
+// host => path => realpath mapping
+// - host is the host in same origin policy, note that any text difference, include domain.com and www.domain.com is not same host
+// - path can be "." which means empty
+// - real path must be one of html/js/css or source map's .js.map
+// - last path can be a "*" point to a real path ends with "/*", like "real/path/*",
+//   which loads and maps file in webroot/static/real/path directory, not recursive
+export type StaticContentConfig = Record<string, Record<string, string>>;
+
+type Item = {
     // relative path
     // - reload will use begin with to invalidate cache items
     // - specially for builtin page, index.html/index.css is 'home', 'user.html/user.js/user.css' is 'user',
@@ -85,73 +81,63 @@ type StaticCacheItem = {
     // encoding is defined in `encodingToEncoder`
     encodedContent: { [encoding: string]: Buffer },
 };
-
-class StaticCache {
+type StaticContent = {
     // primary key is realpath
-    readonly items: StaticCacheItem[] = [];
+    readonly items: Item[];
     // ${host}/${path} to cache item
-    readonly virtualmap: { [virtual: string]: StaticCacheItem } = {};
-    // hide virtual path starts with any item, by returning 404,
-    // admin script can disable/reenable host or host + path at runtime, but not add/remove because that's complex
-    readonly virtualmask: string[] = [];
+    readonly virtualmap: { [virtual: string]: Item };
     // use wildcard configs, realdir is relative directory path without ending '/*'
-    readonly wildcards: { host: string, realdir: string }[] = [];
+    readonly wildcards: { host: string, realdir: string }[];
+}
 
-    getOrAddItem(realpath: string): StaticCacheItem {
-        let item = this.items.find(f => f.realpath == realpath);
-        if (typeof item == 'undefined') {
-            item = {
-                realpath,
-                absolutePath: path.join('WEBROOT', 'static', realpath),
-                contentType: extensionToContentType[path.extname(realpath)],
-                cacheKey: getnow(),
-                content: null,
-                encodedContent: {},
-            };
-            this.items.push(item);
-        }
-        return item;
+let SC: StaticContent;
+
+function getOrAddItem(realpath: string): Item {
+    let item = SC.items.find(f => f.realpath == realpath);
+    if (typeof item == 'undefined') {
+        item = {
+            realpath,
+            absolutePath: path.join('WEBROOT', 'static', realpath),
+            contentType: extensionToContentType[path.extname(realpath)],
+            cacheKey: getnow(),
+            content: null,
+            encodedContent: {},
+        };
+        SC.items.push(item);
     }
+    return item;
+}
 
-    constructor() {
-        // the variable will be replaced when transpiling, assign to variable to reduce duplication,
-        // also there is type error if you directly write { "domain.com": ..., "www.domain.com": ... }[string_variable]
-        // because typescript think { "domain.com": ..., "www.domain.com": ... }'s type is { "domain.com": ..., "www.domain.com": ... }
-        const CONFIG: Record<string, Record<string, string>> = INIT_STATIC_CONTENT;
+// initialize, or reinitialize
+export function initializeContent(config: StaticContentConfig) {
+    SC = { items: [], virtualmap: {}, wildcards: [] };
 
-        for (const host in CONFIG) {
-            for (const virtualpath in CONFIG[host]) {
-                const realpath = CONFIG[host][virtualpath];
-                if (virtualpath != '*') {
-                    if (path.extname(realpath) in extensionToContentType) {
-                        this.virtualmap[path.join(host, virtualpath)] = this.getOrAddItem(realpath);
-                    } else {
-                        logInfo(`content: configured realpath not allowed: ${host} => ${virtualpath} => ${realpath}`);
-                    }
+    for (const [host, virtualpath, realpath] of Object.entries(config)
+        .flatMap(([host, mappings]) => Object.entries(mappings).map(([vpath, rpath]) => [host, vpath, rpath]))) {
+        if (virtualpath != '*') {
+            if (path.extname(realpath) in extensionToContentType) {
+                SC.virtualmap[path.join(host, virtualpath)] = getOrAddItem(realpath);
+            } else {
+                logInfo(`content: configured realpath not allowed: ${host} => ${virtualpath} => ${realpath}`);
+            }
+        } else {
+            const realdir = realpath.slice(0, realpath.length - 2);
+            const absoluteDir = path.join('WEBROOT', 'static', realdir);
+            if (!fs.existsSync(absoluteDir)) {
+                logInfo(`content: configured realpath not exist: ${host} => ${virtualpath} => ${realpath}`);
+                continue;
+            }
+            for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true }).filter(e => e.isFile())) {
+                if (path.extname(entry.name) in extensionToContentType) {
+                    SC.virtualmap[path.join(host, entry.name)] = getOrAddItem(path.join(realdir, entry.name));
                 } else {
-                    const realdir = realpath.slice(0, realpath.length - 2);
-                    const absoluteDir = path.join('WEBROOT', 'static', realdir);
-                    if (!fs.existsSync(absoluteDir)) {
-                        logInfo(`content: configured realpath not exist: ${host} => ${virtualpath} => ${realpath}`);
-                        continue;
-                    }
-                    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true }).filter(e => e.isFile())) {
-                        if (path.extname(entry.name) in extensionToContentType) {
-                            this.virtualmap[path.join(host, entry.name)] = this.getOrAddItem(path.join(realdir, entry.name));
-                        } else {
-                            logInfo(`content: configured realpath ${host} => ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
-                        }
-                    }
-                    this.wildcards.push({ host, realdir });
+                    logInfo(`content: configured realpath ${host} => ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
                 }
             }
+            SC.wildcards.push({ host, realdir });
         }
     }
 }
-const CACHE = new StaticCache();
-
-type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Buffer }
-const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
 
 export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
     if (ctx.subdomains[0] == 'api') { return await next(); } // goto api
@@ -159,13 +145,11 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
 
     const virtual = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
 
-    // disabled virtual path
-    if (CACHE.virtualmask.some(m => virtual.includes(m))) { ctx.status = 404; return; }
     // disabled source map
     if (virtual.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
 
-    if (virtual in CACHE.virtualmap) {
-        const item = CACHE.virtualmap[virtual];
+    if (virtual in SC.virtualmap) {
+        const item = SC.virtualmap[virtual];
 
         if (item.content === null) {
             if (!fs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
@@ -222,9 +206,9 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
 
 function handleReloadStatic(key: string) {
 
-    for (const item of CACHE.items.filter(i => i.realpath.startsWith(key))) {
+    for (const item of SC.items.filter(i => i.realpath.startsWith(key))) {
         if (!fs.existsSync(item.absolutePath)) {
-            CACHE.items.splice(CACHE.items.findIndex(i => i.realpath == item.realpath), 1);
+            SC.items.splice(SC.items.findIndex(i => i.realpath == item.realpath), 1);
         } else if (item.content === null) {
             // nothing happen when item never requested,
             // when actually requested, the handler will load newest content
@@ -238,7 +222,7 @@ function handleReloadStatic(key: string) {
         }
     }
 
-    for (const { host, realdir } of CACHE.wildcards.filter(w => w.realdir.startsWith(key))) {
+    for (const { host, realdir } of SC.wildcards.filter(w => w.realdir.startsWith(key))) {
         const absolutedir = path.join('WEBROOT', 'static', realdir);
         if (!fs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
@@ -247,7 +231,7 @@ function handleReloadStatic(key: string) {
         }
         for (const entry of fs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
             if (path.extname(entry.name) in extensionToContentType) {
-                CACHE.virtualmap[path.join(host, entry.name)] = CACHE.getOrAddItem(path.join(realdir, entry.name));
+                SC.virtualmap[path.join(host, entry.name)] = getOrAddItem(path.join(realdir, entry.name));
             } else {
                 logInfo(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`)
             }
@@ -259,14 +243,9 @@ export function handleCommand(data: AdminContentCommand): void {
 
     if (data.type == 'reload-static') {
         handleReloadStatic(data.key);
-    } else if (data.type == 'enable-static') {
-        if (CACHE.virtualmask.includes(data.key)) {
-            CACHE.virtualmask.splice(CACHE.virtualmask.indexOf(data.key), 1);
-        }
-    } else if (data.type == 'disable-static') {
-        if (!CACHE.virtualmask.includes(data.key)) {
-            CACHE.virtualmask.push(data.key);
-        }
+    } else if (data.type == 'reload-config') {
+        // throw away all old cache
+        initializeContent(JSON.parse(fs.readFileSync('config', 'utf-8'))['static-content']);
     } else if (data.type == 'enable-source-map') {
         AllowSourceMap = true;
         if (DisableSourceMapTimer) {
