@@ -2,46 +2,59 @@
 
 build script builds, deploys and maintenances the whole project
 
-2 executable files,
-- one running on develop environment, which
-  - transpile sass and merge css
-  - transpile typescript and pack javascript
-  - other build process like code generation and lint
-  - render html template
-  - deploy build result
+include 3 executable files,
+
+- the major one, called akari (local), (or if unambiguous, akari), running on development environment, which
+  - build self
+  - build, deploy and debug core module
+  - build builtin pages include home page and user page
+  - deploy public assets
+  - other devops like lint
   - provide cli to forward other admin commands
-- one running on server deploy environment, which
-  - restarts server after server-core deploy
-  - hot reload server component or statiic file after deploy
-  - receives other admin command and forward to server-core
+- akari (server), running on deployment environment, which
+  - provide debug and management interface for core process, in a really strange way to increase safety
+  - forward admin commands to core process and backward(?) result from core process
+  - host core process for actual debug experience
+- akari (app), running on app development environment, which
+  - also transpiles sass and typescript and bundle
+  - code generation api declaration
+  - sdk deployment (TBD)
+  - deploy build result and hot reload them
 
 in additional
-- all build script is in `script` directory except the ones that must be in server-core
+
 - build script is written in typescript and it is build by itself, to prevent bootstrap issues, the executable file is tracked by version control
-- the 2 executable files are all called `akari`, who is akarin?
-- build script is invoked directly, that is *8* letters less then `npm run akari target` and *5* letters less than `node akari target`
+- all executable files are all called `akari`, who is akarin?
+- build script is invoked directly, that is *8* characters less then `npm run akari args` and *5* characters less than `node akari args`
 
 ## CLI Reference
 
-akari local
+akari (local)
 
 ```shell
 $ akari self
 $ akari public
-$ akari server-core
-$ akari watch server-core
-$ akari home-page
-$ akari watch home-page
-$ akari cost-server
-$ akari cost-client
-$ akari watch cost-server
-$ akari watch cost-client
-$ akari watch cost-both
-$
-$ akari all
+$ akari core
+$ akari watch core
+$ akari static
+$ akari watch static
 ```
 
-akari server does not have command line interface but is started by systemctl because the ssh session will be long no action when developing, let systemctl start it and leave it running is more proper
+akari (server), recommend register as a service
+
+```shell
+$ akari
+```
+
+akari (app)
+
+```shell
+$ akari client
+$ akari server
+$ akari watch client
+$ akari watch server
+$ akari watch both
+```
 
 ## No Build Config File
 

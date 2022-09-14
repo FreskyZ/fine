@@ -6,25 +6,21 @@ import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
-const typescriptOptions: TypeScriptOptions = {
+const entryNames = {
+    'local': 'index',
+    'server': 'index-server',
+    'app': 'index-app',
+} as Record<string, string>;
+
+const getTypescriptOptions = (target: string): TypeScriptOptions => ({
     base: 'normal',
-    entry: ['script/index.ts', 'script/index-server.ts'],
+    entry: `script/${entryNames[target]}.ts`,
     sourceMap: 'no',
     watch: false,
-};
-
-const getMyPackOptions1 = (files: MyPackOptions['files']): MyPackOptions => ({
-    type: 'app',
-    entry: '/vbuild/index.js',
-    files,
-    output: 'akari',
-    minify: true,
-    shebang: true,
-    cleanupFiles: false,
 });
-const getMyPackOptions2 = (files: MyPackOptions['files']): MyPackOptions => ({
+const getMyPackOptions = (target: string, files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: '/vbuild/index-server.js',
+    entry: `/vbuild/${entryNames[target]}.js`,
     files,
     minify: true,
     shebang: true,
@@ -35,36 +31,28 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
     { data: packResult.resultJs, remote: 'akari', mode: 0o777 },
 ];
 
-export async function build(): Promise<void> {
-    logInfo('akr', chalk`{cyan self}`);
+export async function build(target: string): Promise<void> {
+    logInfo('akr', chalk`{cyan self} ${target}`);
     await eslint('self', 'node', 'script/**/*.ts');
 
-    const checkResult = typescript(typescriptOptions).check();
+    const checkResult = typescript(getTypescriptOptions(target)).check();
     if (!checkResult.success) {
         return logCritical('akr', chalk`{cyan self} failed at transpile`);
     }
 
-    // multi target mypack is complex, just call twice
-    await Promise.all([
-        (async (): Promise<void> => {
-            const packResult = await mypack(getMyPackOptions1(checkResult.files), '(1)').run();
-            if (!packResult.success) {
-                return logCritical('akr', chalk`{cyan self} failed at pack (1)`);
-            }
-            fs.writeFileSync('akari', packResult.resultJs);
-        })(),
-        (async (): Promise<void> => {
-            const packResult = await mypack(getMyPackOptions2(checkResult.files), '(2)').run();
-            if (!packResult.success) {
-                return logCritical('akr', chalk`{cyan self} failed at pack (2)`);
-            }
+    const packResult = await mypack(getMyPackOptions(target, checkResult.files)).run();
+    if (!packResult.success) {
+        return logCritical('akr', chalk`{cyan self} failed at pack`);
+    }
 
-            const uploadResult = await upload(getUploadAssets(packResult));
-            if (!uploadResult) {
-                return logCritical('akr', chalk`{cyan self} failed at upload`);
-            }
-        })(),
-    ]);
+    if (target == 'local') {
+        fs.writeFileSync('akari', packResult.resultJs);
+    } else if (target == 'server') {
+        const uploadResult = await upload(getUploadAssets(packResult));
+        if (!uploadResult) {
+            return logCritical('akr', chalk`{cyan self} failed at upload`);
+        }
+    }
 
     logInfo('akr', chalk`{cyan self} completed successfully`);
 }
