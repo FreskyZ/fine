@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as chalk from 'chalk';
 import { logInfo, logCritical, watchvar } from '../common';
-import { config } from '../config';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
