@@ -30,8 +30,7 @@ const getSassOptions = (pagename: string): SassOptions => ({
 });
 const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult | 'html'): Asset => result == 'html' ? {
     remote: `static/${pagename}.html`,
-    // apply domain.com for index.html
-    data: Buffer.from(fs.readFileSync(`src/static/${pagename}.html`, 'utf-8').replaceAll(['domain', 'com'].join('.'), config.domain)),
+    data: Buffer.from(fs.readFileSync(`src/static/${pagename}.html`)),
 } : 'files' in result ? {
     remote: `static/${pagename}.js`,
     data: Buffer.from(result.files[0].content),

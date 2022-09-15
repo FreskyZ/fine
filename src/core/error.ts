@@ -23,7 +23,7 @@ interface StackFrame {
 const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
 // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
 async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
-    if (!jsFileName.startsWith("WEBROOT")) {
+    if (!jsFileName.startsWith("webroot")) {
         return null;
     }
     const mapFileName = jsFileName + '.map';

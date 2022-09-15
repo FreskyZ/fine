@@ -1,6 +1,8 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as chalk from 'chalk';
 import { logInfo, logCritical } from '../common';
+import { config } from '../config';
 import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
@@ -17,6 +19,7 @@ const getTypescriptOptions = (target: string): TypeScriptOptions => ({
     entry: `script/${entryNames[target]}.ts`,
     sourceMap: 'no',
     watch: false,
+    configSubstitution: target == 'server',
 });
 const getMyPackOptions = (target: string, files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
@@ -46,12 +49,15 @@ export async function build(target: string): Promise<void> {
     }
 
     if (target == 'local') {
-        fs.writeFileSync('akari', packResult.resultJs);
+        await fs.promises.writeFile('akari', packResult.resultJs);
     } else if (target == 'server') {
         const uploadResult = await upload(getUploadAssets(packResult));
         if (!uploadResult) {
             return logCritical('akr', chalk`{cyan self} failed at upload`);
         }
+    } else if (target == 'app') {
+        await Promise.all(config.apps.filter(a => a.devrepo).map(a =>
+            fs.promises.writeFile(path.join(a.devrepo, 'akari'), packResult.resultJs)));
     }
 
     logInfo('akr', chalk`{cyan self} completed successfully`);

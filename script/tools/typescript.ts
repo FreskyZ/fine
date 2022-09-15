@@ -11,6 +11,7 @@ export type TypeScriptOptions = {
     sourceMap: 'no' | 'normal' | 'hide',
     watch: boolean,
     additionalLib?: string[],
+    configSubstitution?: boolean, // default to true, self local should not use config substitution
 } | {
     base: 'jsx-page', // user-page
     entry: string,
@@ -143,9 +144,10 @@ function setupReadFileHook() {
     ts.sys.readFile = (fileName, encoding) => {
         let fileContent = originalReadFile(fileName, encoding);
         if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
-            for (const { name, value } of config.items) {
-                fileContent = fileContent!.replaceAll(name, value);
-            }
+            fileContent = fileContent.replaceAll('domain.com', config.domain);
+            fileContent = fileContent.replaceAll('webroot', config.webroot);
+            // this is special, but auth is special so ok
+            fileContent = fileContent.replaceAll('APPSETTING', JSON.stringify(config.apps.map(a => ({ name: a.name, origin: a.origin }))));
         }
         return fileContent;
     };
@@ -198,7 +200,9 @@ class TypeScriptChecker {
 
     public check(): TypeScriptResult {
         logInfo('tsc', chalk`once {yellow ${this.options.entry}}`);
-        setupReadFileHook();
+        if (this.options.base != 'normal' || typeof this.options.configSubstitution == 'undefined' || this.options.configSubstitution) {
+            setupReadFileHook();
+        }
 
         const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         const program = ts.createProgram(entry, this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
@@ -213,8 +217,9 @@ class TypeScriptChecker {
     // callback only called when watch recheck success
     public watch(callback: (result: TypeScriptResult) => any) {
         logInfo(`tsc${this.additionalHeader}`, chalk`watch {yellow ${this.options.entry}}`);
-
-        setupReadFileHook();
+        if (this.options.base != 'normal' || typeof this.options.configSubstitution == 'undefined' || this.options.configSubstitution) {
+            setupReadFileHook();
+        }
 
         // NOTE: the following hooked emit will only write changed files, so this list is in this scope instead of that hook scope
         // ATTENTION: not used files (deleted and not imported) is not calling any delete,

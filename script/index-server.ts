@@ -5,14 +5,17 @@ import * as https from 'https';
 import * as net from 'net';
 import * as WebSocket from 'ws';
 import { logInfo, logError } from './common';
-import { port, decrypt } from './server/security';
+import { port, decrypt, initializeSecurity } from './server/security';
 import { sendCoreCommand, handleCoreCommand } from './server/core';
 import { handleDevScriptRequest, handleDevPageCommand } from './server/dev-page';
 import { handleServiceCommand, handleSelfHostCommand, stopSelfHost } from './server/host';
 
 // akari (server) entry, see docs/build-script.md
 
-const httpsServer = https.createServer({ key: fs.readFileSync('SSL-KEY'), cert: fs.readFileSync('SSL-FULLCHAIN') }, handleCommand);
+const config = JSON.parse(fs.readFileSync('config', 'utf-8'));
+initializeSecurity(config['codebook']);
+
+const httpsServer = https.createServer({ key: fs.readFileSync(config['ssl']['key']), cert: fs.readFileSync(config['ssl']['fullchain']) }, handleCommand);
 const wsServer = new WebSocket.Server({ server: httpsServer });
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {

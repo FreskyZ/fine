@@ -1,4 +1,3 @@
-/// <reference path="../shared/types/config.d.ts" />
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
@@ -16,10 +15,18 @@ import { logInfo } from './logger';
 export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential }
 type Ctx = koa.ParameterizedContext<ContextState>;
 
-// AUTHABLE is a { origin: string, app: string }[] for now (more properties may be added)
-// NOTE that origin includes the beginning 'https://'
-// e.g. [{ origin: "app1.domain.com", app: "app1" }, { origin: "app2.domain.com", app: "app2" }]
-const allowedOriginConfig = AUTHABLE.reduce<{ [origin: string]: string }>((acc, item) => { acc[item.origin] = item.app; return acc; }, {});
+// config in akaric
+const appsetting: {
+    // app name, will become ctx.state.app (for now) and is api's path: api.domain.com/:app/v1/...
+    name: string,
+    // the origin url, this present, has api, and has user.html (and user.js) should be same
+    // note that origin includes the beginning 'https://'
+    origin?: string,
+// @ts-ignore simply ignore should be easier for these variables
+}[] = APPSETTING;
+
+const appnames = appsetting.map(a => a.name);
+const allowedOrigins = appsetting.reduce<{ [origin: string]: string }>((acc, item) => { acc[item.origin] = item.name; return acc; }, {});
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
@@ -319,7 +326,7 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Prom
     // all functions need access control because all of them are called cross origin (from app.domain.com or even anotherdomain.com to api.domain.com)
 
     const origin = ctx.get('origin');
-    if (!(origin in allowedOriginConfig)) { return; } // do not set access-control-* and let browser reject it
+    if (!(origin in allowedOrigins)) { return; } // do not set access-control-* and let browser reject it
 
     ctx.vary('Origin');
     ctx.set('Access-Control-Allow-Origin', origin);
@@ -327,7 +334,7 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Prom
     ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Token');
     if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // handling of OPTIONS is finished here
 
-    ctx.state.app = allowedOriginConfig[origin];
+    ctx.state.app = allowedOrigins[origin];
     await next();
 }
 
@@ -353,7 +360,7 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next): Pro
 export async function handleApplications(ctx: Ctx): Promise<void> {
     if (!ctx.state.app) { throw new MyError('unreachable'); }
 
-    for (const app of APP_NAMES) {
+    for (const app of appnames) {
         if (new RegExp('^/' + app).test(ctx.path)) {
 
             let dispatch: (ctx: Ctx) => Promise<void>;

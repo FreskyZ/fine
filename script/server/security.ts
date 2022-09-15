@@ -6,7 +6,10 @@ import type { AdminCommand } from '../../src/shared/types/admin';
 // encrypt and decrypt command
 
 // shadiao codebook
-const codebook = fs.readFileSync('CODEBOOK', 'utf-8');
+let codebook: string;
+export function initializeSecurity(codebookfile: string) {
+    codebook = fs.readFileSync(codebookfile, 'utf-8');
+}
 
 // generate random port, scrypt password and scrypt salt and store
 export const port = Math.floor(Math.random() * 98 + 8001);

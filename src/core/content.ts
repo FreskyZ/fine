@@ -1,4 +1,3 @@
-/// <reference path="../shared/types/config.d.ts" />
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
@@ -97,7 +96,7 @@ function getOrAddItem(realpath: string): Item {
     if (typeof item == 'undefined') {
         item = {
             realpath,
-            absolutePath: path.join('WEBROOT', 'static', realpath),
+            absolutePath: path.join('webroot', 'static', realpath),
             contentType: extensionToContentType[path.extname(realpath)],
             cacheKey: getnow(),
             content: null,
@@ -122,7 +121,7 @@ export function initializeContent(config: StaticContentConfig) {
             }
         } else {
             const realdir = realpath.slice(0, realpath.length - 2);
-            const absoluteDir = path.join('WEBROOT', 'static', realdir);
+            const absoluteDir = path.join('webroot', 'static', realdir);
             if (!fs.existsSync(absoluteDir)) {
                 logInfo(`content: configured realpath not exist: ${host} => ${virtualpath} => ${realpath}`);
                 continue;
@@ -144,7 +143,6 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     if (ctx.method != 'GET') { throw new MyError('method-not-allowed'); } // reject not GET
 
     const virtual = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
-
     // disabled source map
     if (virtual.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
 
@@ -192,7 +190,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
         if (ctx.path == '/') { ctx.status = 404; return; }
 
-        const real = path.join("WEBROOT", 'public', ctx.path);
+        const real = path.join("webroot", 'public', ctx.path);
         if (!fs.existsSync(real)) { ctx.status = 404; return; }
 
         ctx.type = path.extname(ctx.path);
@@ -223,7 +221,7 @@ function handleReloadStatic(key: string) {
     }
 
     for (const { host, realdir } of SC.wildcards.filter(w => w.realdir.startsWith(key))) {
-        const absolutedir = path.join('WEBROOT', 'static', realdir);
+        const absolutedir = path.join('webroot', 'static', realdir);
         if (!fs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
             logInfo(`content: configured realpath not exist: ${host} => * => ${realdir}`);
