@@ -89,8 +89,10 @@ export async function build(target: string): Promise<void> {
             return logCritical('akr', chalk`{cyan self} failed at upload`);
         }
     } else if (target == 'app') {
-        await Promise.all(config.apps.filter(a => a.devrepo).map(a =>
-            fs.promises.writeFile(path.join(a.devrepo, 'akari'), packResult.resultJs)));
+        await Promise.all(config.apps.filter(a => a.devrepo).map(a => {
+            logInfo('akr', chalk`copy to {yellow ${a.devrepo}}`);
+            return fs.promises.writeFile(path.join(a.devrepo, 'akari'), packResult.resultJs);
+        }));
     }
 
     logInfo('akr', chalk`{cyan self} completed successfully`);

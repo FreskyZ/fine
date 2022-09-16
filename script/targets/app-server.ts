@@ -1,82 +1,87 @@
+import * as fs from 'fs';
 import * as chalk from 'chalk';
+import { config } from '../config';
 import { logInfo, logCritical } from '../common';
-import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
-import { codegen } from '../tools/codegen';
+// import { codegen } from '../tools/codegen';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
-const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
+const getTypeScriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
-    entry: `src/${app}/server/index.ts`,
-    sourceMap: 'hide',
+    entry: `src/index.ts`,
+    sourceMap: 'normal',
     watch,
 });
-const getMyPackOptions = (app: string, files: MyPackOptions['files']): MyPackOptions => ({
-    type: 'lib',
-    entry: `/vbuild/${app}/server/index.js`,
+const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
+    type: 'app',
+    entry: `/vbuild/index.js`,
     files,
     sourceMap: true,
-    output: `${app}/server.js`,
+    output: `index.js`,
     printModules: true,
     minify: true,
 });
-const getUploadAssets = (app: string, packResult: MyPackResult): Asset[] => [
-    { remote: `${app}/server.js`, data: packResult.resultJs },
-    { remote: `${app}/server.js.map`, data: packResult.resultMap! },
+const getUploadAssets = (packResult: MyPackResult): Asset[] => [
+    { remote: `index.js`, data: packResult.resultJs },
+    { remote: `index.js.map`, data: packResult.resultMap! },
 ];
 
-async function buildOnce(app: string): Promise<void> {
-    logInfo('akr', chalk`{cyan ${app}-server}`);
-    await eslint(`${app}-server`, 'node', ['src/shared/**/*.ts', `src/${app}/server/**/*.ts`]);
-    // mkdir(recursive)
-
-    const codegenResult = await codegen(app, 'server').generate();
-    if (!codegenResult.success) {
-        return logCritical('akr', chalk`{cyan ${app}-server} failed at code generation`);
-    }
-
-    const checkResult = typescript(getTypeScriptOptions(app, false)).check();
-    if (!checkResult.success) {
-        return logCritical('akr', chalk`{cyan ${app}-server} failed at check`);
-    }
-
-    const packResult = await mypack(getMyPackOptions(app, checkResult.files)).run();
-    if (!packResult.success) {
-        return logCritical('akr', chalk`{cyan ${app}-server} failed at pack`);
-    }
-
-    const uploadResult = await upload(getUploadAssets(app, packResult));
-    if (!uploadResult) {
-        return logCritical('akr', chalk`{cyan ${app}-server} failed at upload`);
-    }
-    const adminResult = await admin.core({ type: 'auth', sub: { type: 'reload-server', app } });
-    if (!adminResult) {
-        return logCritical('akr', chalk`{cyan ${app}-server} failed at reload`);
-    }
-
-    logInfo('akr', chalk`{cyan ${app}-server} complete successfully`);
+export async function uploadConfig(): Promise<void> {
+    await upload({ remote: 'config', data: await fs.promises.readFile('src/config') });
 }
 
-function buildWatch(app: string, additionalHeader?: string) {
-    logInfo(`akr${additionalHeader ?? ''}`, chalk`watch {cyan ${app}-server}`);
+async function buildOnce(): Promise<void> {
+    logInfo('akr', chalk`{cyan server}`);
+    await eslint(`server`, 'node', [`src/**/*.ts`]);
     // mkdir(recursive)
 
-    codegen(app, 'server', additionalHeader).watch(); // no callback watch is this simple
+    // const codegenResult = await codegen(app, 'server').generate();
+    // if (!codegenResult.success) {
+    //     return logCritical('akr', chalk`{cyan ${app}-server} failed at code generation`);
+    // }
 
-    const packer = mypack(getMyPackOptions(app, []), additionalHeader);
-    typescript(getTypeScriptOptions(app, true), additionalHeader).watch(async ({ files }) => {
+    const checkResult = typescript(getTypeScriptOptions(false)).check();
+    if (!checkResult.success) {
+        return logCritical('akr', chalk`{cyan server} failed at check`);
+    }
+
+    const packResult = await mypack(getMyPackOptions(checkResult.files)).run();
+    if (!packResult.success) {
+        return logCritical('akr', chalk`{cyan server} failed at pack`);
+    }
+
+    const uploadResult = await upload(getUploadAssets(packResult), { basedir: config.approot });
+    if (!uploadResult) {
+        return logCritical('akr', chalk`{cyan server} failed at upload`);
+    }
+    // const adminResult = await admin.core({ type: 'auth', sub: { type: 'reload-server', app } });
+    // if (!adminResult) {
+    //     return logCritical('akr', chalk`{cyan server} failed at reload`);
+    // }
+
+    logInfo('akr', chalk`{cyan server} complete successfully`);
+}
+
+function buildWatch(additionalHeader?: string) {
+    logInfo(`akr${additionalHeader ?? ''}`, chalk`watch {cyan server}`);
+    // mkdir(recursive)
+
+    // codegen(app, 'server', additionalHeader).watch(); // no callback watch is this simple
+
+    const packer = mypack(getMyPackOptions([]), additionalHeader);
+    typescript(getTypeScriptOptions(true), additionalHeader).watch(async ({ files }) => {
         packer.updateFiles(files);
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
-            if (await upload(getUploadAssets(app, packResult), { additionalHeader })) {
-                await admin.core({ type: 'auth', sub: { type: 'reload-server', app } }, additionalHeader);
+            if (await upload(getUploadAssets(packResult), { additionalHeader })) {
+                // await admin.core({ type: 'auth', sub: { type: 'reload-server', app } }, additionalHeader);
             }
         }
     });
 }
 
-export function build(app: string, watch: boolean, additionalHeader?: string): void {
-    (watch ? buildWatch : buildOnce)(app, additionalHeader);
+export function build(watch: boolean, additionalHeader?: string): void {
+    (watch ? buildWatch : buildOnce)(additionalHeader);
 }

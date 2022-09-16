@@ -12,6 +12,15 @@ export interface Asset {
     mode?: number,  // default to 0o644
 }
 
+export interface UploadOptions {
+    // base directory, default to config.webroot
+    basedir?: string,
+    // display files names in message
+    filenames?: boolean,
+    // additional header for message
+    additionalHeader?: string,
+}
+
 const sshconnect = {
     host: config.domain,
     username: config.ssh.user,
@@ -19,7 +28,7 @@ const sshconnect = {
     passphrase: config.ssh.passphrase,
 };
 
-export async function upload(assets: Asset | Asset[], options?: { filenames?: boolean, additionalHeader?: string }): Promise<boolean> {
+export async function upload(assets: Asset | Asset[], options?: UploadOptions): Promise<boolean> {
     assets = Array.isArray(assets) ? assets : [assets];
     const client = new SFTPClient();
 
@@ -34,7 +43,7 @@ export async function upload(assets: Asset | Asset[], options?: { filenames?: bo
         await client.connect(sshconnect);
 
         for (const asset of assets) {
-            await client.put(asset.data, path.join(config.webroot, asset.remote), { writeStreamOptions: { mode: asset.mode || 0o644 } });
+            await client.put(asset.data, path.join(options?.basedir ?? config.webroot, asset.remote), { writeStreamOptions: { mode: asset.mode || 0o644 } });
         }
         await client.end();
         logInfo(`ssh${options?.additionalHeader ?? ''}`, chalk`upload {yellow ${assets.length}} files ${!options?.filenames ? assets.map(a => chalk.yellow(path.basename(a.remote))) : ''}`);
