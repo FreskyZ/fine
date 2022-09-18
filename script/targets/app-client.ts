@@ -20,17 +20,17 @@ import { Asset as /* compare to webpack asset */ MyAsset, upload } from '../tool
 import { SassOptions, sass } from '../tools/sass';
 import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
 
-const getTypeScriptOptions = (app: string, watch: boolean): TypeScriptOptions => ({
+const getTypeScriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'jsx-app',
-    entry: `src/${app}/client/index.tsx`,
+    entry: `src/ui/index.tsx`,
     sourceMap: 'normal',
     watch,
 });
-const getSassOptions = (app: string): SassOptions => ({
-    entry: `src/${app}/client/index.sass`,
+const getSassOptions = (): SassOptions => ({
+    entry: `src/ui/index.sass`,
 });
-const getUploadJsAssets = (app: string, additional: AdditionalStat): MyAsset[] => Object.entries(additional.assets).map((asset) => ({
-    remote: `${app}/${asset[0]}`,
+const getUploadJsAssets = (additional: AdditionalStat): MyAsset[] => Object.entries(additional.assets).map((asset) => ({
+    remote: `static/${config.appname}/${asset[0]}`,
     data: asset[1].data,
 }));
 
@@ -38,13 +38,13 @@ const getUploadJsAssets = (app: string, additional: AdditionalStat): MyAsset[] =
 // 0 is not minify, 1 is fast minify, 2 is full minify, default to 2
 const sizeOptimizeLevelKey = 'AKARIN_APP_CLIENT_OSIZE';
 const sizeOptimizeLevel = sizeOptimizeLevelKey in process.env ? (process.env[sizeOptimizeLevelKey] === '0' ? 0 : parseInt(process.env[sizeOptimizeLevelKey]!) || 2) : 2;
-const getWebpackConfiguration = (app: string): webpack.Configuration => ({
+const getWebpackConfiguration = (): webpack.Configuration => ({
     mode: 'development', // production force disable cache, so use development mode with production optimization settings
-    entry: { 'client': path.resolve('src', app, 'client', 'index.js') },
+    entry: { 'index': path.resolve('src', 'ui', 'index.js') },
     module: { rules: [{ test: /\.js$/, exclude: /node_modules/, enforce: 'pre', use: ['source-map-loader'] }] },
-    output: { filename: 'client.js', path: '/vbuild', pathinfo: false },
+    output: { filename: 'index.js', path: '/vbuild', pathinfo: false },
     devtool: false, // use SourceMapDevToolPlugin instead of this
-    cache: { type: 'filesystem', name: `webpack-akari-${app}`, cacheDirectory: path.resolve('.cache') },
+    cache: { type: 'filesystem', name: `webpack-akari-${config.appname}`, cacheDirectory: path.resolve('.cache') },
     performance: { hints: false }, // entry point size issue is handled by cache control and initial loading placeholder not your warning
     optimization: {
         moduleIds: 'deterministic', chunkIds: 'deterministic', mangleExports: 'deterministic',
@@ -97,10 +97,10 @@ interface AdditionalStat {
 }
 
 // watching only for display
-function createWebpackCompiler(app: string, inputfs: any, watching: boolean, additionalHeader?: string): [webpack.Compiler, AdditionalStat] {
-    logInfo(`wpk${additionalHeader}`, chalk`${watching ? 'watch' : 'once'} {yellow src/${app}/client/index.js}`);
+function createWebpackCompiler(inputfs: any, watching: boolean, additionalHeader?: string): [webpack.Compiler, AdditionalStat] {
+    logInfo(`wpk${additionalHeader}`, chalk`${watching ? 'watch' : 'once'} {yellow src/ui/index.js}`);
 
-    const compiler = webpack(getWebpackConfiguration(app));
+    const compiler = webpack(getWebpackConfiguration());
     const additional: AdditionalStat = { assets: {} };
 
     // their type is very mismatch but they very can work at runtime
@@ -127,7 +127,7 @@ function printWebpackResult(stats: WebpackStat, additional: AdditionalStat, addi
     additionalHeader = additionalHeader ?? '';
     const reportFileName = `/tmp/akari-stats-${dayjs().format('YYYYMMDD-HHmmss')}.txt`;
 
-    const getCompressSize = (a: string) => additional.assets[a].compressSize;
+    const getCompressSize = (a: string) => additional.assets[a]?.compressSize;
     const totalAssetSize = filesize(stats.assets.reduce<number>((acc, a) => acc + a.size, 0));
     const totalCompressSize = filesize(stats.assets.reduce<number>((acc, a) => acc + getCompressSize(a.name), 0) || 0);
     const maxVendorSize = stats.assets.filter(a => a.name.includes('vendor')).reduce<number>((acc, a) => Math.max(acc, getCompressSize(a.name)), 0);
@@ -217,13 +217,13 @@ function cleanupMemoryFile(stats: WebpackStat, files: TypeScriptResult['files'],
 }
 
 // watching only means less info
-async function renderHtmlTemplate(app: string, files: [js: string[], css: string[]], watching: boolean, additionalHeader?: string): Promise<MyAsset> {
-    const templateEntry = `src/${app}/index.html`;
+async function renderHtmlTemplate(files: [js: string[], css: string[]], watching: boolean, additionalHeader?: string): Promise<MyAsset> {
+    const templateEntry = `src/ui/index.html`;
     if (!watching) {
         logInfo(`htm${additionalHeader ?? ''}`, chalk`read {yellow ${templateEntry}}`);
     }
 
-    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${app}.${config.domain}:${await admin.port}/client-dev.js`]);
+    const jsFiles = files[0].map(jsFile => '/' + jsFile).concat(!watching ? [] : [`https://${config.domain}:${await admin.port}/client-dev.js`]);
 
     const htmlTemplate = await fs.promises.readFile(templateEntry, 'utf-8');
     const html = htmlTemplate
@@ -231,80 +231,78 @@ async function renderHtmlTemplate(app: string, files: [js: string[], css: string
         .replace('<stylesheet-placeholder />', files[1].map(cssFile => `<link rel="stylesheet" type="text/css" href="/${cssFile}">`).join('\n  '));
 
     logInfo(`htm${additionalHeader ?? ''}`, 'template rendered');
-    return { remote: `${app}/index.html`, data: Buffer.from(html) };
+    return { remote: `static/${config.appname}/index.html`, data: Buffer.from(html) };
 }
 
-async function buildOnce(app: string): Promise<void> {
-    logInfo('akr', chalk`{cyan ${app}-client}`);
-    await eslint(`${app}-client`, 'browser', [`src/${app}/client/**/*.ts`, `src/${app}/client/**/*.tsx`]);
+async function buildOnce(): Promise<void> {
+    logInfo('akr', chalk`{cyan client}`);
+    await eslint(`client`, 'browser', [`src/ui/**/*.ts`, `src/ui/**/*.tsx`]);
     // mkdir(recursive)
 
     // promise 1: fcg -> tsc -> wpk, return js file list
     // note that returned list are both for ssh upload and html render, so source map is included so should be excluded from render html
     const p1 = (async (): Promise<MyAsset[]> => {
-        const generator = codegen(app, 'client');
-        if (fs.existsSync(generator.definitionFile)) {
-            const generateResult = await generator.generate();
-            if (!generateResult.success) {
-                return logCritical('akr', chalk`{cyan ${app}-client} failed at codegen`);
-            }
+        const generator = codegen('client');
+        const generateResult = await generator.generate();
+        if (!generateResult.success) {
+            return logCritical('akr', chalk`{cyan client} failed at codegen`);
         }
 
-        const checkResult = typescript(getTypeScriptOptions(app, false)).check();
+        const checkResult = typescript(getTypeScriptOptions(false)).check();
         if (!checkResult.success) {
-            return logCritical('akr', chalk`{cyan ${app}-client} failed at check`);
+            return logCritical('akr', chalk`{cyan client} failed at check`);
         }
 
         // their type is very mismatch but they very can work at runtime
         const ifs = memfs.Volume.fromJSON(checkResult.files.reduce<Record<string, string>>((acc, f) => { acc[f.name] = f.content; return acc; }, {}));
-        const [compiler, additional] = createWebpackCompiler(app, ifs, false, '');
+        const [compiler, additional] = createWebpackCompiler(ifs, false, '');
         const packResult = await new Promise<WebpackResult>(resolve => compiler.run((error, statsObject) => resolve({ error, statsObject })));
         if (packResult.error) {
             logError('wpk', JSON.stringify(packResult.error, undefined, 1));
-            return logCritical('akr', chalk`{yellow ${app}-client} failed at pack (1)`);
+            return logCritical('akr', chalk`{yellow client} failed at pack (1)`);
         }
         const stats = packResult.statsObject!.toJson() as unknown as WebpackStat;
 
         printWebpackResult(stats, additional, '');
         if (stats.errorsCount > 0) {
-            return logCritical('akr', chalk`{cyan ${app}-client} failed at pack (2)`);
+            return logCritical('akr', chalk`{cyan client} failed at pack (2)`);
         }
 
         // ATTENTION: this is essential for persist cache because this triggers cached items to actually write to file
         // // the relationship between them is not described clearly in their own document
         compiler.close(error => { if (error) { logError('wpk', `failed to close compiler`, error); } }); // print error and ignore
-        return getUploadJsAssets(app, additional);
+        return getUploadJsAssets(additional);
     })();
 
     // promise 2: css, return css file list
     const p2 = (async (): Promise<MyAsset[]> => {
-        const transpileResult = await sass(getSassOptions(app)).transpile();
+        const transpileResult = await sass(getSassOptions()).transpile();
         if (!transpileResult.success) {
-            return logCritical('akr', chalk`{cyan ${app}-client} failed at transpile`);
+            return logCritical('akr', chalk`{cyan client} failed at transpile`);
         }
-        return [{ remote: `${app}/index.css`, data: transpileResult.resultCss }];
+        return [{ remote: `static/${config.appname}/index.css`, data: transpileResult.resultCss }];
     })();
 
     const results = await Promise.all([p1, p2]);
-    const html = await renderHtmlTemplate(app, [
+    const html = await renderHtmlTemplate([
         results[0].map(r => path.basename(r.remote)).filter(n => n.endsWith('.js')),
         results[1].map(r => path.basename(r.remote))], false);
 
     const uploadResult = await upload(results[0].concat(results[1]).concat([html]), { filenames: false });
     if (!uploadResult) {
-        return logCritical('akr', chalk`{cyan ${app}-client} failed at upload`);
+        return logCritical('akr', chalk`{cyan client} failed at upload`);
     }
-    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-static', key: app } });
+    const adminResult = await admin.core({ type: 'content', sub: { type: 'reload-static', key: config.appname } });
     if (!adminResult) {
-        return logCritical('akr', chalk`{cyan ${app}-client} failed at reload`);
+        return logCritical('akr', chalk`{cyan client} failed at reload`);
     }
 
-    logInfo('akr', chalk`{cyan ${app}-client} complete successfully`);
+    logInfo('akr', chalk`{cyan client} complete successfully`);
 }
 
-function buildWatch(app: string, additionalHeader?: string) {
+function buildWatch(additionalHeader?: string) {
     additionalHeader = additionalHeader ?? '';
-    logInfo(`akr${additionalHeader}`, chalk`watch {cyan ${app}-client}`);
+    logInfo(`akr${additionalHeader}`, chalk`watch {cyan client}`);
     // mkdir(recursive)
 
     let [jsAssets, cssAssets]: [MyAsset[], MyAsset[]] = [[], []]; // assign new array in consider of the remove file issue
@@ -313,30 +311,28 @@ function buildWatch(app: string, additionalHeader?: string) {
         const thisRenderJsHasChange = jsHasChange; // in case flag changed during some operations
         jsHasChange = false;
 
-        const html = await renderHtmlTemplate(app, [
+        const html = await renderHtmlTemplate([
             jsAssets.map(r => path.basename(r.remote)).filter(n => n.endsWith('.js')),
             cssAssets.map(r => path.basename(r.remote))], true, additionalHeader);
 
         if (jsAssets.length > 0) {
             if (await upload(jsAssets.concat(cssAssets).concat([html]), { filenames: false, additionalHeader })) {
-                await admin.core({ type: 'content', sub: { type: 'reload-static', key: app } }, additionalHeader);
+                await admin.core({ type: 'content', sub: { type: 'reload-static', key: config.appname } }, additionalHeader);
                 await admin.devpage(thisRenderJsHasChange ? 'reload-js' : 'reload-css', additionalHeader);
             }
         }
     });
 
-    const generator = codegen(app, 'client', additionalHeader);
-    if (fs.existsSync(generator.definitionFile)) {
-        generator.watch(); // no callback watch is this simple
-    }
+    const generator = codegen('client', additionalHeader);
+    generator.watch(); // no callback watch is this simple
 
     const mfs = new memfs.Volume();
-    const [compiler, additional] = createWebpackCompiler(app, mfs, true, additionalHeader);
+    const [compiler, additional] = createWebpackCompiler(mfs, true, additionalHeader);
 
     // Attention: this is *the* array inside TypeScriptChecker.watch, to be clean up by webpack result
     let typescriptResultFiles: TypeScriptResult['files'] = [];
     let webpackLastHash: string | null = null;
-    typescript(getTypeScriptOptions(app, true), additionalHeader).watch(async ({ files }) => {
+    typescript(getTypeScriptOptions(true), additionalHeader).watch(async ({ files }) => {
         // no need to delete file here because it will not happen in typescript write file hook while correct delete file happen in cleanupMemoryFile
         for (const { name: fileName, content: fileContent } of files) {
             if (!mfs.existsSync(fileName) && !fileName.endsWith('.map')) {
@@ -369,7 +365,7 @@ function buildWatch(app: string, additionalHeader?: string) {
 
             if (stats.hash != webpackLastHash) {
                 webpackLastHash = stats.hash;
-                jsAssets = getUploadJsAssets(app, additional);
+                jsAssets = getUploadJsAssets(additional);
                 jsHasChange = true;
                 requestRender();
             } else {
@@ -381,12 +377,12 @@ function buildWatch(app: string, additionalHeader?: string) {
         });
     });
 
-    sass(getSassOptions(app), additionalHeader).watch(transpileResult => {
-        cssAssets = [{ remote: `${app}/index.css`, data: transpileResult.resultCss }];
+    sass(getSassOptions(), additionalHeader).watch(transpileResult => {
+        cssAssets = [{ remote: `static/${config.appname}/index.css`, data: transpileResult.resultCss }];
         requestRender();
     });
 }
 
-export function build(app: string, watch: boolean, additionalHeader?: string): void {
-    (watch ? buildWatch : buildOnce)(app, additionalHeader);
+export function build(watch: boolean, additionalHeader?: string): void {
+    (watch ? buildWatch : buildOnce)(additionalHeader);
 }

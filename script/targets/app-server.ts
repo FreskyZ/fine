@@ -3,7 +3,7 @@ import * as chalk from 'chalk';
 import { config } from '../config';
 import { logInfo, logCritical } from '../common';
 import { eslint } from '../tools/eslint';
-// import { codegen } from '../tools/codegen';
+import { codegen } from '../tools/codegen';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
@@ -29,7 +29,7 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 ];
 
 export async function uploadConfig(): Promise<void> {
-    await upload({ remote: 'config', data: await fs.promises.readFile('src/config') });
+    await upload({ remote: 'config', data: await fs.promises.readFile('src/config') }, { basedir: config.approot });
 }
 
 async function buildOnce(): Promise<void> {
@@ -37,10 +37,10 @@ async function buildOnce(): Promise<void> {
     await eslint(`server`, 'node', [`src/**/*.ts`]);
     // mkdir(recursive)
 
-    // const codegenResult = await codegen(app, 'server').generate();
-    // if (!codegenResult.success) {
-    //     return logCritical('akr', chalk`{cyan ${app}-server} failed at code generation`);
-    // }
+    const codegenResult = await codegen('server').generate();
+    if (!codegenResult.success) {
+        return logCritical('akr', chalk`{cyan server} failed at code generation`);
+    }
 
     const checkResult = typescript(getTypeScriptOptions(false)).check();
     if (!checkResult.success) {
@@ -68,14 +68,14 @@ function buildWatch(additionalHeader?: string) {
     logInfo(`akr${additionalHeader ?? ''}`, chalk`watch {cyan server}`);
     // mkdir(recursive)
 
-    // codegen(app, 'server', additionalHeader).watch(); // no callback watch is this simple
+    codegen('server', additionalHeader).watch(); // no callback watch is this simple
 
     const packer = mypack(getMyPackOptions([]), additionalHeader);
     typescript(getTypeScriptOptions(true), additionalHeader).watch(async ({ files }) => {
         packer.updateFiles(files);
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
-            if (await upload(getUploadAssets(packResult), { additionalHeader })) {
+            if (await upload(getUploadAssets(packResult), { basedir: config.approot, additionalHeader })) {
                 // await admin.core({ type: 'auth', sub: { type: 'reload-server', app } }, additionalHeader);
             }
         }

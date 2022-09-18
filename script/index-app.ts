@@ -12,12 +12,12 @@ process.on('unhandledRejection', error => { console.log('unhandled reject: ', er
 const args = [process.argv[2], process.argv[3]].filter(a => a).join(' '); // 0 is node, 1 is akari
 
 // client, server
-if (args == 'client') { buildAppClient(args.slice(0, -7), false); }
+if (args == 'client') { buildAppClient(false); }
 else if (args == 'server') { buildAppServer(false); }
-else if (args == 'both') { buildAppClient(args.slice(0, -5), false, 'c'); buildAppServer(false, 's'); }
-else if (args == 'watch client') { buildAppClient(args.slice(6, -7), true); }
+else if (args == 'both') { buildAppClient(false, 'c'); buildAppServer(false, 's'); }
+else if (args == 'watch client') { buildAppClient(true); }
 else if (args == 'watch server') { buildAppServer(true); }
-else if (args == 'watch both') { buildAppClient(args.slice(6, -5), true, 'c'); buildAppServer(true, 's'); }
+else if (args == 'watch both') { buildAppClient(true, 'c'); buildAppServer(true, 's'); }
 
 // content
 else if (/^reload-static [\w\\\.]+$/.test(args)) { calladmin(admin.core({ type: 'content', sub: { type: 'reload-static', key: args.slice(14) } })) }

@@ -30,8 +30,13 @@ import * as fs from 'fs';
 // - database (in src/core/config): mysql.PoolConfig, used in core module,
 //   note that for app servers, as standalone services, have different database connection setting
 //   (database is not same) and may include other config items in their own config file
-// - appname (in app/akaric): this application's name
+// - appname (in app/akaric): this application's name,
+//   will be the socket name '/tmp/fine-{appname}.socket',
+//   should be same as name in 'apps'
+//   should be same as app's static directory name (webroot/static/:app),
+//   should be ok to be used as reload-static's key,
 // - approot (in app/akaric): application root for deploy backend build result
+// - origin (in app/akaric): app's origin, should be same as origin in 'apps'
 
 interface Config {
     domain: string,
@@ -42,5 +47,6 @@ interface Config {
     // app/config
     appname: string,
     approot: string,
+    appdomain: string,
 }
 export const config = JSON.parse(fs.readFileSync('akaric', 'utf-8')) as Config;

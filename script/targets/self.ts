@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
+import * as zlib from 'zlib';
 import { logInfo, logCritical } from '../common';
 import { config } from '../config';
 import { eslint } from '../tools/eslint';
@@ -81,17 +82,27 @@ export async function build(target: string): Promise<void> {
     }
 
     if (target == 'local') {
-        await fs.promises.writeFile('akari',
-            packResult.resultJs.toString('utf-8').replace('self' + 'hash', await hashself()));
+        const resultjs = packResult.resultJs.toString('utf-8').replace('self' + 'hash', await hashself());
+        await fs.promises.writeFile('akari', resultjs);
     } else if (target == 'server') {
         const uploadResult = await upload(getUploadAssets(packResult));
         if (!uploadResult) {
             return logCritical('akr', chalk`{cyan self} failed at upload`);
         }
     } else if (target == 'app') {
+        const sharedFiles = await fs.promises.readdir('src/shared', { withFileTypes: true });
+        const sdkfiles = await Promise.all(sharedFiles.filter(e => e.isFile()).map(async e => {
+            const content = await fs.promises.readFile(path.join('src/shared', e.name));
+            const compressed = zlib.brotliCompressSync(content);
+            const encoded = compressed.toString('base64');
+            return [e.name, encoded] as [string, string];
+        }));
+        const sdkvar = '{' + sdkfiles.map(f => `'${f[0]}':'${f[1]}'`).join(',') + '}';
+        const resultjs = packResult.resultJs.toString('utf-8').replace('compressedsdkfiles', sdkvar);
+
         await Promise.all(config.apps.filter(a => a.devrepo).map(a => {
             logInfo('akr', chalk`copy to {yellow ${a.devrepo}}`);
-            return fs.promises.writeFile(path.join(a.devrepo, 'akari'), packResult.resultJs);
+            return fs.promises.writeFile(path.join(a.devrepo, 'akari'), resultjs);
         }));
     }
 

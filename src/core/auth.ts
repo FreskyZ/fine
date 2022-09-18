@@ -1,3 +1,4 @@
+import * as net from 'net';
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
@@ -5,6 +6,7 @@ import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import type { AdminAuthCommand } from '../shared/types/admin';
 import type { UserClaim, UserCredential, UserData, UserDeviceData, UserDevice } from '../shared/types/auth';
+import type { DispatchContext } from '../shared/api-server';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
@@ -361,21 +363,45 @@ export async function handleApplications(ctx: Ctx): Promise<void> {
     if (!ctx.state.app) { throw new MyError('unreachable'); }
 
     for (const app of appnames) {
-        if (new RegExp('^/' + app).test(ctx.path)) {
-
-            let dispatch: (ctx: Ctx) => Promise<void>;
-            try {
-                // always re-require, for hot reloading
-                // this require expression is ignored by both tsc and mypack, see docs/build-script
-                dispatch = require(`./${app}/server`).dispatch;
-            } catch {
-                throw new MyError('unreachable');
-            }
-            if (typeof dispatch !== 'function') {
-                throw new MyError('unreachable');
-            }
-
-            return await dispatch(ctx);
+        if (ctx.path.startsWith('/' + app)) {
+            return new Promise<void>((resolve, reject) => {
+                // TODO this need pool
+                const connection = net.createConnection(`/tmp/fine-${app}.socket`);
+                const payload = JSON.stringify({
+                    method: ctx.method,
+                    path: ctx.path.substring(app.length + 1),
+                    body: ctx.body,
+                    state: ctx.state,
+                } as DispatchContext);
+                connection.on('error', error => {
+                    console.log('api socket error: ', error);
+                    ctx.status = 500;
+                    resolve();
+                });
+                connection.on('timeout', () => {
+                    console.log('api socket timeout');
+                    connection.destroy(); // close is not auto called after this event
+                    ctx.status = 500;
+                    resolve();
+                });
+                connection.once('data', data => {
+                    const response = JSON.parse(data.toString()) as DispatchContext;
+                    if (response.error) {
+                        // this should send to handleRequestError, I think
+                        reject(response.error);
+                    } else {
+                        ctx.status = response.status || 200;
+                        if (response.body) {
+                            ctx.body = response.body;
+                        }
+                        resolve();
+                    }
+                    setImmediate(() => {
+                        connection.destroy();
+                    });
+                });
+                connection.write(payload);
+            });
         }
     }
 

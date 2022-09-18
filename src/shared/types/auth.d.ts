@@ -21,6 +21,7 @@ export interface UserClaim {
     password: string,
 }
 
+// NOTE: sync with shared/api-server.ts
 export interface UserCredential {
     id: number,
     name: string,
