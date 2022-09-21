@@ -14,8 +14,8 @@ async function impl(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: s
     const isjson = response.headers.has('Content-Type') && response.headers.get('Content-Type').includes('application/json');
     const data = isjson ? await response.json() : {};
     return response.ok ? Promise.resolve(data)
-        : response.status == 400 ? Promise.reject(data)
-        : response.status == 500 ? Promise.reject({ message: 'internal error' })
+        : Math.floor(response.status / 100) == 4 ? Promise.reject(data)
+        : Math.floor(response.status / 100) == 5 ? Promise.reject({ message: 'internal error' })
         : Promise.reject({ message: 'unknown error' });
 }
 export async function get<Result, Body = void>(path: string, body?: Body): Promise<Result> { return await impl('GET',  path, body); }

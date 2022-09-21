@@ -27,7 +27,7 @@ export class MyError {
     }
 }
 
-export interface DispatchContext {
+export interface ForwardContext {
     method: string,
     // GET api.domain.com/app1/v1/getsomething
     //           this part:   ^^^^^^^^^^^^^^^^
@@ -77,7 +77,7 @@ export function validateBody<T>(body: any): T {
     return body;
 }
 
-export function setupServer<T>(server: net.Server, connections: net.Socket[], dispatch: (ctx: DispatchContext, impl: T) => Promise<void>, impl: T) {
+export function setupServer<T>(server: net.Server, connections: net.Socket[], dispatch: (ctx: ForwardContext, impl: T) => Promise<void>, impl: T) {
     server.on('error', error => {
         console.log(`socket server error: ${error.message}`);
     });
@@ -93,7 +93,7 @@ export function setupServer<T>(server: net.Server, connections: net.Socket[], di
         connection.on('data', async data => {
             const payload = data.toString('utf-8');
 
-            let ctx = {} as DispatchContext;
+            let ctx = {} as ForwardContext;
             try {
                 ctx = JSON.parse(payload);
             } catch {

@@ -1,4 +1,3 @@
-import * as net from 'net';
 import { randomBytes } from 'crypto';
 import * as dayjs from 'dayjs';
 import * as koa from 'koa';
@@ -6,7 +5,6 @@ import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import type { AdminAuthCommand } from '../shared/types/admin';
 import type { UserClaim, UserCredential, UserData, UserDeviceData, UserDevice } from '../shared/types/auth';
-import type { DispatchContext } from '../shared/api-server';
 import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
 import { MyError } from '../shared/error';
 import { logInfo } from './logger';
@@ -18,17 +16,18 @@ export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredent
 type Ctx = koa.ParameterizedContext<ContextState>;
 
 // config in akaric
-const appsetting: {
+export const appsetting: {
     // app name, will become ctx.state.app (for now) and is api's path: api.domain.com/:app/v1/...
     name: string,
     // the origin url, this present, has api, and has user.html (and user.js) should be same
     // note that origin includes the beginning 'https://'
-    origin?: string,
+    origin: string,
+    // app's unix domain socket path 
+    socket: string,
 // @ts-ignore simply ignore should be easier for these variables
 }[] = APPSETTING;
 
-const appnames = appsetting.map(a => a.name);
-const allowedOrigins = appsetting.reduce<{ [origin: string]: string }>((acc, item) => { acc[item.origin] = item.name; return acc; }, {});
+const allowedOrigins = Object.fromEntries(appsetting.map(a => [a.origin, a.name]));
 
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
@@ -357,55 +356,6 @@ export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next): Pro
     }
 
     return await next();
-}
-
-export async function handleApplications(ctx: Ctx): Promise<void> {
-    if (!ctx.state.app) { throw new MyError('unreachable'); }
-
-    for (const app of appnames) {
-        if (ctx.path.startsWith('/' + app)) {
-            return new Promise<void>((resolve, reject) => {
-                // TODO this need pool
-                const connection = net.createConnection(`/tmp/fine-${app}.socket`);
-                const payload = JSON.stringify({
-                    method: ctx.method,
-                    path: ctx.path.substring(app.length + 1),
-                    body: ctx.body,
-                    state: ctx.state,
-                } as DispatchContext);
-                connection.on('error', error => {
-                    console.log('api socket error: ', error);
-                    ctx.status = 500;
-                    resolve();
-                });
-                connection.on('timeout', () => {
-                    console.log('api socket timeout');
-                    connection.destroy(); // close is not auto called after this event
-                    ctx.status = 500;
-                    resolve();
-                });
-                connection.once('data', data => {
-                    const response = JSON.parse(data.toString()) as DispatchContext;
-                    if (response.error) {
-                        // this should send to handleRequestError, I think
-                        reject(response.error);
-                    } else {
-                        ctx.status = response.status || 200;
-                        if (response.body) {
-                            ctx.body = response.body;
-                        }
-                        resolve();
-                    }
-                    setImmediate(() => {
-                        connection.destroy();
-                    });
-                });
-                connection.write(payload);
-            });
-        }
-    }
-
-    throw new MyError('not-found', 'invalid invocation');
 }
 
 export async function handleCommand(command: AdminAuthCommand): Promise<void> {

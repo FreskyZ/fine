@@ -102,12 +102,12 @@ function write(level: Level, content: any) {
     }
 }
 
-export function logInfo(content: any): void { write('info', content); }
-export function logError(content: any): void { write('error', content); }
-
-// this currently is simply add a switch to console.log, to be designed later
+// a very simple tracing method to use with akari watch core
 const TRACE = 'FINE_TRACE' in process.env;
-export function logTrace(...args: any[]): void { if (TRACE) { console.log(...args); } }
+export const logTrace = TRACE ? (...args: any[]) => console.log(...args) : (..._args: any[]) => {};
+
+export function logInfo(content: any): void { write('info', content); logTrace(content); }
+export function logError(content: any): void { write('error', content); logTrace(content); }
 
 function flushAll() {
     levels.map(level => flush(level));

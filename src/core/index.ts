@@ -14,7 +14,8 @@ import { logInfo, logError } from './logger';
 import { initializePool } from '../shared/database';
 import { handleCertificate, handleRequestContent, initializeContent } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
-import { handleRequestAccessControl, handleRequestAuthentication, handleApplications } from './auth'; // request handler
+import { handleRequestAccessControl, handleRequestAuthentication } from './auth';
+import { handleRequestForward } from './forward';
 import { handleCommand as handleAuthCommand } from './auth';
 import { handleCommand as handleContentCommand } from './content';
 
@@ -26,7 +27,7 @@ app.use(handleRequestContent);
 app.use(handleRequestAccessControl);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
-app.use(handleApplications);
+app.use(handleRequestForward);
 app.use(() => { throw new MyError('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
@@ -180,7 +181,13 @@ Promise.all([
 
 let shuttingdown = false;
 function shutdown() {
-    if (shuttingdown) return; shuttingdown = true; // prevent reentry
+    if (shuttingdown) return; 
+    shuttingdown = true; // prevent reentry
+
+    setTimeout(() => {
+        console.log('fine core shutdown timeout, abort');
+        process.exit(102);
+    }, 30_000);
 
     // destroy connections
     for (const socket of socketConnections) {

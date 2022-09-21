@@ -149,7 +149,8 @@ function setupReadFileHook() {
             fileContent = fileContent.replaceAll('webroot', config.webroot);
             // this is special, but auth is special so ok
             if (config.apps) {
-                fileContent = fileContent.replaceAll('APPSETTING', JSON.stringify(config.apps.map(a => ({ name: a.name, origin: a.origin }))));
+                fileContent = fileContent.replaceAll('APPSETTING',
+                    JSON.stringify(config.apps.map(a => ({ name: a.name, origin: a.origin, socket: a.socket }))));
             }
         }
         return fileContent;
