@@ -158,7 +158,7 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
                 : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
-            logError({ type: myerror.kind, request: summary, error: message });
+            logError({ type: myerror.kind, request: summary, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
         } else {
             ctx.status = 500;
             const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';

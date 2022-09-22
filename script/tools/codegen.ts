@@ -251,10 +251,8 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
     tasks.push((async () => {
         let b = HEADER;
 
-        b += `import * as fs from 'fs';\n`;
-        b += `import * as net from 'net';\n`;
         b += `import { FineError } from '../../adk/error';\n`;
-        b += `import { ForwardContext, setupServer, shutdownServer } from '../../adk/api-server';\n`;
+        b += `import { ForwardContext } from '../../adk/api-server';\n`;
         for (const [namespace, namespaceintype] of namespaces) {
             b += `import { ${namespaceintype}Impl, dispatch as dispatch${namespaceintype} } from './${namespace}';\n`;
         }
@@ -267,7 +265,7 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '}\n';
 
         b += '\n'
-        b += 'async function dispatch(ctx: ForwardContext, impl: Impl) {\n';
+        b += 'export async function dispatch(ctx: ForwardContext, impl: Impl) {\n';
         b += `    if (!ctx.path.startsWith('/v${version}')) { throw new FineError('not-found', 'invalid invocation version'); }\n`;
         b += `    const path = ctx.path.substring(${version.length + 2});\n`; // 2: /v1
         for (const [namespace, namespaceintype] of namespaces) {
@@ -275,21 +273,6 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         }
         b += `    throw new FineError('not-found', 'invalid invocation');\n`;
         b += `}\n`;
-
-        b += '\n'
-        b += 'let server: net.Server;\n';
-        b += 'const connections: net.Socket[] = [];\n';
-        b += 'export function setupWebInterface(socketpath: string, impl: Impl) {\n'
-        b += '    server = net.createServer();\n';
-        b += '    setupServer(server, connections, dispatch, impl);\n';
-        b += `    if (fs.existsSync(socketpath)) {\n`;
-        b += `        fs.unlinkSync(socketpath);\n`;
-        b += '    }\n';
-        b += `    server.listen(socketpath);\n`;
-        b += '}\n';
-        b += 'export function shutdownWebInterface(): Promise<void> {\n';
-        b += '    return shutdownServer(server, connections);\n';
-        b += '}\n';
 
         await fs.writeFile(`src/api/server/index.ts`, b);
     })());

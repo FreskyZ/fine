@@ -126,7 +126,6 @@ export async function handleRequestForward(ctx: AuthContext): Promise<void> {
     return new Promise((resolve, reject) => {
 
         // timeout 1 min for normal request
-        // TODO this seems not work correctly, also for tracing and stability, use item index seems to be better (acquire() => [connection, index])
         const timeout = setTimeout(() => {
             logError(`${requestDisplay} timeout`);
             reject(new MyError('gateway-timeout', 'service timeout'));
@@ -146,8 +145,6 @@ export async function handleRequestForward(ctx: AuthContext): Promise<void> {
                 return;
             }
             if (response.error) {
-                logError(`${requestDisplay} failed: ${response.error}`);
-                // TODO check this goes to handleRequestError, 4xx errors correctly return 4xx, 5xx errors correctly return 5xx
                 reject(response.error);
                 return;
             }
