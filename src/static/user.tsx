@@ -1,9 +1,8 @@
-import React, { FC, useState, useEffect } from 'react';
+// @ts-ignore, vscode want this, ask them to add more no-config-config settings
+import React from 'react';
+import { FC, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import type { UserCredential, UserDevice } from '../shared/types/auth';
-
-// vscode default setting (without tsconfig require import React, but it's actually not used because of the jsx-runtime)
-if (!window.React) { console.log(React); }
+import type { UserCredential, UserDevice } from '../adk/auth';
 
 // not in react root elements
 const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;

@@ -3,8 +3,8 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import * as koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
-import type { AdminContentCommand } from '../shared/types/admin';
-import { MyError } from '../shared/error';
+import type { AdminContentCommand } from '../shared/admin';
+import { MyError } from './error';
 import { logInfo } from './logger';
 
 // see file-structure.md and server-routing.md
@@ -108,7 +108,7 @@ function getOrAddItem(realpath: string): Item {
 }
 
 // initialize, or reinitialize
-export function initializeContent(config: StaticContentConfig) {
+export function setupStaticContent(config: StaticContentConfig) {
     SC = { items: [], virtualmap: {}, wildcards: [] };
 
     for (const [host, virtualpath, realpath] of Object.entries(config)
@@ -243,7 +243,7 @@ export function handleCommand(data: AdminContentCommand): void {
         handleReloadStatic(data.key);
     } else if (data.type == 'reload-config') {
         // throw away all old cache
-        initializeContent(JSON.parse(fs.readFileSync('config', 'utf-8'))['static-content']);
+        setupStaticContent(JSON.parse(fs.readFileSync('config', 'utf-8'))['static-content']);
     } else if (data.type == 'enable-source-map') {
         AllowSourceMap = true;
         if (DisableSourceMapTimer) {

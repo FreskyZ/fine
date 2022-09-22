@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as chalk from 'chalk';
-import type { AdminCommand, AdminCoreCommand, AdminDevPageCommand, AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/types/admin';
+import type { AdminCommand, AdminCoreCommand, AdminDevPageCommand, AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
 import { config } from '../config';
 import { download } from './ssh';

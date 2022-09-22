@@ -2,7 +2,7 @@ import type * as http from 'http';
 import * as net from 'net';
 import { Mutex } from 'async-mutex';
 import * as chalk from 'chalk';
-import type { AdminCoreCommand } from '../../src/shared/types/admin';
+import type { AdminCoreCommand } from '../../src/shared/admin';
 import { logInfo, logError, formatAdminCoreCommand } from '../common';
 
 // to server-core admin socket

@@ -31,7 +31,7 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 ];
 
 export async function uploadConfig(): Promise<void> {
-    await upload({ remote: 'config', data: await fs.readFile('src/core/config') });
+    await upload({ remote: 'config', data: await fs.readFile('src/shared/config.json') });
 }
 
 async function buildOnce(): Promise<void> {

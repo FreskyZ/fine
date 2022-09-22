@@ -3,7 +3,7 @@ import type * as stream from 'stream';
 import type * as http from 'http';
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
-import type { AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/types/admin';
+import type { AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/admin';
 import { logInfo, logError } from '../common';
 import { sendCoreCommand } from './core';
 
@@ -44,7 +44,7 @@ class CoreHost {
     private startimpl() {
         logInfo('seh', 'start core process');
         writeInfo(this.response, 'akr(server)', 'start core process');
-        this.theProcess = cp.spawn(process.argv0, ['index.js']); // spawn seems to fail to find `node` in PATH when start by systemctl, use argv0 because I use absolute path in systemctl setup
+        this.theProcess = cp.spawn(process.argv0, ['index.js'], { env: { FINE_TRACE: '1' } }); // node is inside nvm, use argv0 is simpler
         this.theProcess.stdout.pipe(this.response, { end: false });
         this.theProcess.stderr.pipe(this.response, { end: false });
         this.theProcess.on('error', error => {

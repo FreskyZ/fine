@@ -1,9 +1,8 @@
 import * as net from 'net';
-import * as koa from 'koa';
-import { MyError } from '../shared/error';
-import type { ForwardContext } from '../shared/api-server';
+import type { ForwardContext } from '../adk/api-server';
+import { MyError } from './error';
 import { logError } from './logger';
-import { ContextState, appsetting } from './auth';
+import { AuthContext, appsetting } from './auth';
 
 // forward api invocations to services, with pooled connections
 
@@ -112,7 +111,7 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-export async function handleRequestForward(ctx: koa.ParameterizedContext<ContextState>): Promise<void> {
+export async function handleRequestForward(ctx: AuthContext): Promise<void> {
     // handleRequestAccessControl already checked origin is allowed and assigned known state.app
     if (!ctx.state.app) { throw new MyError('unreachable'); }
     // an known origin can only call its own '/:app/...'

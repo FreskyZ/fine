@@ -1,10 +1,17 @@
 import * as fs from 'fs';
 import * as koa from 'koa';
 import { SourceMapConsumer } from 'source-map';
+import type { FineErrorKind } from '../adk/error';
 import { logError } from './logger';
-import { MyError, MyErrorType } from '../shared/error';
 
 // contains request and process unexpected error handlers
+
+export class MyError extends Error {
+    constructor(public readonly kind: FineErrorKind, message?: string) {
+        super(message);
+        this.name = 'MyError';
+    }
+}
 
 interface StackFrame {
     raw?: string,
@@ -122,7 +129,7 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
 }
 
 // catch all request exceptions and continue
-const ErrorCodes: { [errorType in MyErrorType]: number } = { 
+const ErrorCodes: { [errorType in FineErrorKind]: number } = { 
     'common': 400,
     'auth': 401,
     'not-found': 404,
@@ -146,12 +153,12 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
         // NOTE: app response error is json parsed and will not have prototype MyError, check .name instead
         if (error instanceof MyError || error.name == 'FineError') {
             const myerror = error as MyError;
-            const message = myerror.type == 'unreachable' ? 'unreachable code reached'
-                : myerror.type == 'method-not-allowed' ? 'method not allowed' 
-                : myerror.type == 'service-not-available' ? 'service not available' : myerror.message;
-            ctx.status = ErrorCodes[myerror.type];
+            const message = myerror.kind == 'unreachable' ? 'unreachable code reached'
+                : myerror.kind == 'method-not-allowed' ? 'method not allowed' 
+                : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
+            ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
-            logError({ type: myerror.type, request: summary, error: message });
+            logError({ type: myerror.kind, request: summary, error: message });
         } else {
             ctx.status = 500;
             const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';

@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import type * as http from 'http';
-import type { AdminCommand } from '../../src/shared/types/admin';
+import type { AdminCommand } from '../../src/shared/admin';
 
 // encrypt and decrypt command
 

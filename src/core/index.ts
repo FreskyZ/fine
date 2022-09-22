@@ -6,13 +6,13 @@ import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
 import type { PoolConfig } from 'mysql';
-import type { AdminCoreCommand } from '../shared/types/admin';
+import type { AdminCoreCommand } from '../shared/admin';
 import type { ContextState } from './auth';
 import type { StaticContentConfig } from './content';
-import { MyError } from '../shared/error';
+import { MyError } from './error';
 import { logInfo, logError } from './logger';
-import { initializePool } from '../shared/database';
-import { handleCertificate, handleRequestContent, initializeContent } from './content';
+import { setupDatabaseConnection } from '../adk/database';
+import { handleCertificate, handleRequestContent, setupStaticContent } from './content';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error';
 import { handleRequestAccessControl, handleRequestAuthentication } from './auth';
 import { handleRequestForward } from './forward';
@@ -39,8 +39,8 @@ const config = JSON.parse(fs.readFileSync('config', 'utf-8')) as {
     database: PoolConfig,
     'static-content': StaticContentConfig,
 };
-initializePool(config.database);
-initializeContent(config['static-content']);
+setupDatabaseConnection(config.database);
+setupStaticContent(config['static-content']);
 
 // redirect to secure server from insecure server
 function handleInsecureRequest(request: http.IncomingMessage, response: http.ServerResponse) {

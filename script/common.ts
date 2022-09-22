@@ -1,6 +1,6 @@
 import * as chalk from 'chalk';
 import * as dayjs from 'dayjs';
-import type { AdminCommand, AdminCoreCommand } from '../src/shared/types/admin';
+import type { AdminCommand, AdminCoreCommand } from '../src/shared/admin';
 
 // current color schema
 // error: red

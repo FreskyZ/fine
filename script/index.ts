@@ -20,10 +20,10 @@ function dispatch(args: string) {
     else if (args == 'public') { buildPublic(); }
     else if (args == 'core') { buildCore(false); }
     else if (args == 'watch core') { buildCore(true); }
-    else if (args == 'home') { buildStatic('home', false); }
-    else if (args == 'watch home') { buildStatic('home', true); }
-    else if (args == 'user') { buildStatic('user', false); }
-    else if (args == 'watch user') { buildStatic('user', true); }
+    else if (args == 'home-page') { buildStatic('home', false); }
+    else if (args == 'watch home-page') { buildStatic('home', true); }
+    else if (args == 'user-page') { buildStatic('user', false); }
+    else if (args == 'watch user-page') { buildStatic('user', true); }
 
     // service host
     else if ('service start' == args) { calladmin(admin.service('start')); }

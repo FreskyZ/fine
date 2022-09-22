@@ -1,7 +1,7 @@
 import type * as http from 'http';
 import * as chalk from 'chalk';
 import * as WebSocket from 'ws';
-import { AdminDevPageCommand } from '../../src/shared/types/admin';
+import { AdminDevPageCommand } from '../../src/shared/admin';
 import { logInfo, logError } from '../common';
 
 // handle GET /client-dev.js for (app) watch client

@@ -2,7 +2,7 @@ import * as mysql from 'mysql';
 
 let pool: mysql.Pool;
 
-export function initializePool(config: mysql.PoolConfig) {
+export function setupDatabaseConnection(config: mysql.PoolConfig) {
     pool = mysql.createPool({
         ...config,
         typeCast: (field, next) => {

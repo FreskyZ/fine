@@ -281,13 +281,13 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '\n'
         b += 'let server: net.Server;\n';
         b += 'const connections: net.Socket[] = [];\n';
-        b += 'export function initializeWebInterface(impl: Impl) {\n'
+        b += 'export function initializeWebInterface(socketpath: string, impl: Impl) {\n'
         b += '    server = net.createServer();\n';
         b += '    setupServer(server, connections, dispatch, impl);\n';
-        b += `    if (fs.existsSync('/tmp/fine-${config.appname}.socket')) {\n`;
-        b += `        fs.unlinkSync('/tmp/fine-${config.appname}.socket');\n`;
+        b += `    if (fs.existsSync(socketpath)) {\n`;
+        b += `        fs.unlinkSync(socketpath);\n`;
         b += '    }\n';
-        b += `    server.listen('/tmp/fine-${config.appname}.socket');\n`;
+        b += `    server.listen(socketpath);\n`;
         b += '}\n';
         b += 'export function shutdownWebInterface(): Promise<void> {\n';
         b += '    return shutdownServer(server, connections);\n';

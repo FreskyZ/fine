@@ -2,29 +2,15 @@
 
 import * as net from 'net';
 import * as dayjs from 'dayjs';
+import { FineError } from './error';
+import { UserCredential } from './auth';
 
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';
 
 // NOTE: sync with shared/types/auth.d.ts
-export interface UserCredential {
-    id: number,
-    name: string,
-    deviceId: number,
-    deviceName: string,
-}
-
 export interface Context {
     user: UserCredential,
-}
-
-export type MyErrorType = 'common' | 'not-found' | 'auth' | 'unreachable' | 'method-not-allowed';
-// not extend Error:
-// super(message) in contructor will make json stringify not include that (not owned property)
-// this ipc border need plain type, stacktrace for internal error should be handled by this program's error handling and log process
-export class MyError {
-    constructor(public readonly type: MyErrorType, public readonly message?: string) {
-    }
 }
 
 export interface ForwardContext {
@@ -35,13 +21,13 @@ export interface ForwardContext {
     body: any,
     state: Context,
     status?: number,
-    error?: MyError,
+    error?: FineError,
 }
 
 export function validateNumber(name: string, raw: string): number {
     const result = parseInt(raw);
     if (isNaN(result)) {
-        throw new MyError('common', `invalid parameter ${name} value ${raw}`);
+        throw new FineError('common', `invalid parameter ${name} value ${raw}`);
     }
     return result;
 }
@@ -49,7 +35,7 @@ export function validateNumber(name: string, raw: string): number {
 export function validateId(name: string, raw: string): number {
     const result = parseInt(raw);
     if (isNaN(result) || result <= 0) {
-        throw new MyError('common', `invalid parameter ${name} value ${raw}`);
+        throw new FineError('common', `invalid parameter ${name} value ${raw}`);
     }
     return result;
 }
@@ -57,7 +43,7 @@ export function validateId(name: string, raw: string): number {
 export function validateDate(name: string, raw: string): dayjs.Dayjs {
     const result = dayjs(raw, dateFormat);
     if (!result.isValid()) {
-        throw new MyError('common', `invalid parameter ${name} value ${raw}`);
+        throw new FineError('common', `invalid parameter ${name} value ${raw}`);
     }
     return result;
 }
@@ -65,14 +51,14 @@ export function validateDate(name: string, raw: string): dayjs.Dayjs {
 export function validateTime(name: string, raw: string): dayjs.Dayjs {
     const result = dayjs(raw, timeFormat);
     if (!result.isValid()) {
-        throw new MyError('common', `invalid parameter ${name} value ${raw}`);
+        throw new FineError('common', `invalid parameter ${name} value ${raw}`);
     }
     return result;
 }
 
 export function validateBody<T>(body: any): T {
     if (!body || Object.keys(body).length == 0) {
-        throw new MyError('common', 'invalid empty body');
+        throw new FineError('common', 'invalid empty body');
     }
     return body;
 }

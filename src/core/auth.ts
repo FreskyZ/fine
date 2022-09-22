@@ -3,17 +3,21 @@ import * as dayjs from 'dayjs';
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
-import type { AdminAuthCommand } from '../shared/types/admin';
-import type { UserClaim, UserCredential, UserData, UserDeviceData, UserDevice } from '../shared/types/auth';
-import { query, QueryResult, QueryDateTimeFormat } from '../shared/database';
-import { MyError } from '../shared/error';
+import type { UserDevice, UserCredential } from '../adk/auth';
+import type { AdminAuthCommand } from '../shared/admin';
+import { query, QueryResult, QueryDateTimeFormat } from '../adk/database';
+import { MyError } from './error';
 import { logInfo } from './logger';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
 
-export interface ContextState { now: dayjs.Dayjs, app: string, user: UserCredential }
-type Ctx = koa.ParameterizedContext<ContextState>;
+export interface ContextState {
+    now: dayjs.Dayjs,
+    app: string,
+    user: UserCredential,
+}
+export type AuthContext = koa.ParameterizedContext<ContextState>;
 
 // config in akaric
 export const appsetting: {
@@ -29,6 +33,23 @@ export const appsetting: {
 
 const allowedOrigins = Object.fromEntries(appsetting.map(a => [a.origin, a.name]));
 
+// db types are postfixed 'Data' compared to non postfixed api types (the UserDevice)
+// they are defined here because they are not used outside
+interface UserData {
+    Id: number,
+    Name: string,
+    Active: boolean,
+    Token: string,
+}
+interface UserDeviceData {
+    Id: number,
+    App: string,
+    Name: string,
+    Token: string,
+    UserId: number,
+    LastAccessTime: string,
+    LastAccessAddress: string,
+}
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
 const userStorage: UserData[] = [];
@@ -41,7 +62,7 @@ let AllowSignUp = false;
 let AllowSignUpTimer: NodeJS.Timeout; // similar to some other features, sign up is timeout disabled after 12 hours if not manually disabled or reenabled
 
 // called by signin and signup, return access token
-async function createUserDevice(ctx: Ctx, userId: number): Promise<{ accessToken: string }> {
+async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ accessToken: string }> {
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
     const accessToken = randomBytes(42).toString('base64').slice(0, 42);
@@ -65,14 +86,14 @@ async function createUserDevice(ctx: Ctx, userId: number): Promise<{ accessToken
 
 // use regex to dispatch special apis
 // // this makes the usage looks like c# property/java annotation/python annotation/typescript metadata
-type Matcher = [RegExp, (ctx: Ctx, parameters: Record<string, string>) => Promise<void>];
+type Matcher = [RegExp, (ctx: AuthContext, parameters: Record<string, string>) => Promise<void>];
 
 const matchers1: Matcher[] = [ // special apis before authenticate
 
 [/^POST \/signin$/,
 async function handleSignIn(ctx) {
 
-    const claim: UserClaim = { username: ctx.get('X-Name'), password: ctx.get('X-Token') };
+    const claim = { username: ctx.get('X-Name'), password: ctx.get('X-Token') };
     if (!claim.username || !claim.password) {
         throw new MyError('common', 'user name or password cannot be empty');
     }
@@ -175,7 +196,7 @@ async function handleRegister(ctx) {
 }]];
 
 // read X-Token and save user credential to ctx.state is needed by all functions accept sign in
-async function authenticate(ctx: Ctx) {
+async function authenticate(ctx: AuthContext) {
 
     const accessToken = ctx.get('X-Token');
     if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
@@ -322,7 +343,7 @@ async function handleRemoveDevice(ctx, parameters) {
     ctx.status = 204;
 }]];
 
-export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Promise<void> {
+export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
     // all functions need access control because all of them are called cross origin (from app.domain.com or even anotherdomain.com to api.domain.com)
 
@@ -339,7 +360,7 @@ export async function handleRequestAccessControl(ctx: Ctx, next: koa.Next): Prom
     await next();
 }
 
-export async function handleRequestAuthentication(ctx: Ctx, next: koa.Next): Promise<any> {
+export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Next): Promise<any> {
     ctx.state.now = dayjs.utc();
     const key = `${ctx.method} ${ctx.path}`;
 
