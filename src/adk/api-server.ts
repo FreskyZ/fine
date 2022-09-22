@@ -8,7 +8,6 @@ import { UserCredential } from './auth';
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';
 
-// NOTE: sync with shared/types/auth.d.ts
 export interface Context {
     user: UserCredential,
 }

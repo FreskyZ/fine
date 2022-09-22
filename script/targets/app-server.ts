@@ -3,20 +3,20 @@ import * as chalk from 'chalk';
 import { config } from '../config';
 import { logInfo, logCritical } from '../common';
 import { eslint } from '../tools/eslint';
-import { codegen } from '../tools/codegen';
+import { codegen, deployADK as deployADKImpl } from '../tools/codegen';
 import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
 import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
 
 const getTypeScriptOptions = (watch: boolean): TypeScriptOptions => ({
     base: 'normal',
-    entry: `src/index.ts`,
+    entry: `src/core/index.ts`,
     sourceMap: 'normal',
     watch,
 });
 const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: `/vbuild/index.js`,
+    entry: `/vbuild/core/index.js`,
     files,
     sourceMap: true,
     output: `index.js`,
@@ -29,7 +29,11 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 ];
 
 export async function uploadConfig(): Promise<void> {
-    await upload({ remote: 'config', data: await fs.promises.readFile('src/config') }, { basedir: config.approot });
+    await upload({ remote: 'config', data: await fs.promises.readFile('src/core/config') }, { basedir: config.approot });
+}
+export async function deployADK() {
+    await deployADKImpl();
+    logInfo('adk', 'deploy adk');
 }
 
 async function buildOnce(): Promise<void> {

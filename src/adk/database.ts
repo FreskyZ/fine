@@ -1,7 +1,8 @@
+// this file is not very adk, but if I don't include this in adk, I need to copy the content every time
+
 import * as mysql from 'mysql';
 
 let pool: mysql.Pool;
-
 export function setupDatabaseConnection(config: mysql.PoolConfig) {
     pool = mysql.createPool({
         ...config,

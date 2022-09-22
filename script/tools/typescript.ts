@@ -144,7 +144,7 @@ function setupReadFileHook() {
     const originalReadFile = ts.sys.readFile;
     ts.sys.readFile = (fileName, encoding) => {
         let fileContent = originalReadFile(fileName, encoding);
-        if (!fileName.endsWith('.d.ts')) { // ignore .d.ts
+        if (fileContent && !fileName.endsWith('.d.ts')) { // ignore .d.ts
             fileContent = fileContent.replaceAll('domain.com', config.domain);
             fileContent = fileContent.replaceAll('webroot', config.webroot);
             // this is special, but auth is special so ok
@@ -176,7 +176,9 @@ function createWriteFileHook(options: TypeScriptOptions, files: TypeScriptResult
             }
 
             const match = /\/\/#\s*sourceMappingURL/.exec(fileContent);
-            if (match && options.sourceMap == 'hide') {
+            if (match && fileContent.substring(0, match.index).trim().length == 0) {
+                return; // tsc is emitting bare sourcemapurl for d.ts, early return for that
+            } else if (match && options.sourceMap == 'hide') {
                 fileContent = fileContent.slice(0, match.index); // this exactly make the LF before source mapping URL the LF before EOF
             } else if (!fileContent.endsWith('\n')) {
                 fileContent += '\n'; // make sure LF before EOF

@@ -90,15 +90,15 @@ export async function build(target: string): Promise<void> {
             return logCritical('akr', chalk`{cyan self} failed at upload`);
         }
     } else if (target == 'app') {
-        const sharedFiles = await fs.promises.readdir('src/shared', { withFileTypes: true });
-        const sdkfiles = await Promise.all(sharedFiles.filter(e => e.isFile()).map(async e => {
-            const content = await fs.promises.readFile(path.join('src/shared', e.name));
+        const adkFiles = await fs.promises.readdir('src/adk', { withFileTypes: true });
+        const compressedADKFiles = await Promise.all(adkFiles.filter(e => e.isFile()).map(async e => {
+            const content = await fs.promises.readFile(path.join('src/adk', e.name));
             const compressed = zlib.brotliCompressSync(content);
             const encoded = compressed.toString('base64');
             return [e.name, encoded] as [string, string];
         }));
-        const sdkvar = '{' + sdkfiles.map(f => `'${f[0]}':'${f[1]}'`).join(',') + '}';
-        const resultjs = packResult.resultJs.toString('utf-8').replace('compressedsdkfiles', sdkvar);
+        const adkvar = '{' + compressedADKFiles.map(f => `'${f[0]}':'${f[1]}'`).join(',') + '}';
+        const resultjs = packResult.resultJs.toString('utf-8').replace('compressedadkfiles', adkvar);
 
         await Promise.all(config.apps.filter(a => a.devrepo).map(a => {
             logInfo('akr', chalk`copy to {yellow ${a.devrepo}}`);

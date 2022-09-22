@@ -30,7 +30,7 @@ interface APIDefinitionFile {
     definitions: APIDefinition[],
 }
 
-const definitionFile = 'src/api-decl/api.xml';
+const definitionFile = 'src/api/api.xml';
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const myfetchMethods: { [method: string]: string } = { 'GET': 'get', 'POST': 'post', 'PUT': 'put', 'PATCH': 'patch', 'DELETE': 'del' }; // to lower and DELETE to del
 
@@ -51,14 +51,19 @@ const HEADER =
 '//-----------------------------------------------------------------------------------------------\n\n';
 const snakeToCamel = (vs: string) => vs.split('_').map(v => v.charAt(0).toUpperCase() + v.substring(1)).join('');
 
-// shared files used by app, see target/self.ts and build-script.md
-const SDK: { [filename: string]: string } = Object.fromEntries(Object.entries(
+// adk files used by app, see target/self.ts and build-script.md
+const ADK: { [filename: string]: string } = Object.fromEntries(Object.entries(
 // @ts-ignore use this is easier than use .d.ts
-    compressedsdkfiles
+    compressedadkfiles
 // I completely don't understand what typescript is saying:
 // Argument of type '([filename, encoded]: [string, string]) => [string, string]' is not assignable to parameter of type '(value: [string, unknown], index: number, array: [string, unknown][]) => [string, string]'
 // @ts-ignore
 ).map(([filename, encoded]) => [filename, zlib.brotliDecompressSync(Buffer.from(encoded, 'base64')).toString()]));
+
+export async function deployADK(): Promise<void> {
+    await fs.mkdir('src/adk', { recursive: true });
+    await Promise.all(Object.keys(ADK).map(filename => fs.writeFile(`src/adk/${filename}`, ADK[filename])));
+}
 
 function parsePath(apiName: string, rawPath: string): PathComponent[] {
     const result: PathComponent[] = [];
@@ -140,9 +145,8 @@ export interface CodeGenerationResult {
 }
 
 async function generateServerDefinition(additionalHeader?: string): Promise<CodeGenerationResult> {
-    await fs.mkdir('src/api-impl', { recursive: true });
-
-    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow api-impl}`);
+    await fs.mkdir('src/api/server', { recursive: true });
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow api/server}`);
 
     let definitionFile: APIDefinitionFile;
     try {
@@ -153,30 +157,24 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
     }
     const { version, definitions: allDefinitions } = definitionFile;
 
-    // extra files normally not change
-    // change with api.xml files should be included in extra
-    const extra = 'AKARIN_CODEGEN_EXTRA' in process.env;
-
-    // actually only the write file part can be parallel, but still ok for readability    
-    const tasks = [
-        !extra ? Promise.resolve() : fs.writeFile('src/database.ts', SDK['database.ts']),
-        !extra ? Promise.resolve() : fs.writeFile('src/api-impl/common.ts', SDK['api-server.ts']),
-    ];
+    // actually only the write file part can be parallel, but still ok for readability
+    const tasks: Promise<void>[] = [];
 
     // [namespace].ts
     const namespaces = allDefinitions.map(d => d.namespace).filter((v, i, a) => a.indexOf(v) == i).map(n => [n, snakeToCamel(n)]);
     tasks.push(...namespaces.map(async ([namespace, namespaceintype]) => {
-        let b = HEADER;
         const definitions = allDefinitions.filter(d => d.namespace == namespace);
 
-        b += `import { DispatchContext, Context, MyError } from './common';\n`;
+        let b = HEADER;
+        b += `import { FineError } from '../../adk/error';\n`;
+        b += `import { ForwardContext, Context } from '../../adk/api-server';\n`;
 
         // because colon is only used for capture type, so validators can be prepared by this
         const validators: string[] = parameterTypes
             .filter(parameterType => definitions.some(d => d.apiPath.some(c => c.type == 'parameter' && c.parameterType == parameterType)))
             .map(parameterType => parameterTypeConfig[parameterType].validator)
             .concat(definitions.some(d => ['PUT', 'POST', 'PATCH'].includes(d.method)) ? ['validateBody'] : []);
-        b += `import { ${validators.join(', ')} } from './common';\n`;
+        b += `import { ${validators.join(', ')} } from '../../adk/api-server';\n`;
 
         // typescript is now 4.7 but still cannot understand .filter(c => c.tag == 'sometag').map(c /* this is tagged */)
         const typesFromBody = definitions.filter(d => d.bodyType).map(d => d.bodyType);
@@ -184,7 +182,7 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         const usedTypes = typesFromBody.concat(typesFromReturn)
             .filter((t, index, array) => array.indexOf(t) == index) // dedup
             .filter(t => !['number'].includes(t)); // not builtin types
-        b += `import type { ${usedTypes.join(', ')} } from '../api-decl/types';\n`;
+        b += `import type { ${usedTypes.join(', ')} } from '../types';\n`;
 
         b += '\n'
         b += `export interface ${namespaceintype}Impl {\n`
@@ -201,7 +199,7 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '}\n';
 
         b += '\n';
-        b += `export async function dispatch(ctx: DispatchContext, impl: ${namespaceintype}Impl): Promise<void> {\n`;
+        b += `export async function dispatch(ctx: ForwardContext, impl: ${namespaceintype}Impl): Promise<void> {\n`;
         b += `    let match: RegExpExecArray;\n`;
         b += `    const methodPath = \`\${ctx.method} \${ctx.path.slice(${version.length + namespace.length + 3})}\`;\n`; // 4: /v{version}/{namespace}
 
@@ -244,9 +242,9 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         }
 
         b += `\n`;
-        b += `    throw new MyError('not-found', 'invalid invocation');\n`;
+        b += `    throw new FineError('not-found', 'invalid invocation');\n`;
         b += '}\n';
-        await fs.writeFile(`src/api-impl/${namespace}.ts`, b);
+        await fs.writeFile(`src/api/server/${namespace}.ts`, b);
     }));
 
     // index.ts
@@ -255,8 +253,8 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
 
         b += `import * as fs from 'fs';\n`;
         b += `import * as net from 'net';\n`;
-        b += `import { DispatchContext, MyError } from './common';\n`;
-        b += `import { setupServer, shutdownServer } from './common';\n`;
+        b += `import { FineError } from '../../adk/error';\n`;
+        b += `import { ForwardContext, setupServer, shutdownServer } from '../../adk/api-server';\n`;
         for (const [namespace, namespaceintype] of namespaces) {
             b += `import { ${namespaceintype}Impl, dispatch as dispatch${namespaceintype} } from './${namespace}';\n`;
         }
@@ -269,19 +267,19 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '}\n';
 
         b += '\n'
-        b += 'async function dispatch(ctx: DispatchContext, impl: Impl) {\n';
-        b += `    if (!ctx.path.startsWith('/v${version}')) { throw new MyError('not-found', 'invalid invocation version'); }\n`;
+        b += 'async function dispatch(ctx: ForwardContext, impl: Impl) {\n';
+        b += `    if (!ctx.path.startsWith('/v${version}')) { throw new FineError('not-found', 'invalid invocation version'); }\n`;
         b += `    const path = ctx.path.substring(${version.length + 2});\n`; // 2: /v1
         for (const [namespace, namespaceintype] of namespaces) {
             b += `    if (path.startsWith('/${namespace}/')) { return await dispatch${namespaceintype}(ctx, impl.${namespace}); }\n`
         }
-        b += `    throw new MyError('not-found', 'invalid invocation');\n`;
+        b += `    throw new FineError('not-found', 'invalid invocation');\n`;
         b += `}\n`;
 
         b += '\n'
         b += 'let server: net.Server;\n';
         b += 'const connections: net.Socket[] = [];\n';
-        b += 'export function initializeWebInterface(socketpath: string, impl: Impl) {\n'
+        b += 'export function setupWebInterface(socketpath: string, impl: Impl) {\n'
         b += '    server = net.createServer();\n';
         b += '    setupServer(server, connections, dispatch, impl);\n';
         b += `    if (fs.existsSync(socketpath)) {\n`;
@@ -293,17 +291,18 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '    return shutdownServer(server, connections);\n';
         b += '}\n';
 
-        await fs.writeFile(`src/api-impl/index.ts`, b);
+        await fs.writeFile(`src/api/server/index.ts`, b);
     })());
 
     await Promise.all(tasks);
 
-    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow ${tasks.length}} files completed`);
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow api/server} completed with ${tasks.length} files`);
     return { success: true };
 }
 
 async function generateClientDefinition(additionalHeader?: string): Promise<CodeGenerationResult> {
-    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow src/api-decl}`);
+    await fs.mkdir('src/api', { recursive: true });
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow src/api/client}`);
 
     let definitionFile: APIDefinitionFile;
     try {
@@ -314,21 +313,13 @@ async function generateClientDefinition(additionalHeader?: string): Promise<Code
     }
     const { version, definitions } = definitionFile;
 
-    // extra files normally not change
-    // change with api.xml files should be included in extra
-    const extra = 'AKARIN_CODEGEN_EXTRA' in process.env;
-
-    if (extra) {
-        await fs.writeFile('src/api-decl/common.ts', SDK['api-client.ts']);
-    }
-
     let b = HEADER;
     if (definitions.some(d => d.apiPath.some(c => c.type == 'parameter' && ['date', 'time'].includes(c.parameterType)))) {
         b += `import type { Dayjs } from 'dayjs';\n`;
     }
 
     const usedMethods = methods.filter(m => definitions.some(d => d.method == m)).map(m => myfetchMethods[m]); // use all methods.filter to keep them in order
-    b += `import { ${usedMethods.join(', ')} } from './common';\n`;
+    b += `import { ${usedMethods.join(', ')} } from '../adk/api-client';\n`;
 
     const bodyTypes = definitions.filter(d => d.bodyType).map(d => d.bodyType);
     const returnTypes = definitions.filter(d => d.returnType != 'void').map(d => d.returnType.endsWith('[]') ? d.returnType.slice(0, -2) : d.returnType);
@@ -381,8 +372,8 @@ async function generateClientDefinition(additionalHeader?: string): Promise<Code
         b += '};\n';
     }
 
-    await fs.writeFile('src/api-decl/index.ts', b);
-    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow src/api-decl} completed`);
+    await fs.writeFile('src/api/client.ts', b);
+    logInfo(`fcg${additionalHeader}`, chalk`generate {yellow api/client} completed`);
     return { success: true };
 }
 
