@@ -4,12 +4,18 @@
 - `akaric`: the build script configuration, it is not tracked, see `script/config.ts`
 - `script`: source of the build script, see more at [build-script.md](./build-script.md)
   - `script/index.ts` is the (client side) build script entry
-  - `script/server/index.ts` is the (server side) management utility entry
+  - `script/index-server.ts` is the (server side) management utility entry
+  - `script/index-app.ts` is app's build script entry
 - `src`: normal source code, or 'runtime' related source code
   - `core`: server entry, certificate, cache control and authentication
   - `public`: not interesting public files like `robots.txt`, simply copied to distribution location
   - `static`: some builtin pages are in tree
-  - `shared`, `wimm`: TBD?
+  - `adk`: application software development kit, app's client and server border will use these types and functions
+  - `shared`: internal shared types, currently only admin command related types, because others are in adk
+  - `shared/config.json`: core module's runtime config file, it is not in src/core because src/core is
+    very cool because it only contains several files with short names and same file extension, put either 'config'
+    or 'config.json' in the directory both reduces the cool level, while it is actually kind of reasonable
+    because this runtime config is somehow shared by core module and akari (server)
   - (not in tree) web app's source code: in their own repository while only shares build script
 
 ### Distribution Directory Structure
@@ -22,7 +28,7 @@
   not compatible and affect performance, they are hot reloaded by admin command not watch file system
   - `static/index.html`, `static/user.html` the two special simple pages are directly in `static` directory
   - `static/<app>` each app's front end files are in their own directory to resolve name collision
-- (not in same directory) app's server is deployed and run separately 
+- (not in same directory) app's server is deployed and run separately
 
 ### `public` or (or and) `static`
 

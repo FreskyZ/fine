@@ -58,65 +58,71 @@ $ akari watch both
 
 ## No Build Config File
 
-normally you will have many config files for mono repo, like series of `tsconfig.json`, `webpack.config.js`, `.babelrc` and `eslintrc`, maintaining them is hard work and harder when the project file structure frequently changes in early development phase
+normally you will have many config files for mono repo, like series of `tsconfig.json`, `webpack.config.js`,
+`.babelrc` and `eslintrc`, maintaining them is hard work and harder when the project file structure frequently changes in early development phase
 
 this build script, instead of normal method, uses all tools' node api for their functionalities, 
-> nearly all modern front end tools have node api, because most of them will want to be integrited with webpack which requires adapting their node api with webpack's plugin/loader api, while many tools have standalone (comparing to use in webpack) command line interface, a well-designed internal structure will separate a node api to be shared between cli and webpack api, on the other hand, webpack have very powerful (or complicate) node api, as webpack itself is very complex
+> nearly all modern front end tools have node api, because most of them will want to be integrited with
+  webpack which requires adapting their node api with webpack's plugin/loader api, while many tools have
+  standalone (comparing to use in webpack) command line interface, a well-designed internal structure will
+  separate a node api to be shared between cli and webpack api, on the other hand, webpack have ver
+   powerful (or complicate) node api, as webpack itself is very complex
 
 in detail,
-- typescript use compiler api, not `ts-loader` or `awesome-typescript-loader`, because both of them do not support no-config-file usage, while compiler api supports
-- sass use it's own node api instead of `sass-loader!css-loader!style-loader` (the exclamation mark is how these series of loaders display in webpack statistics), because I'd like to compare this usage to commonly used 'bundle-css-in-js' pattern
+- typescript: use compiler api, not `ts-loader` or `awesome-typescript-loader`, 
+  because both of them do not support no-config-file usage, while compiler api supports
+- sass: use it's own node api instead of `sass-loader!css-loader!style-loader`
+  (the exclamation mark is how these series of loaders display in webpack statistics),
+  because I'd like to compare this usage to commonly used 'bundle-css-in-js' pattern
 - backend is not using webpack, because webpack causes serious performance issue on my poor deployment server, describe later
 - web pages are not using webpack, because they only have one ts file and it is tranpiled into javascript and served
 - front end webpack configuration is inlined in build script source code
 - eslint node api supports no-config-file usage, actually its command line interface also supports it
 
-> vscode eslint is disabled because it is annoying in many cases, while vscode have many unexpected or not-designed behavior facing mono repo, especially this mono repo without tsconfig, like its hinting browser javascript global variables in back end code, or complains unknown variable which is implemented by typescript custom transformer in build script
+> vscode eslint is disabled because it is annoying in many cases, while vscode have many unexpected or
+  not-designed behavior facing mono repo, especially this mono repo without tsconfig, like its hinting
+  browser javascript global variables in back end code, or complains unknown variable which is implemented by typescript custom transformer in build script
 
 ## MyPack Bundler
 
-it is added because serious performance issues occurs when watching on my poor performance server deploy machine, it starts from a very simply text joiner, to a not very simply text joiner with source map, minify, etc. features
-
-this bundler read file from memory, recognizes all `require(".` and replace them with `myimport`, module id (module name) is relative path to entry, then join them and generate source map by the way, finally minified if configured, this is actually the core functionality of a bundler
+it is added because serious performance issues occurs when watching on my poor performance server deploy machine,
+it starts from a very simply text joiner, to a not very simply text joiner with source map, minify, etc. features,
+this bundler read file from memory, recognizes all `require(".` and replace them with `myimport`, module id (module name)
+is relative path to entry, then join them and generate source map by the way, finally minified if configured, this is actually the core functionality of a bundler
 
 ## Target Border
 
-target means build script target, like server-core, app-server and app-client, target border mainly considers what happened at server-core-app-server border and app-server-app-client border, also, server-core-shared, app-server-shared border, app-client-shared border was issues
+build script have many targets, their border need to be designed to work together correctly
 
-### `*-shared` border
+### `*-shared` and `*-adk` border
 
-1. for `shared/types/*.d.ts` declaration files, tsc will only use them to check type and will not emit anything
-2. for `shared/*.ts` files, 
-   1. tsc will emit entry files and shared files into `<targetdir>/server-core/index.js`
-      or `<targetdir>/cost/server/index.js` and `<targetdir>/shared/*.js` to make them still in required target directory 
-      while node require statement still work correctly
+1. for `*.d.ts` files, tsc will only use them to check type and will not emit anything
+   // TODO maybe not, may be need to update typescript write file hook to reject them
+2. for `*.ts` files,
+   1. if `<dir>/index.ts` is `require`ing (include recursively) files from `shared/*.ts`, tsc will emit files
+      `<targetdir>/<dir>/index.js` and `<targetdir>/shared/*.js` for that, to make original requirement work correctly
    2. mypack will pack them and name the modules like `../shared/*` or `../../shared/*`,
-      they are designed to be small and packed together, pack them to different target is not considered waste
-      while there is no issues like 'duplicate symbol' when linking native executable objects
-   3. except that their type definition, or class definition, or function definition is not same reference, so instanceof check will failed to be expected behavior
+      they are designed to be small and packed together, pack them to multiple targets is not considered waste
 
-### `server-core-app-server` border
 
-1. this border theoretically should use typescript project reference feature, *BUT*, 
-   1. this feature is not publically available in compiler api (or node api)
-      (actually the whole compiler api is not very documented)
-   2. investigate in source code is complex, also I currently did not find internal documents about this feature. 
-   3. this feature will also add a ".tsBuildInfo" file in root directory, 
-      which kind of do not meet my project's "no any config files" designment
+      there will be no errors like 'duplicate symbol' in native development process, but
+      there will be not same reference issue which makes `instanceof` (prototype check) 
+      not working, `src/core/error.ts` and `src/adk/error.ts` has paid attention on that
 
-2. so it actually uses a node dynamic import (actually `require` function is always dynamic), which works like
-    ```js
-    require(`../${app}/server`).dispatch(ctx)
-    ```
-    1. for tsc, it only processes es6 `import` statement, it recognize `require` as a known function (in `lib.node.d.ts`) and pass by
-    2. for mypack, I only recognize `require(".` while this expression requires a string template, so it pass by
-    3. at runtime, node will try to load the module if it is not loaded and load from cache if previous loaded,
-       simply delete the cache will make node load the module again next time, while invalidate cache is very easy after admin mechanism: 
-    ```js
-    admin.on('reload-server', app => { delete require.cache[require.resolve(...app...)]; })
-    ```
+### `core-app` border
 
-3. for the boring dispatch method+path to handler part, 
+1. app servers are originally designed to be in-process and invoke by simple `require`, see following legacy part
+2. but the new application is complex (namely FreskyZ/wacq), it has its own connections to other services,
+   connect everything using the core process will make things too coupled, not just hard to cleanup when hot reloading,
+   so new app infrastructure are designed to be deployed and serviced on ther own
+
+> if you review this project's history, this is also the reason
+  why the category changed from web site to reverse proxy, and the removal of 'reload-server' admin command
+
+3. after separate process, the app server is invoked via unix domain socket with transmitting json as plain text,
+   the connection is pooled to prevent waste of frequent open and close unix domain socket,
+   file transmission TBD, websocket or other keep alive transmission TBD
+4. for the boring dispatch method+path to handler part,
    1. api.xml
    ```xml
    <xs:element name="api">
@@ -139,12 +145,34 @@ target means build script target, like server-core, app-server and app-client, t
      </xs:complexType>
    </xs:element>
    ```
-   2. then a `dipatch(ctx: Ctx<MyState>): Promise<void>` is generated to dispatch method+path, see any app server/index.ts,
-      tsc will raise error if any function is missing, parameter count is incorrect, parameter type is incorrect or return type is incorrect (void or not void)
+   2. then several `dispatch(ctx: Ctx<MyState>): Promise<void>` is generated to
+      dispatch method+path, tsc will raise error if any function is missing, 
+      parameter count is incorrect, parameter type is incorrect or return type is incorrect (void or not void)
 
-### `app-server-app-client` border
+### (Legacy) `core-app` border
 
-1. this border actually is THE `server-core`, but here it means enable client code to call something like `api.getValue` which
+1. this border theoretically should use typescript project reference feature, *BUT*, 
+   1. this feature is not publically available in compiler api (or node api)
+      (actually the whole compiler api is not very documented)
+   2. investigate in source code is complex, also I currently did not find internal documents about this feature. 
+   3. this feature will also add a ".tsBuildInfo" file in root directory, 
+      which kind of do not meet my project's "no any config files" designment
+
+2. so it actually uses a node dynamic import (actually `require` function is always dynamic), which works like
+    ```js
+    require(`../${app}/server`).dispatch(ctx)
+    ```
+    1. for tsc, it only processes es6 `import` statement, it recognize `require` as a known function (in `lib.node.d.ts`) and pass by
+    2. for mypack, I only recognize `require(".` while this expression requires a string template, so it pass by
+    3. at runtime, node will try to load the module if it is not loaded and load from cache if previous loaded,
+       simply delete the cache will make node load the module again next time, while invalidate cache is very easy after admin mechanism: 
+    ```js
+    admin.on('reload-server', app => { delete require.cache[require.resolve(...app...)]; })
+    ```
+
+### `app-server-client` border
+
+1. this border actually is THE core module, but here it means enable client code to call something like `api.getValue` which
    have same signature as app server's `getValue` function except server side have additional `ctx` parameter to hold some context values
 2. this is also implemented by code generation and calling helper wrapper over `fetch` with authentication token (see auth.md), 
    after 2 side code generation and type sharing (any app/api.d.ts), they have same experience as calling function in one executable file
