@@ -87,7 +87,7 @@ function write(level: Level, content: any) {
         content = { content };
     }
 
-    // simply add time to content, to decrease content deepness
+    // insert time intrusively to reduce content depth
     content.$$t = dayjs.utc().toJSON();
     entries.push(content);
 

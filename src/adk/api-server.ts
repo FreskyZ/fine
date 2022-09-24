@@ -66,10 +66,16 @@ export function validateBody<T>(body: any): T {
 let server: net.Server;
 const connections: net.Socket[] = [];
 
-export function setupWebInterface<T>(path: string, dispatch: (ctx: ForwardContext, impl: T) => Promise<void>, impl: T) {
+export function setupAPIServer(
+    path: string,
+    // log input any: implementation to distinguish string or Error to log specifically
+    // log output any: log may be async, but here does not care about waiting for log to complete
+    onerror: (kind: string, error: any) => any,
+    dispatch: (ctx: ForwardContext) => Promise<void>,
+) {
     server = net.createServer();
     server.on('error', error => {
-        console.log(`socket server error: ${error.message}`);
+        onerror('socket server', error);
     });
     server.on('connection', connection => {
         connections.push(connection);
@@ -78,7 +84,7 @@ export function setupWebInterface<T>(path: string, dispatch: (ctx: ForwardContex
             connections.splice(connections.indexOf(connection), 1);
         });
         connection.on('error', error => {
-            console.log(`socket connection error: ${error.message}`);
+            onerror('socket connection', error);
         });
         connection.on('data', async data => {
             const payload = data.toString('utf-8');
@@ -86,17 +92,17 @@ export function setupWebInterface<T>(path: string, dispatch: (ctx: ForwardContex
             let ctx = {} as ForwardContext;
             try {
                 ctx = JSON.parse(payload);
-            } catch {
-                console.log('socket server failed to parse payload: ' + payload);
+            } catch (error) {
+                onerror('parse payload', error);
             }
 
             try {
-                await dispatch(ctx, impl);
+                await dispatch(ctx);
             } catch (error) {
+                onerror('dispatch', error);
                 if (error instanceof FineError) {
                     ctx.error = error;
                 } else {
-                    console.log(error);
                     ctx.error = new FineError('internal', error.message);
                 }
             } finally {
@@ -113,12 +119,12 @@ export function setupWebInterface<T>(path: string, dispatch: (ctx: ForwardContex
     server.listen(path);
 }
 
-export function shutdownWebInterface(): Promise<void> {
+export function shutdownAPIServer(onerror: (kind: string, error: any) => any): Promise<void> {
     for (const socket of connections) {
         socket.destroy();
     }
     return new Promise<void>((resolve, reject) => server.close(error => {
-        if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); }
+        if (error) { onerror('socket server close', error); reject(); }
         else { resolve(); }
     }));
 }

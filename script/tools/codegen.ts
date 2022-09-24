@@ -187,13 +187,15 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         b += '\n'
         b += `export interface ${namespaceintype}Impl {\n`
         for (const { apiName, apiPath, bodyType, bodyName, returnType } of definitions) {
-            b += `    ${apiName}: (ctx: Context`
+            b += `    ${apiName}: (`
             for (const { parameterName, parameterType } of apiPath.filter(c => c.type == 'parameter') as { parameterName: string, parameterType: string }[]) {
-                b += `, ${parameterName}: ${parameterTypeConfig[parameterType].tsType}`;
+                b += `${parameterName}: ${parameterTypeConfig[parameterType].tsType}, `;
             }
             if (bodyType) {
-                b += `, ${bodyName}: ${bodyType}`;
+                b += `${bodyName}: ${bodyType}, `;
             }
+            // some app does not care about this context, put at last so that they can easily omit this
+            b += 'ctx: Context';
             b += `) => Promise<${returnType}>,\n`;
         }
         b += '}\n';
@@ -219,13 +221,14 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
             if (returnType != 'void') {
                 b += `ctx.body = `;
             }
-            b += `await impl.${apiName}(ctx.state`;
+            b += `await impl.${apiName}(`;
             for (const { parameterName, parameterType } of apiPath.filter(c => c.type == 'parameter') as { parameterName: string, parameterType: string }[]) { // tsc fails to infer the type
-                b += `, ${parameterTypeConfig[parameterType].validator}('${parameterName}', match.groups['${parameterName}'])`;
+                b += `${parameterTypeConfig[parameterType].validator}('${parameterName}', match.groups['${parameterName}']), `;
             }
             if (bodyType) {
-                b += `, validateBody(ctx.body)`;
+                b += `validateBody(ctx.body), `;
             }
+            b += 'ctx.state';
             b += ');\n';
             if (bodyType && returnType == 'void') {
                 b += '        delete ctx.body;\n';

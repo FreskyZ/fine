@@ -29,7 +29,7 @@ const getUploadAssets = (packResult: MyPackResult): Asset[] => [
 ];
 
 export async function uploadConfig(): Promise<void> {
-    await upload({ remote: 'config', data: await fs.promises.readFile('src/core/config') }, { basedir: config.approot });
+    await upload({ remote: 'config', data: await fs.promises.readFile('src/core/config.json') }, { basedir: config.approot });
 }
 export async function deployADK() {
     await deployADKImpl();
@@ -79,9 +79,7 @@ function buildWatch(additionalHeader?: string) {
         packer.updateFiles(files);
         const packResult = await packer.run();
         if (packResult.success && packResult.hasChange) {
-            if (await upload(getUploadAssets(packResult), { basedir: config.approot, additionalHeader })) {
-                // await admin.core({ type: 'auth', sub: { type: 'reload-server', app } }, additionalHeader);
-            }
+            await upload(getUploadAssets(packResult), { basedir: config.approot, additionalHeader });
         }
     });
 }
