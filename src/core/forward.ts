@@ -14,7 +14,6 @@ type Pool = {
     // initialized as POOLSIZE as uninit
     items: ReadonlyArray<PoolItem>,
     // wait queue for available item, FIFO
-    // TODO don't forget to setimmediate to call them
     waits: ((connection: net.Socket) => any)[],
 }
 

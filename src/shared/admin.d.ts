@@ -1,3 +1,4 @@
+// admin interface types
 
 export type AdminAuthCommand =
     | { type: 'reload-server', app: string }

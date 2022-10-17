@@ -3,7 +3,7 @@ import * as dayjs from 'dayjs';
 import * as koa from 'koa';
 import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
-import type { UserDevice, UserCredential } from '../adk/auth';
+import type { UserDevice, UserCredential } from '../shared/auth';
 import type { AdminAuthCommand } from '../shared/admin';
 import { query, QueryResult, QueryDateTimeFormat } from '../adk/database';
 import { MyError } from './error';

@@ -2,7 +2,7 @@
 import React from 'react';
 import { FC, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import type { UserCredential, UserDevice } from '../adk/auth';
+import type { UserCredential, UserDevice } from '../shared/auth';
 
 // not in react root elements
 const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;

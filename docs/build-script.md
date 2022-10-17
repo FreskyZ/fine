@@ -1,221 +1,52 @@
 # Build Script
 
-build script builds, deploys and maintenances the whole project
+build script builds, deploys and maintenances the whole project and related projects, which
 
-include 3 executable files,
-
-- the major one, called akari (local), (or if unambiguous, akari), running on development environment, which
-  - build self
-  - build, deploy and debug core module
-  - build builtin pages include home page and user page
-  - deploy public assets
-  - other devops like lint
-  - provide cli to forward other admin commands
-- akari (server), running on deployment environment, which
-  - provide debug and management interface for core process, in a really strange way to increase safety
-  - forward admin commands to core process and backward(?) result from core process
+- build, deploy and debug core module
+- build and deploy builtin pages include main and user page
+- deploy public assets
+- other devops like lint
+- provide cli to forward other administration commands
+- provide a server executable file to be run on deployment environment, which
+  - provide debug and manage interface for core process, in a really strange way to increase safety
+  - forward administration commands to core process and backward(?) results from core process
   - host core process for actual debug experience
-- akari (app), running on app development environment, which
-  - also transpiles sass and typescript and bundle
-  - code generation api declaration
-  - sdk deployment (TBD)
-  - deploy build result and hot reload them
+- provide build script tools for use in apps development process, which
+  - supports more "traditional" webpack bundler for front end pages
+  - deploy and hot reload front end build artifacts
+  - rpc style api declaration, code generation and support library
 
 in additional
 
-- build script is written in typescript and it is build by itself, to prevent bootstrap issues, the executable file is tracked by version control
-- all executable files are all called `akari`, who is akarin?
-- build script is invoked directly, that is *8* characters less then `npm run akari args` and *5* characters less than `node akari args`
+- all executable files are all called `akari`, あっかりんーー
+- build script is invoked directly, that is *8* characters
+  less then `npm run akari args` and *5* characters less than `node akari args`
+- build script is written in typescript and it is build by itself, to prevent bootstrap issues,
+  this project tracks the executable file in version control, while bootstrap shell script is still prepared for apps
+- apps can write their own build process (even a similar administration interface like in this project)
+  but some common things are still described here
 
 ## CLI Reference
 
-akari (local)
+(maybe incomplete, maybe out of date)
 
-```shell
+```bash
+# basic
 $ akari self
 $ akari public
 $ akari core
 $ akari watch core
 $ akari static
 $ akari watch static
-```
 
-akari (server), recommend register as a service
-
-```shell
-$ akari
-```
-
-akari (app)
-
-```shell
-$ akari client
-$ akari server
-$ akari watch client
-$ akari watch server
-$ akari watch both
-```
-
-## No Build Config File
-
-normally you will have many config files for mono repo, like series of `tsconfig.json`, `webpack.config.js`,
-`.babelrc` and `eslintrc`, maintaining them is hard work and harder when the project file structure frequently changes in early development phase
-
-this build script, instead of normal method, uses all tools' node api for their functionalities, 
-> nearly all modern front end tools have node api, because most of them will want to be integrited with
-  webpack which requires adapting their node api with webpack's plugin/loader api, while many tools have
-  standalone (comparing to use in webpack) command line interface, a well-designed internal structure will
-  separate a node api to be shared between cli and webpack api, on the other hand, webpack have ver
-   powerful (or complicate) node api, as webpack itself is very complex
-
-in detail,
-- typescript: use compiler api, not `ts-loader` or `awesome-typescript-loader`, 
-  because both of them do not support no-config-file usage, while compiler api supports
-- sass: use it's own node api instead of `sass-loader!css-loader!style-loader`
-  (the exclamation mark is how these series of loaders display in webpack statistics),
-  because I'd like to compare this usage to commonly used 'bundle-css-in-js' pattern
-- backend is not using webpack, because webpack causes serious performance issue on my poor deployment server, describe later
-- web pages are not using webpack, because they only have one ts file and it is tranpiled into javascript and served
-- front end webpack configuration is inlined in build script source code
-- eslint node api supports no-config-file usage, actually its command line interface also supports it
-
-> vscode eslint is disabled because it is annoying in many cases, while vscode have many unexpected or
-  not-designed behavior facing mono repo, especially this mono repo without tsconfig, like its hinting
-  browser javascript global variables in back end code, or complains unknown variable which is implemented by typescript custom transformer in build script
-
-## MyPack Bundler
-
-it is added because serious performance issues occurs when watching on my poor performance server deploy machine,
-it starts from a very simply text joiner, to a not very simply text joiner with source map, minify, etc. features,
-this bundler read file from memory, recognizes all `require(".` and replace them with `myimport`, module id (module name)
-is relative path to entry, then join them and generate source map by the way, finally minified if configured, this is actually the core functionality of a bundler
-
-## Target Border
-
-build script have many targets, their border need to be designed to work together correctly
-
-### `*-shared` and `*-adk` border
-
-1. for `*.d.ts` files, tsc will only use them to check type and will not emit anything
-   // TODO maybe not, may be need to update typescript write file hook to reject them
-2. for `*.ts` files,
-   1. if `<dir>/index.ts` is `require`ing (include recursively) files from `shared/*.ts`, tsc will emit files
-      `<targetdir>/<dir>/index.js` and `<targetdir>/shared/*.js` for that, to make original requirement work correctly
-   2. mypack will pack them and name the modules like `../shared/*` or `../../shared/*`,
-      they are designed to be small and packed together, pack them to multiple targets is not considered waste
-
-
-      there will be no errors like 'duplicate symbol' in native development process, but
-      there will be not same reference issue which makes `instanceof` (prototype check) 
-      not working, `src/core/error.ts` and `src/adk/error.ts` has paid attention on that
-
-### `core-app` border
-
-1. app servers are originally designed to be in-process and invoke by simple `require`, see following legacy part
-2. but the new application is complex (namely FreskyZ/wacq), it has its own connections to other services,
-   connect everything using the core process will make things too coupled, not just hard to cleanup when hot reloading,
-   so new app infrastructure are designed to be deployed and serviced on ther own
-
-> if you review this project's history, this is also the reason
-  why the category changed from web site to reverse proxy, and the removal of 'reload-server' admin command
-
-3. after separate process, the app server is invoked via unix domain socket with transmitting json as plain text,
-   the connection is pooled to prevent waste of frequent open and close unix domain socket,
-   file transmission TBD, websocket or other keep alive transmission TBD
-4. for the boring dispatch method+path to handler part,
-   1. api.xml
-   ```xml
-   <xs:element name="api">
-     <xs:complexType>
-       <!-- default to 'default' -->
-       <xs:attribute name="namespace" type="xs:string" />
-       <!-- is script function name, so cannot have whitespace or hyphen -->
-       <xs:attribute name="name" type="xs:string" use="required" />
-       <!-- can be GET|PUT|POST|PATCH|DELETE -->
-       <xs:attribute name="method" type="xs:string" use="required" />
-       <!-- is normal url path with optional `{name:type}` segament -->
-       <!-- name cannot have whitespace or hypthen, type is limited to id|number|string|boolean|date|datetime -->
-       <xs:attribute name="path" type="xs:string" use="required" />
-       <!-- required when method is PUT|POST|PATCH -->
-       <xs:attribute name="body-type" type="xs:string" />
-       <!-- required when method is PUT|POST|PATCH -->
-       <xs:attribute name="body-name" type="xs:string" />
-       <!-- default to void -->
-       <xs:attribute name="return-type" type="xs:string" />
-     </xs:complexType>
-   </xs:element>
-   ```
-   2. then several `dispatch(ctx: Ctx<MyState>): Promise<void>` is generated to
-      dispatch method+path, tsc will raise error if any function is missing, 
-      parameter count is incorrect, parameter type is incorrect or return type is incorrect (void or not void)
-
-### (Legacy) `core-app` border
-
-1. this border theoretically should use typescript project reference feature, *BUT*, 
-   1. this feature is not publically available in compiler api (or node api)
-      (actually the whole compiler api is not very documented)
-   2. investigate in source code is complex, also I currently did not find internal documents about this feature. 
-   3. this feature will also add a ".tsBuildInfo" file in root directory, 
-      which kind of do not meet my project's "no any config files" designment
-
-2. so it actually uses a node dynamic import (actually `require` function is always dynamic), which works like
-    ```js
-    require(`../${app}/server`).dispatch(ctx)
-    ```
-    1. for tsc, it only processes es6 `import` statement, it recognize `require` as a known function (in `lib.node.d.ts`) and pass by
-    2. for mypack, I only recognize `require(".` while this expression requires a string template, so it pass by
-    3. at runtime, node will try to load the module if it is not loaded and load from cache if previous loaded,
-       simply delete the cache will make node load the module again next time, while invalidate cache is very easy after admin mechanism: 
-    ```js
-    admin.on('reload-server', app => { delete require.cache[require.resolve(...app...)]; })
-    ```
-
-### `app-server-client` border
-
-1. this border actually is THE core module, but here it means enable client code to call something like `api.getValue` which
-   have same signature as app server's `getValue` function except server side have additional `ctx` parameter to hold some context values
-2. this is also implemented by code generation and calling helper wrapper over `fetch` with authentication token (see auth.md), 
-   after 2 side code generation and type sharing (any app/api.d.ts), they have same experience as calling function in one executable file
-
-## Admin Server
-
-akari (server) self is actually a http server and a websocket server, receiving and forwarding messages
-
-- it is not integrited in server-core because it is strange to stop self, start server-core normal functions and start self when watching server-core
-- although sometimes web browser is on develop machine and seems akari (local) can directly send message to browser to refresh it, but control browser is not that simple, and sometimes I need to test on mobile phone (some apps are designed to mainly use on mobile device), than akari (local) and web browser still need a well known server to contact
-
-## Hot Reloading
-
-- for server component, or build result of app-server target, see server-core-app-server-border section
-- for static content, or build result of app-client/web-page targets, see src/server-core/content.ts
-- for opened browser tab, or running instance of build result of app-client target, describe later
-
-akari (local) will directly deploy to server from build results in memory and then sends reload command to akari (server) then server-core, they are part of build/watch cli and do not have their own cli
-
-### Opened Tab Hot Reloading
-
-webpack-dev-server is able to refresh page when js changes and reload css when css change, it is actually not complex
-
-1. a `client-dev.js` is served from akari (server), containing dev mode code, it's script tag src attribute is `src="https://domain.com:port/client-dev.js" so it will not be recognized by static content reloading mechanism, this tag is added by 'watch app-client' target
-2. the code will connect to the websocket server and reads reload command from akari (server) forwarded from akari (local), one of
-   - `reload-js` refresh the complete page
-   - `reload-css` which removes the css link element and adds back again, the css file is marked 'must-validate' cache control and will be reload by browser
-
-## Other Commands
-
-about authenticate, to be implemented
-
-```shell
+# authentication
 $ akari enable-signup
 $ akari disable-signup
 $ akari disable-user 3
 $ akari enable-user 3
 $ akari expire-device 3
-```
 
-about systemd service
-
-```shell
+# core process service
 $ akari service start
 $ akari service status
 $ akari service stop
@@ -223,14 +54,87 @@ $ akari service restart
 $ akari service is-active
 ```
 
-## My JSX Runtime
+akari (server) should run as background service
 
-react 17.0.1 introduces new jsx factory https://reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html,
-which is great readability improvement for `web-page` targets where no bundler is involved and browser and devtools gets typescript transpile result
+## No Build Config File
+
+normally you will have many config files in a typical web app project,
+include `tsconfig.json`, `webpack.config.js`, `.babelrc`, `eslintrc`, etc.,
+maintaining them is already very hard and harder with the fact that
+webpack is too complex and need to learn again to update related configurations.
+
+the situation is worse in monorepo that these files are needed for all targets,
+some of the targets does not need some of the files, some types of the files are very
+similar but do need essential difference, some types of the files support reuse while
+some does not consider monorepo at all, these issues makes maintaining configuration
+files in monorepo not suitable for human especially in early development phase with
+frequent changes include large architecture changes.
+
+this build script, instead of normal approach, uses all tools' node api to construct a single script,
+because nearly all modern front end engineering tools have node api, because most of them want to
+integrite with webpack which requires adapting their node api with webpack's api, while many tools have
+standalone command line interface, a well-designed internal structure will separate a node api to be
+shared between cli and webpack api, webpack itself also have very powerful and complex node api for sure. 
+
+in detail,
+- typescript: use compiler api, not `ts-loader` or `awesome-typescript-loader`, 
+  because both of them do not support no-config-file usage, while compiler api supports
+- sass: use it's own node api instead of `sass-loader!css-loader!style-loader`
+  (the exclamation mark is how these series of loaders display in webpack statistics),
+  because I'd like to compare this usage to commonly used 'bundle-css-in-js' pattern
+- backend is not using webpack, see following section
+- web pages are not using webpack, because they only have
+  one ts file and it is tranpiled into javascript and served
+- front end webpack configuration is inlined in build script source code
+- eslint node api supports no-config-file usage, actually its command line interface also supports it
+
+> vscode eslint is disabled in editor's config because it is annoying in many cases,
+  while vscode have many unexpected or not-designed behavior facing mono repo,
+  especially this mono repo without tsconfig, like its hinting browser javascript
+  global variables in backend code, or complains unknown variable which is implemented
+  by typescript custom transformer in build script
+
+> update: vscode have provided some more configurations like 'js/ts.implicitProjectConfig.*', which
+  should be designed for "simple projects without tsconfig", this helps a little but not much,
+  actually currently I found that append @ts-ignore directly is more convenientand actually more
+  suitable for not important some false positives.
+
+## Targets
+
+### self
+
+self and other backend targets are bundled with `mypack` bundler, not webpack, because
+I was experiencing serious performance issues on my deployment environment using webpack
+and typescript watching and rebuilding.
+
+It starts from a very simple text joiner to a not very simple but still simple text joiner
+with source map, minify, etc. features, this bundler read file from memory, recognizes
+all `require(".` and replace them with `myimport`, module id (module name) is relative path
+to entry, then join them and generate source map by the way, finally minified if configured,
+this showed that the core functionality of a bundler is not that complex and mysterious.
+
+### core
+
+the core module, the actually implementation for static file, authentication and rpc support,
+see admin server part for more about admin interface and debug host
+
+### public
+
+deploy public files (copy all files via ssh based ftp)
+
+### static
+
+build builtin pages (home page and user page), home page is now a single standalone html page,
+user page implements login and sign up part for authentication, may be used by apps
+
+user page now uses react for ui, while react 17.0.1 introduces the
+[new jsx transform](https://reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html),
+which is great readability improvement because no bundler is involved and browser
+and devtools gets typescript transpile result
 
 it generates import from 'react/jsx-runtime' module instead of original React.createElement, 
-but this module seems not available on unpkg.com which I'm using,
-while the production version is very small and simple (slightly pretty printed):
+but this module seems not available on myy current using cdn, while the production version
+is actually very small and simple (slightly pretty printed):
 
 ```js
 // node_modules/react/cjs/react-jsx-runtime.production.min.js
@@ -289,9 +193,135 @@ function myjsxf(p,k){
    return myjsx(Symbol.for('react.fragment'),p,k);
 }
 ```
-insert previous code without newline, then replace `_jsx(_Fragment)` and `_jsxs(_Fragment` as `myjsxf` and `_jsxs` and `_jsx` as `myjsx`
 
-this is directly put at generated js file header, because web-page does not have multiple file
+this is put directly at beginning of generated file, then replace
+- `_jsx` => `myjsx`
+- `_jsxs` => `myjsx`
+- `_jsx(_Fragment` => `myjsxf(`
+- `_jsxs(_Fragment` => `myjsxf(`
+
+### app
+
+app ui and backend target is not available in this project, they need to
+access script/tools and src/adk and some other files or directories to work
+
+- it is not suitable to submodule app projects in this project, because it is really strange
+  to include apps in a reverse proxy project, I did not split them to include them together again
+- it is not suitable to submodule this project in app projects, because this project contains
+  some other things not used in app, like core module and akari (server) source code
+- it is not very suitable to split shared files into another repository, because
+  at first, app repos need script/tools, and they need admin command declarations, while some
+  of admin interface implementation is in akari (server), it should also include akari (server),
+  move the complete script part into separate repo makes this repo kind of empty (only core module
+  and static pages) while actually static content implementation, admin interface implementation is
+  tightly coupled with logics in build script, so split repo approach is also not good
+
+and the final (currently) solution is to symbolic link related directories and files into
+app's development directory, it prevents the "forget to deploy adk" error in current akari (app)
+implementation (although this have never been mentioned in script)
+
+mapped directories and files include
+
+- `script/tools`, combinator part of build script
+- `src/adk`, rpc(api) related common logics
+- `script/common.ts`, common utilities used in script/tools
+- `src/shared/auth.d.ts`, authentication related types used in rpc
+- `src/shared/admin.d.ts`, admin command types, although apps only
+   need several commands, it is strange to split them into multiple files
+
+the deploy script is in `script/makelink`, which is a bash script and not need transpile
+
+## Administration Interface
+
+I have no traditional administration page (mainly for security reasons),
+but admin operations is actually needed so they are implemented in a very starge way.
+
+an admin command is normally sent by akari (local),
+handled and forward by akari (server) or handled by core module
+
+### akari (server)
+
+akari (server) is another self target of build script,
+it runs on deployment environment works as a background service,
+it is actually a http server and websocket server handling custom requests,
+it is not integrited with core module is for hot reload and self host features.
+
+### Hot Reload
+
+although the core module is very small and starts up really quickly, it is still
+not convenient and suitable to restart the core process everytime any change happens,
+so there is hot reload mechanism for everything other than core functionality
+
+for app servers, they are in separate process, see build-script.md and rpc.md for detail
+
+for builtin web pages and other app's web pages, they are frequently accessed while
+require immediate update after new build result deployed, the common and widely used
+approach is file system watchers, *BUT* they are not stable, not compatible
+between platforms (although I have never planned to run this server on Windows or Mac OS,
+but most part of this project should be platform independent) and complex to use, so
+I'm using an admin command to try to reload new contents instead of using any operating
+system provided file system watching mechanism, see src/core/content.ts for detail
+
+webpack dev server has the feature to hot reload css or reload page for javascript changes,
+it is actually not hard to add to app's build process
+
+> but it is not that simple regarding the web browser is opened on local environment (the same
+  machine runs akari (local)), while at some other time I need to test web pages on mobile
+  device, akari (local) and the web page still need a well known address to communicate with,
+  and that is exactly the akari (server)
+
+1. a `client-dev.js` is served from akari (server), containing dev mode code,
+   this element is added by when watching app's ui target, by pretending there is additional build result
+2. the code will connect to the websocket server (also hosted by akari (server)) and reads
+   reload command from akari (server) forwarded from akari (local), one of
+   - `reload-js` refresh the complete page
+   - `reload-css` which removes the css link element and adds back again, the css file is marked 'must-validate' cache control and will be reload by browser
+
+there is no cli interface for this reload command because it is integrited in building process
+
+## RPC Framework
+
+it is common for app to have backend and provide web api
+
+app servers were originally designed to be in-process and loaded by simple `require` function,
+but new apps become complex and have its own other services to host, it is hard to unload
+the services (incorrect unload leads to memory leak, resource leak or error (like port in use)),
+and critical error makes the core module unstable (unhandled error and unhandled rejection leads to restart),
+so these new apps are deployed on their own, communicating with core process by domain socket, sending
+json as plain text, the socket connections are pooled to prevent frequent open and close
+
+> this is also why this project is categoried from "website" to "reverse proxy"
+
+and writing api declaration twice (or sometimes more times) in front end and back end is boring and error prone,
+so there is code generation part to make front end calling back end looks like a function call (like *rpc*)
+
+**TBD**: file tranmission, websocket api, public api
+
+first, `api.xml`
+```xml
+<xs:element name="api">
+  <xs:complexType>
+    <!-- default to 'default' -->
+    <xs:attribute name="namespace" type="xs:string" />
+    <!-- is script function name, so cannot have whitespace or hyphen -->
+    <xs:attribute name="name" type="xs:string" use="required" />
+    <!-- can be GET|PUT|POST|PATCH|DELETE -->
+    <xs:attribute name="method" type="xs:string" use="required" />
+    <!-- is normal url path with optional `{name:type}` segament -->
+    <!-- name cannot have whitespace or hypthen, type is limited to id|number|string|boolean|date|datetime -->
+    <xs:attribute name="path" type="xs:string" use="required" />
+    <!-- required when method is PUT|POST|PATCH -->
+    <xs:attribute name="body-type" type="xs:string" />
+    <!-- required when method is PUT|POST|PATCH -->
+    <xs:attribute name="body-name" type="xs:string" />
+    <!-- default to void -->
+    <xs:attribute name="return-type" type="xs:string" />
+  </xs:complexType>
+</xs:element>
+```
+
+app's can invoke code generation tools for generate front end and backend code,
+backend code is now inverted to declare an interface to dispatch and let caller to implement the interface
 
 ## Security Considerations
 

@@ -2,39 +2,26 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as chalk from 'chalk';
-import * as zlib from 'zlib';
 import { logInfo, logCritical } from '../common';
-import { config } from '../config';
 import { eslint } from '../tools/eslint';
-import { Asset, upload } from '../tools/ssh';
 import { TypeScriptOptions, typescript } from '../tools/typescript';
-import { MyPackOptions, MyPackResult, mypack } from '../tools/mypack';
+import { MyPackOptions, mypack } from '../tools/mypack';
 
-const entryNames = {
-    'local': 'index',
-    'server': 'index-server',
-    'app': 'index-app',
-} as Record<string, string>;
-
-const getTypescriptOptions = (target: string): TypeScriptOptions => ({
+const typescriptOptions: TypeScriptOptions = {
     base: 'normal',
-    entry: `script/${entryNames[target]}.ts`,
+    entry: `script/index.ts`,
     sourceMap: 'no',
     watch: false,
-    configSubstitution: target == 'server',
-});
-const getMyPackOptions = (target: string, files: MyPackOptions['files']): MyPackOptions => ({
+    configSubstitution: false,
+};
+const getMyPackOptions = (files: MyPackOptions['files']): MyPackOptions => ({
     type: 'app',
-    entry: `/vbuild/${entryNames[target]}.js`,
+    entry: `/vbuild/index.js`,
     files,
     minify: true,
     shebang: true,
     cleanupFiles: false,
 });
-
-const getUploadAssets = (packResult: MyPackResult): Asset[] => [
-    { data: packResult.resultJs, remote: 'akari', mode: 0o777 },
-];
 
 async function readdirRecursively(files: string[], directory: string) {
     for (const entry of await fs.promises.readdir(directory, { withFileTypes: true })) {
@@ -67,44 +54,22 @@ export async function hashself(): Promise<string> {
     return allhasher.digest('hex');
 }
 
-export async function build(target: string): Promise<void> {
-    logInfo('akr', chalk`{cyan self} ${target}`);
+export async function build(): Promise<void> {
+    logInfo('akr', chalk`{cyan self}`);
     await eslint('self', 'node', 'script/**/*.ts');
 
-    const checkResult = typescript(getTypescriptOptions(target)).check();
+    const checkResult = typescript(typescriptOptions).check();
     if (!checkResult.success) {
         return logCritical('akr', chalk`{cyan self} failed at transpile`);
     }
 
-    const packResult = await mypack(getMyPackOptions(target, checkResult.files)).run();
+    const packResult = await mypack(getMyPackOptions(checkResult.files)).run();
     if (!packResult.success) {
         return logCritical('akr', chalk`{cyan self} failed at pack`);
     }
 
-    if (target == 'local') {
-        const resultjs = packResult.resultJs.toString('utf-8').replace('self' + 'hash', await hashself());
-        await fs.promises.writeFile('akari', resultjs);
-    } else if (target == 'server') {
-        const uploadResult = await upload(getUploadAssets(packResult));
-        if (!uploadResult) {
-            return logCritical('akr', chalk`{cyan self} failed at upload`);
-        }
-    } else if (target == 'app') {
-        const adkFiles = await fs.promises.readdir('src/adk', { withFileTypes: true });
-        const compressedADKFiles = await Promise.all(adkFiles.filter(e => e.isFile()).map(async e => {
-            const content = await fs.promises.readFile(path.join('src/adk', e.name));
-            const compressed = zlib.brotliCompressSync(content);
-            const encoded = compressed.toString('base64');
-            return [e.name, encoded] as [string, string];
-        }));
-        const adkvar = '{' + compressedADKFiles.map(f => `'${f[0]}':'${f[1]}'`).join(',') + '}';
-        const resultjs = packResult.resultJs.toString('utf-8').replace('compressedadkfiles', adkvar);
-
-        await Promise.all(config.apps.filter(a => a.devrepo).map(a => {
-            logInfo('akr', chalk`copy to {yellow ${a.devrepo}}`);
-            return fs.promises.writeFile(path.join(a.devrepo, 'akari'), resultjs);
-        }));
-    }
+    const resultjs = packResult.resultJs.toString('utf-8').replace('self' + 'hash', await hashself());
+    await fs.promises.writeFile('akari', resultjs);
 
     logInfo('akr', chalk`{cyan self} completed successfully`);
 }

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as dayjs from 'dayjs';
 import { FineError } from './error';
-import { UserCredential } from './auth';
+import { UserCredential } from '../shared/auth';
 
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';

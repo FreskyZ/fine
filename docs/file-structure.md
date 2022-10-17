@@ -9,9 +9,9 @@
 - `src`: normal source code, or 'runtime' related source code
   - `core`: server entry, certificate, cache control and authentication
   - `public`: not interesting public files like `robots.txt`, simply copied to distribution location
-  - `static`: some builtin pages are in tree
+  - `static`: some builtin pages like home page and user page (to work with backend authentication)
   - `adk`: application software development kit, app's client and server border will use these types and functions
-  - `shared`: internal shared types, currently only admin command related types, because others are in adk
+  - `shared`: shared types for admin/auth, they are now linked to app, too
   - `shared/config.json`: core module's runtime config file, it is not in src/core because src/core is
     very cool because it only contains several files with short names and same file extension, put either 'config'
     or 'config.json' in the directory both reduces the cool level, while it is actually kind of reasonable

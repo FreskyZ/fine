@@ -1,0 +1,40 @@
+#!/usr/bin/bash
+
+# see docs/build-script.md
+
+if [ "$1" == "" ]; then
+    echo "USAGE: $0 APPDIR"
+    exit 1
+fi
+if [ ! -d "$1" ]; then
+    echo "directory not exist"
+    exit 1
+fi
+
+appdir=$1
+appdir_real=$(realpath $1)
+
+if [ ! -d "$appdir/script" ]; then
+    echo mkdir $appdir/script
+    mkdir -p "$appdir/script"
+fi
+if [ ! -d "$appdir/src/shared" ]; then
+    echo mkdir $appdir/src/shared
+    mkdir -p "$appdir/src/shared"
+fi
+
+# $1: -d for dir, -f for file, $2: relative path in appdir
+makelink() {
+    target=${3:-$2}
+    if [ ! $1 "$appdir/$target" ]; then
+        echo ln -s $2 $appdir/$target
+        ln -s "$(realpath $2)" "$(realpath $appdir/$target)"
+    fi
+}
+
+makelink -d script/tools
+makelink -d src/adk
+makelink -f script/common.ts
+makelink -f script/targets/self.ts
+makelink -f src/shared/admin.d.ts
+makelink -f src/shared/auth.d.ts

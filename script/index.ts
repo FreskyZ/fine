@@ -1,6 +1,7 @@
 import * as readline from 'readline';
 import { admin } from './tools/admin';
 import { build as buildSelf, hashself } from './targets/self';
+import { build as buildSelfServer } from './targets/server';
 import { build as buildCore, uploadConfig } from './targets/core';
 import { build as buildPublic } from './targets/public';
 import { build as buildStatic } from './targets/static';
@@ -14,9 +15,8 @@ function calladmin(result: Promise<boolean>) {
     result.then(result => process.exit(result ? 0 : 1));
 }
 function dispatch(args: string) {
-    /**/ if (args == 'self') { buildSelf('local'); }
-    else if (args == 'self server') { buildSelf('server'); }
-    else if (args == 'self app') { buildSelf('app'); }
+    /**/ if (args == 'self') { buildSelf(); }
+    else if (args == 'self server') { buildSelfServer(); }
     else if (args == 'public') { buildPublic(); }
     else if (args == 'core') { buildCore(false); }
     else if (args == 'watch core') { buildCore(true); }

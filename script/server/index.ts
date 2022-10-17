@@ -4,11 +4,11 @@ import type * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
 import * as WebSocket from 'ws';
-import { logInfo, logError } from './common';
-import { port, decrypt, initializeSecurity } from './server/security';
-import { sendCoreCommand, handleCoreCommand } from './server/core';
-import { handleDevScriptRequest, handleDevPageCommand } from './server/dev-page';
-import { handleServiceCommand, handleSelfHostCommand, stopSelfHost } from './server/host';
+import { logInfo, logError } from '../common';
+import { port, decrypt, initializeSecurity } from './security';
+import { sendCoreCommand, handleCoreCommand } from './core';
+import { handleDevScriptRequest, handleDevPageCommand } from './dev-page';
+import { handleServiceCommand, handleSelfHostCommand, stopSelfHost } from './host';
 
 // akari (server) entry, see docs/build-script.md
 
