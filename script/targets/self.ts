@@ -28,9 +28,17 @@ async function readdirRecursively(files: string[], directory: string) {
         const entrypath = path.join(directory, entry.name);
         if (entry.isDirectory()) {
             await readdirRecursively(files, entrypath);
-        } else {
+        } else if (entry.isFile()) {
             files.push(entrypath);
-        }
+        } else if (entry.isSymbolicLink()) {
+            const link = await fs.promises.readlink(entrypath);
+            const stat = await fs.promises.lstat(link);
+            if (stat.isDirectory()) {
+                await readdirRecursively(files, link);
+            } else if (stat.isFile()) {
+                files.push(link);
+            }
+        } // else ignore
     }
 }
 export async function hashself(): Promise<string> {
