@@ -8,8 +8,6 @@ import * as fs from 'fs';
 //   so that they does not need these items at runtime
 // - src/core/config, a json config file which will be deployed beside core module executable (webroot/config)
 //   will be used by core module and akari (server) at runtime
-// - app/akaric: a json config file akari (app) executable, not tracked by version control,
-//   will be used by app server at runtime
 // 
 // items
 // - domain (in akaric): the ssh host and api service location (api.domain.com),
@@ -30,13 +28,6 @@ import * as fs from 'fs';
 // - database (in src/core/config): mysql.PoolConfig, used in core module,
 //   note that for app servers, as standalone services, have different database connection setting
 //   (database is not same) and may include other config items in their own config file
-// - appname (in app/akaric): this application's name,
-//   should be same as name in 'apps'
-//   should be same as app's static directory name (webroot/static/:app),
-//   should be ok to be used as reload-static's key,
-// - approot (in app/akaric): application root for deploy backend build result
-// - origin (in app/akaric): app's origin, should be same as origin in 'apps'
-// - socketpath (in app/akaric): app's unix domain socket path to communicate with core process
 
 interface Config {
     domain: string,
@@ -44,9 +35,5 @@ interface Config {
     codebook: string,
     ssh: { user: string, identity: string, passphrase: string },
     apps: { name: string, origin: string, devrepo: string, socket: string }[],
-    // app/config
-    appname: string,
-    approot: string,
-    appdomain: string,
 }
 export const config = JSON.parse(fs.readFileSync('akaric', 'utf-8')) as Config;

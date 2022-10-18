@@ -1,6 +1,5 @@
 import * as fs from 'fs/promises';
 import * as fsnp from 'fs';
-import * as zlib from 'zlib';
 import * as chalk from 'chalk';
 import { toJson as parseXml } from 'xml2json';
 import { config } from '../config';
@@ -50,20 +49,6 @@ const HEADER =
 '// Changes to this file may cause incorrect behavior and will be lost if the code is regenerated.\n' +
 '//-----------------------------------------------------------------------------------------------\n\n';
 const snakeToCamel = (vs: string) => vs.split('_').map(v => v.charAt(0).toUpperCase() + v.substring(1)).join('');
-
-// adk files used by app, see target/self.ts and build-script.md
-const ADK: { [filename: string]: string } = Object.fromEntries(Object.entries(
-// @ts-ignore use this is easier than use .d.ts
-    compressedadkfiles
-// I completely don't understand what typescript is saying:
-// Argument of type '([filename, encoded]: [string, string]) => [string, string]' is not assignable to parameter of type '(value: [string, unknown], index: number, array: [string, unknown][]) => [string, string]'
-// @ts-ignore
-).map(([filename, encoded]) => [filename, zlib.brotliDecompressSync(Buffer.from(encoded, 'base64')).toString()]));
-
-export async function deployADK(): Promise<void> {
-    await fs.mkdir('src/adk', { recursive: true });
-    await Promise.all(Object.keys(ADK).map(filename => fs.writeFile(`src/adk/${filename}`, ADK[filename])));
-}
 
 function parsePath(apiName: string, rawPath: string): PathComponent[] {
     const result: PathComponent[] = [];
