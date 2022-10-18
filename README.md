@@ -1,19 +1,18 @@
 # FINE
 
-A simple reverse proxy service
+A simple reverse proxy.
 
 ## Features
 
 - https and multiple certificate
 - static files and cache control
-- authentication
-- application service management
+- rpc style api and authentication
 
 and also
 
 ### DevOps
 - mono repo with no various `tsconfig.xxx.json` and `webpack.config.xxx.js` config files but one unified build script
-- what does `webpack`/`ts-loader`/`webpack-dev-server` (and many other familiar names) actually do and try to implement a full or subset of them
+- what does `webpack`/`ts-loader`/`webpack-dev-server` (and many other familiar names) actually do and try to implement a subset of them
 - deployment and maintenance process
 
 ### Isomorphic Web App
