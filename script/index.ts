@@ -54,7 +54,7 @@ function dispatch(args: string) {
 const args = [process.argv[2], process.argv[3]].filter(a => a).join(' '); // 0 is node, 1 is akari
 
 hashself().then(h => {
-    if (!args.startsWith('self') && h != "selfhash") {
+    if (args != 'self' && h != "selfhash") {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         rl.question('script source code may be changed after last bootstrap, continue? (y|n): ', answer => {
             if (answer != 'y' && answer != 'Y') {
@@ -63,6 +63,15 @@ hashself().then(h => {
                 dispatch(args);
             }
         });
+    } else if (args == 'self' && h == "selfhash") {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        rl.question('script source code may not be changed after last bootstrap, F to force rebuild: ', answer => {
+            if (answer == 'f' || answer == 'F') {
+                dispatch(args);
+            } else {
+                process.exit(0);
+            }
+        })
     } else {
         dispatch(args);
     }

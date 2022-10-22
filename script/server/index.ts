@@ -4,7 +4,7 @@ import type * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
 import * as WebSocket from 'ws';
-import { logInfo, logError } from '../common';
+import { logInfo, logError, logCritical } from '../common';
 import { port, decrypt, initializeSecurity } from './security';
 import { sendCoreCommand, handleCoreCommand } from './core';
 import { handleDevScriptRequest, handleDevPageCommand } from './dev-page';
@@ -118,6 +118,10 @@ let shuttingdown = false;
 function shutdown() {
     if (shuttingdown) return;
     shuttingdown = true;
+
+    setTimeout(() => {
+        logCritical('akr', 'akari shutdown timeout, abort');
+    }, 10_000);
 
     // destroy connections
     for (const client of wsServer.clients) {

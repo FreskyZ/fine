@@ -76,7 +76,7 @@ export async function build(): Promise<void> {
         return logCritical('akr', chalk`{cyan self} failed at pack`);
     }
 
-    const resultjs = packResult.resultJs.toString('utf-8').replace('self' + 'hash', await hashself());
+    const resultjs = packResult.resultJs.toString('utf-8').replaceAll('self' + 'hash', await hashself());
     await fs.promises.writeFile('akari', resultjs);
 
     logInfo('akr', chalk`{cyan self} completed successfully`);

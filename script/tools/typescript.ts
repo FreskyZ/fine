@@ -29,6 +29,28 @@ export interface TypeScriptResult {
     files: { name: string, content: string }[],
 }
 
+// see docs/build-script.md
+export const MyJSXRuntime = '' +
+`function myjsx(type,rawprops,maybekey){` +
+    `const props={};` +
+    `for(const n in rawprops){` +
+        `if(!['key','ref','__self','__source'].includes(n)){` +
+            `props[n]=rawprops[n]` +
+        `}` +
+    `}` +
+    `return{` +
+        `$$typeof:Symbol.for('react.element'),` +
+        `type,` +
+        `key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,` +
+        `ref:rawprops.ref!==void 0?rawprops.ref:null,` +
+        `props,` +
+        `_owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current` + // then fire me
+    `}` +
+`}` +
+`function myjsxf(p,k){` +
+    `return myjsx(Symbol.for('react.fragment'),p,k)` +
+`}`;
+
 const basicOptions: ts.CompilerOptions = {
     lib: ['lib.esnext.d.ts'],
     target: ts.ScriptTarget.ESNext,

@@ -5,7 +5,7 @@ import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';
 import { SassOptions, SassResult, sass } from '../tools/sass';
-import { TypeScriptOptions, TypeScriptResult, typescript } from '../tools/typescript';
+import { TypeScriptOptions, TypeScriptResult, MyJSXRuntime, typescript } from '../tools/typescript';
 
 // builtin static pages, they have hand written html,
 //    and at most one sass file which transpiles into one compressed css,
@@ -38,28 +38,6 @@ const getUploadAsset = (pagename: string, result: TypeScriptResult | SassResult 
     data: result.resultCss,
 };
 
-// see docs/build-script.md#my_jsx_runtime
-const jsxruntime = '' +
-`function myjsx(type,rawprops,maybekey){` +
-    `const props={};` +
-    `for(const n in rawprops){` +
-        `if(!['key','ref','__self','__source'].includes(n)){` +
-            `props[n]=rawprops[n]` +
-        `}` +
-    `}` +
-    `return{` +
-        `$$typeof:Symbol.for('react.element'),` +
-        `type,` +
-        `key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,` +
-        `ref:rawprops.ref!==void 0?rawprops.ref:null,` +
-        `props,` +
-        `_owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current` + // then fire me
-    `}` +
-`}` +
-`function myjsxf(p,k){` +
-    `return myjsx(Symbol.for('react.fragment'),p,k)` +
-`}`;
-
 function setupjsx(result: TypeScriptResult) {
     const content = result.files[0].content;
 
@@ -69,7 +47,7 @@ function setupjsx(result: TypeScriptResult) {
     let mycode = content.slice(content.indexOf('\n', content.indexOf('\n', content.indexOf('\n') + 1) + 1) + 1); // my content starts from line 3
     mycode = mycode.replaceAll(/_jsxs?\(_Fragment, /g, 'myjsxf(').replaceAll(/_jsxs?/g, 'myjsx'); // replace _jsxs? to myjsx, because a lot of underscore reduce readability
 
-    result.files[0].content = importreact + jsxruntime + '\n' + mycode; // put import react and jsx runtime in one line and then mycode
+    result.files[0].content = importreact + MyJSXRuntime + '\n' + mycode; // put import react and jsx runtime in one line and then mycode
 }
 
 async function buildOnce(pagename: string): Promise<void> {
