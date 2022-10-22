@@ -6,7 +6,8 @@ import { SourceMapGenerator, SourceMapConsumer } from 'source-map';
 import { minify } from 'terser';
 import { logInfo, logError } from '../common';
 
-// my bundler, input list of name/content of js file/source map
+// my bundler,
+// input list of name/content of js file/source map
 // output minified js and source map
 
 // // you will be amazing how these options are added from the very first version of mypack
@@ -20,6 +21,7 @@ export interface MyPackOptions {
     minify?: boolean,          // default to false
     shebang?: boolean,         // default to false
     cleanupFiles?: boolean,    // see tools/typescript:TypeScriptChecker::watch, default to true, should be false for multi entry targets like self
+    externals?: Record<string, string>, // redirect external library name to global variable name
 }
 
 export interface MyPackResult {
@@ -153,6 +155,12 @@ class MyPacker {
             previousEndIndex = index + raw.length + 12;
         }
         moduleContent += source.jsContent.slice(previousEndIndex); // also correct for no request
+
+        if (this.options.externals) {
+            for (const [libraryName, globalVariableName] of Object.entries(this.options.externals)) {
+                moduleContent = moduleContent.replaceAll(`require("${libraryName}")`, globalVariableName);
+            }
+        }
 
         return { name: moduleName, source, requests, content: moduleContent, hash: sha256(moduleContent).toString() };
     }
