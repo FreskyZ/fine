@@ -37,10 +37,13 @@ const parameterTypes = ['id', 'number', 'string', 'boolean', 'date', 'time'];
 const parameterTypeConfig: { [parameterType: string]: { pattern: string, validator: string, tsType: string } }= {
     'id': { pattern: '\\d+', validator: 'validateId', tsType: 'number' },
     'number': { pattern: '\\d+', validator: 'validateNumber', tsType: 'number' },
-    'string': { pattern: '.+', validator: 'validateString', tsType: 'string' },
+    // no validator for string, validations like length does not belong here
+    'string': { pattern: '.+', validator: null, tsType: 'string' },
     'boolean': { pattern: '(true|false)', validator: 'validateBoolean', tsType: 'boolean' },
-    'date': { pattern: '\\d{6}', validator: 'validateDate', tsType: 'Dayjs' },  // generated code format date at front end, validate and parse date at backend
-    'time': { pattern: '\\d{12}', validator: 'validateTime', tsType: 'Dayjs' }, // generated code format time at front end, validate and parse time at backend
+    // generated code format date at front end, validate and parse date at backend
+    'date': { pattern: '\\d{6}', validator: 'validateDate', tsType: 'Dayjs' },
+    // generated code format time at front end, validate and parse time at backend
+    'time': { pattern: '\\d{12}', validator: 'validateTime', tsType: 'Dayjs' },
 };
 
 const HEADER =
@@ -158,6 +161,7 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
         const validators: string[] = parameterTypes
             .filter(parameterType => definitions.some(d => d.apiPath.some(c => c.type == 'parameter' && c.parameterType == parameterType)))
             .map(parameterType => parameterTypeConfig[parameterType].validator)
+            .filter(x => x)
             .concat(definitions.some(d => ['PUT', 'POST', 'PATCH'].includes(d.method)) ? ['validateBody'] : []);
         b += `import { ${validators.join(', ')} } from '../../adk/api-server';\n`;
 
@@ -208,7 +212,12 @@ async function generateServerDefinition(additionalHeader?: string): Promise<Code
             }
             b += `await impl.${apiName}(`;
             for (const { parameterName, parameterType } of apiPath.filter(c => c.type == 'parameter') as { parameterName: string, parameterType: string }[]) { // tsc fails to infer the type
-                b += `${parameterTypeConfig[parameterType].validator}('${parameterName}', match.groups['${parameterName}']), `;
+                const validator = parameterTypeConfig[parameterType].validator;
+                if (validator) {
+                    b += `${validator}('${parameterName}', match.groups['${parameterName}']), `;
+                } else {
+                    b += `match.groups['${parameterName}'], `;
+                }
             }
             if (bodyType) {
                 b += `validateBody(ctx.body), `;
