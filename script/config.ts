@@ -15,7 +15,7 @@ import * as fs from 'fs';
 // - webroot (in akaric): the web root absolute path, used in all targets, will be replaced by tools/typescript
 // - codebook (in akaric): ?, used in akari (local)
 // - ssh (in akaric): { user, identity, passphrase } only used in akari (local)
-// - apps (in akaric): { name, origin, devrepo, socket }[],
+// - apps (in akaric): { name, origin, socket }[],
 //   used in authentication (core module), and as akari (app)'s deploy location (akari (local)),
 //   will be specially replaced by tools/typescript
 // - codebook (in src/core/config): ?, used in akari (server)
@@ -34,6 +34,6 @@ interface Config {
     webroot: string,
     codebook: string,
     ssh: { user: string, identity: string, passphrase: string },
-    apps: { name: string, origin: string, devrepo: string, socket: string }[],
+    apps: { name: string, origin: string, socket: string }[],
 }
 export const config = JSON.parse(fs.readFileSync('akaric', 'utf-8')) as Config;

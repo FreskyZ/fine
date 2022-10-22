@@ -1,7 +1,6 @@
 // admin interface types
 
 export type AdminAuthCommand =
-    | { type: 'reload-server', app: string }
     | { type: 'enable-signup' }
     | { type: 'disable-signup' }
     | { type: 'activate-user', userId: number }
@@ -21,7 +20,7 @@ export type AdminCoreCommand =
     | { type: 'content', sub: AdminContentCommand };
 
 export type AdminDevPageCommand =
-    | 'reload-js'
+    | 'reload-all'
     | 'reload-css';
 
 export type AdminServiceCommand =

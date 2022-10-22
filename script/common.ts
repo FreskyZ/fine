@@ -52,7 +52,6 @@ export function formatAdminCoreCommand(command: AdminCoreCommand): string {
             default: return `unknown content command ${command}`;
         }
         case 'auth': switch (command.sub.type) {
-            case 'reload-server': return `reload-server ${command.sub.app}`;
             case 'enable-signup': return `enable-signup`;
             case 'disable-signup': return `disable-signup`;
             case 'activate-user': return `activate-user ${command.sub.userId}`;
@@ -68,7 +67,7 @@ export function formatAdminPayload(command: AdminCommand): string {
     switch (command.target) {
         case 'core': return formatAdminCoreCommand(command.data);
         case 'dev-page': switch (command.data) {
-            case 'reload-js': return 'dev-page reload-js';
+            case 'reload-all': return 'dev-page reload-all';
             case 'reload-css': return 'dev-page reload-css';
             default: return `unknown dev-page command ${command}`;
         }

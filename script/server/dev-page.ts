@@ -12,14 +12,16 @@ const clientdevjs =
 `const ws=new WebSocket(\`wss://\${location.host}:PORT\`);` +
 `ws.onmessage=e=>{` +
     `ws.send('ACK '+e.data);` +
-    `if(e.data==='reload-js'){` +
+    `if(e.data==='reload-all'){` +
         `location.reload();` +
     `}else if(e.data==='reload-css') {` +
-        `const oldlink=Array.from(document.getElementsByTagName('link')).find(e=>e.getAttribute('href')==='/index.css');` +
-        `const newlink=document.createElement('link');` +
-        `newlink.setAttribute('rel','stylesheet');newlink.setAttribute('type','text/css');newlink.setAttribute('href','/index.css');` +
-        `document.head.appendChild(newlink);` +
-        `oldlink?.remove();` +
+        `for(const oldlink of Array.from(document.getElementsByTagName('link')).filter(e=>e.getAttribute('href').startsWith('/'))){` +
+            `const href=oldlink.getAttribute('href');` +
+            `const newlink=document.createElement('link');` +
+            `newlink.setAttribute('rel','stylesheet');newlink.setAttribute('href',href);` +
+            `document.head.appendChild(newlink);` +
+            `oldlink?.remove();` +
+        `}` +
     `}` +
 `};`;
 
@@ -48,11 +50,15 @@ async function send(clients: Iterable<WebSocket>, command: AdminDevPageCommand):
     // for one client, send callback error is fail, unknown response is fail
     // for all client, any success is success, not any success is fail
     return await Promise.all(activeClients.map(client => new Promise<boolean>(resolve => {
-        const handleMessage = (message: string) => {
-            if (message.startsWith('ACK ')) {
+        const handleMessage = (message: string | Buffer) => {
+            if (Buffer.isBuffer(message)) {
+                message = message.toString('utf-8');
+            }
+            // when will message not be a string?
+            if ((typeof message == 'string' || message as any instanceof String) && message.startsWith('ACK ')) {
                 resolve(true);
             } else {
-                logError('wbs', chalk`{gray unknown response ${message}}`);
+                logError('wbs', chalk`{gray unknown response}`, message);
                 resolve(false);
             }
             clearTimeout(timeout);

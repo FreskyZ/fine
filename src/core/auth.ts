@@ -382,12 +382,8 @@ export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Ne
 export async function handleCommand(command: AdminAuthCommand): Promise<void> {
     logInfo({ type: 'admin command auth', data: command });
 
-    // reload server component
-    if (command.type == 'reload-server') {
-        delete require.cache[require.resolve(`./${command.app}/server`)];
-
     // activate/inactivate user
-    } else if (command.type == 'activate-user') {
+    if (command.type == 'activate-user') {
         await query('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', command.userId);
         const maybeCache = userStorage.find(u => u.Id == command.userId);
         if (maybeCache) { maybeCache.Active = true; }

@@ -274,7 +274,7 @@ it is actually not hard to add to app's build process
    this element is added by when watching app's ui target, by pretending there is additional build result
 2. the code will connect to the websocket server (also hosted by akari (server)) and reads
    reload command from akari (server) forwarded from akari (local), one of
-   - `reload-js` refresh the complete page
+   - `reload-all` refresh the complete page
    - `reload-css` which removes the css link element and adds back again, the css file is marked 'must-validate' cache control and will be reload by browser
 
 there is no cli interface for this reload command because it is integrited in building process
