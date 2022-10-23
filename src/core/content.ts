@@ -74,6 +74,11 @@ type Item = {
     //   but is still correct as a cache key which is required to be a one-to-one match to file content,
     //   and is simpler and more performance and a lot stabler than file system watcher
     cacheKey: string,
+    // last modified time,
+    // etag has higher priority then last modified, but MDN says it is used in other ways so better provide both
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching#etagif-none-match
+    // use same strategy as cacheKey, not the actual value in file system
+    lastModified: Date,
     // null if never touched (requested or reload requested), to improve core process init performance
     // set to null to let handle request reload this
     content: Buffer | null,
@@ -99,6 +104,7 @@ function getOrAddItem(realpath: string): Item {
             absolutePath: path.join('webroot', 'static', realpath),
             contentType: extensionToContentType[path.extname(realpath)],
             cacheKey: getnow(),
+            lastModified: new Date(),
             content: null,
             encodedContent: {},
         };
@@ -154,24 +160,44 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             item.content = await fs.promises.readFile(item.absolutePath);
         }
 
+        // https://www.rfc-editor.org/rfc/rfc7232#section-4.1
+        // The server generating a 304 response MUST generate any of the
+        // following header fields that would have been sent in a 200 (OK) response to the same request:
+        // Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
+        ctx.set('Cache-Control', 'must-revalidate');
+        // use koa.Response.etag setter to add double quote
+        // // amzingly chrome accept non double quoted etag and send back non quoted version when revalidating
+        ctx.etag = item.cacheKey;
+        // vary response encoding by request encoding
+        // or else another different accept encoding request will get incorrect encoding
+        // // this is actually not the issue for must-revlidate 
+        ctx.vary('Accept-Encoding');
+
+        // the conditional request contains 5 header fields and many logics
+        // https://www.rfc-editor.org/rfc/rfc9110.html#name-conditional-requests
+        // but chrome will only use if none match if cached response contains etag, so only implement this
+
         // for each etag, trim space, ignore weak
-        const requestETags = ctx.request.get('If-None-Match')?.split(',')?.map(t => t.trim())?.filter(t => !t.startsWith('W/'));
+        const requestETags = ctx.request.get('If-None-Match')
+            ?.split(',')
+            ?.map(t => t.trim()) // trim whitespace
+            ?.filter(t => !t.startsWith('W/')) // remove weak
+            ?.map(t => t.substring(1, t.length - 1)); // trim quote mark
         if (requestETags.includes(item.cacheKey)) {
             ctx.status = 304;
             return;
         }
 
-        ctx.set('Cache-Control', 'must-revalidate');
-        ctx.set('ETag', item.cacheKey);
-        ctx.type = item.contentType;
+        // this is not included in 304 required header list
+        ctx.lastModified = item.lastModified;
 
+        ctx.type = item.contentType;
         if (item.content.length < 1024) {
             ctx.body = item.content;
             ctx.set('Content-Length', item.content.length.toString());
             return;
         }
 
-        ctx.vary('Accept-Encoding');
         // prefer brotli because it is smaller,
         // prefer gzip for source map because it is more like a binary file
         for (const encoding of item.realpath.endsWith('.map') ? ['gzip', 'deflate', 'br'] : ['br', 'gzip', 'deflate']) {
@@ -214,6 +240,7 @@ function handleReloadStatic(key: string) {
             const newContent = fs.readFileSync(item.absolutePath);
             if (Buffer.compare(item.content, newContent)) {
                 item.cacheKey = getnow();
+                item.lastModified = new Date(),
                 item.content = newContent;
                 item.encodedContent = {};
             }
