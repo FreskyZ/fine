@@ -354,7 +354,29 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     ctx.set('Access-Control-Allow-Origin', origin);
     ctx.set('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,DELETE,PATCH');
     ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Token');
+    // my token lasts for 30 days, but preflight request max age is capped at 2 hours in chromium,
+    // https://github.com/chromium/chromium/blob/16d2d3f596a96a70bf1dfc2766ba33fbd042d121/services/network/cors/preflight_result.cc#L38
+    // so use a simple 1 hour, although I can expire a user device at any time as I wish, I actually never used the feature and should be ok
+    ctx.set('Access-Control-Max-Age', '3600');
     if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // handling of OPTIONS is finished here
+
+    // api content should not cache
+    // Pragma: no-cache is not specified for response and is deprecated, https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Pragma
+    // Expires: has lower priority to cache-control:max-age, https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Expires
+    // Surrogate-Control: is for surrogate, such as CDN or reverse proxy, https://www.w3.org/TR/edge-arch/
+    // Cache-Control:
+    //   https://www.rfc-editor.org/rfc/rfc9111.html#name-cache-control
+    //   https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control
+    //   no-cache: allow cache, always revalidate before using cache   // maybe better named always-revalidate
+    //   max-age=0: response become stale immediately when received    // maybe better named always-stale
+    //   no-store: the actual not cache anything                       // this name is kind of correct
+    //   must-revalidate: always revalidate when response become stale // maybe better named must-revalidate-when-stale
+    // so no-cache is theoretically same as max-age:0 + must-revalidate
+    // but, api response does not specify any etag or last-modified tag, so there is literal nothing to revalidate
+    // // standard says response must not be stored in non volatile storage and
+    // // must tries best to remove from volatile storage so some people think it affects performance,
+    // // but I think modern browser will not respect the second part, at least I always want to see it in devtool
+    ctx.set('Cache-Control', 'no-store');
 
     ctx.state.app = allowedOrigins[origin];
     await next();
