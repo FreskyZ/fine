@@ -13,6 +13,8 @@ import * as utc from 'dayjs/plugin/utc';
 // normal contents are cached until certain amount of entries added
 // eager contents (errors) are flushed immediately
 
+// TODO: change to yabai/logger
+
 // because initialize require utc, while index do not use dayjs, so put it here
 dayjs.extend(utc);
 

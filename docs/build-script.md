@@ -295,7 +295,48 @@ json as plain text, the socket connections are pooled to prevent frequent open a
 and writing api declaration twice (or sometimes more times) in front end and back end is boring and error prone,
 so there is code generation part to make front end calling back end looks like a function call (like *rpc*)
 
-**TBD**: file tranmission, websocket api, public api
+### File Upload
+
+to prevent large file to be transmitted through domain socket, it is saved to real file system and send a path,
+app server may delete the file after use, or rename to its own place to keep it, core module will delete these
+files after, like 1 month, there should be no app server need them after this long time
+
+### File Download
+
+to prevent large file to be transmitted through domain socket, also implementing (should be) commonly used
+cache feature, core module knows all (will download) file requests (in memory and persist storage) and will
+not call app server when cache is fresh, use rename instead of copy by requesting app server's saved file's
+ownership will reduce one file copy, app servers use websocket's reverse domain socket to request for a slot
+for a file request, a slot (not the cache) is permanent for path (url path) in specific app, so furthur request
+(app server does not need to save the mapping for slot id and path) will only return previously allocated slot id,
+use slot id not path (include file name) will make the request look good (content.domain.com/{guid}) also prevent
+malisious (maybe not, just curious) try file path attempt, limiting content request to my own website only
+
+### Alive Connection
+
+I mean websocket, websocket will be implemented as 2 separate domain socket connection for different direction, the
+authentication part can be done via send access-token in Sec-Websocket-Protocol header, which is the only allowed
+customizable header in websocket's http upgrade request, custom header is not allowed, body is not allowed, and cookie
+is not available while cross origin (TODO: determine whether this part should be in auth.md), websocket is useful
+for both current actively developing apps
+
+### Public API
+
+public api is be provided at `api.domain.com/public/<app>/v1/`, not `api.domain.com/<app>/v1/public` because it is
+not easy and duplicate work to parse version segment, `api.domain.com/<app>/public/v1` is strange, rate limiting may
+not only be applied on public api because a native http client is very capable of pretending formal web site, I'd
+like adding some strange requirement to request to prevent easy frequent access from browser or simple script code,
+like strange header, or even token for public
+
+rate limit: see https://www.nginx.com/blog/rate-limiting-nginx/, I'd prefer burst=20+nodelay, which limits like 
+1 request per second, but permits 20 requests burst, that is 21 request come at one time (in one second), they
+are allowed to forward, but additional requests will allocate slot in bucket, and they deallocate after rate
+interval, in this case, deallocate one by 1 second, note that expire time is determined at allocation time, because
+duration the deallocation interval new burst may come and you can not simple deallocate one per second, and
+more request (bucket overflow) will simple throw 503 service unavailable with message bucket overflow at caller,
+the leaky bucket's leaky part is actually discard access record in previous duration when previous duration expires,
+which implements constant leak rate, CLR(?), this rate limit is applied in forward.ts, and underlying algorithm
+is abstracted and put in adk
 
 first, `api.xml`
 ```xml
@@ -330,3 +371,4 @@ backend code is now inverted to declare an interface to dispatch and let caller 
 3. it does not use api (app-server)'s authentication machenism but require commands to be encrypted, the symmetric encryption key is generated when akari (server) starts and store in a file and download through ssh by akari (local)
 4. javascript files are not sent through http connection but only sftp connection, because it is dangerous to deploy exectuable files through unauthenticated connection
 5. log files are not downloaded through http connection but only sftp connection, because they may expose server important internal values
+6. add special changing header value to make non official native client hard?
