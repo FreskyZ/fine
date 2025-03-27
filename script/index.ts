@@ -45,6 +45,7 @@ function dispatch(args: string) {
     else if (args == 'disable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'disable-source-map' } })) }
     else if (args == 'enable-source-map') { calladmin(admin.core({ type: 'content', sub: { type: 'enable-source-map' } })) }
 
+    else if (args == 'reload-config') { calladmin(admin.core({ type: 'content', sub: { type: 'reload-config' } })) }
     // upload config and reload config for static content
     else if (args == 'config') { uploadConfig().then(() => calladmin(admin.core({ type: 'content', sub: { type: 'reload-config' } }))) }
 
