@@ -1,4 +1,4 @@
-import * as readline from 'readline';
+import readline from 'node:readline';
 import { admin } from './tools/admin';
 import { build as buildSelf, hashself } from './targets/self';
 import { build as buildSelfServer } from './targets/server';

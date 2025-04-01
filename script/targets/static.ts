@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as chalk from 'chalk';
+import fs from 'node:fs';
+import chalk from 'chalk-template';
 import { logInfo, logCritical, watchvar } from '../common';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';

@@ -1,7 +1,7 @@
-import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as chalk from 'chalk';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import chalk from 'chalk-template';
 import { logInfo, logCritical } from '../common';
 import { eslint } from '../tools/eslint';
 import { TypeScriptOptions, typescript } from '../tools/typescript';

@@ -1,7 +1,7 @@
-import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as https from 'https';
-import * as chalk from 'chalk';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import https from 'node:https';
+import chalk from 'chalk-template';
 import type { AdminCommand, AdminCoreCommand, AdminDevPageCommand, AdminSelfHostCommand, AdminServiceCommand } from '../../src/shared/admin';
 import { logInfo, logError, logCritical, formatAdminPayload } from '../common';
 import { config } from '../config';

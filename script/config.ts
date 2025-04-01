@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'node:fs';
 
 // config: not to be tracked environment related items
 // 

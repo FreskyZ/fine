@@ -1,6 +1,6 @@
-import * as path from 'path';
-import * as chalk from 'chalk';
-import { SHA256 as sha256 } from 'crypto-js';
+import path from 'node:path';
+import chalk from 'chalk-template';
+import { SHA256 as sha256 } from 'node:crypto';
 import * as filesize from 'filesize';
 import { SourceMapGenerator, SourceMapConsumer } from 'source-map';
 import { minify } from 'terser';

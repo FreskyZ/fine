@@ -1,9 +1,8 @@
-import * as path from 'path';
-import * as ts from 'typescript';
-import * as chalk from 'chalk';
+import path from 'node:path';
+import ts from 'typescript';
+import chalk from 'chalk-template';
 import { logError, logInfo } from '../common';
 import { config } from '../config';
-import { shake } from './shake';
 
 export type TypeScriptOptions = {
     base: 'normal',

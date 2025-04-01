@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as chalk from 'chalk';
+import fs from 'node:fs';
+import path from 'node:path';
+import chalk from 'chalk-template';
 import { logInfo } from '../common';
 import { Asset, upload } from '../tools/ssh';
 

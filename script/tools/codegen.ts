@@ -1,6 +1,6 @@
-import * as fs from 'fs/promises';
-import * as fsnp from 'fs';
-import * as chalk from 'chalk';
+import fs from 'node:fs/promises';
+import fsnp from 'node:fs';
+import chalk from 'chalk-template';
 import { toJson as parseXml } from 'xml2json';
 import { config } from '../config';
 import { logInfo, logError } from '../common';

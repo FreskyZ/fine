@@ -1,4 +1,4 @@
-import * as chalk from 'chalk';
+import chalk from 'chalk-template';
 import { logInfo, logCritical } from '../common';
 import { eslint } from '../tools/eslint';
 import { Asset, upload } from '../tools/ssh';

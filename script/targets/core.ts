@@ -1,6 +1,6 @@
 
-import * as fs from 'fs/promises';
-import * as chalk from 'chalk';
+import * as fs from 'node:fs/promises';
+import chalk from 'chalk-template';
 import { logInfo, logCritical } from '../common';
 import { admin } from '../tools/admin';
 import { eslint } from '../tools/eslint';

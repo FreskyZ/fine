@@ -1,8 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as stream from 'stream';
-import * as chalk from 'chalk';
-import * as SFTPClient from 'ssh2-sftp-client';
+import fs from 'node:fs';
+import path from 'node:path';
+import stream from 'node:stream';
+import chalk from 'chalk-template';
+import SFTPClient from 'ssh2-sftp-client';
 import { config } from '../config';
 import { logInfo, logError } from '../common';
 
