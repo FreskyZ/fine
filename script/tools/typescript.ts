@@ -237,28 +237,11 @@ class TypeScriptChecker {
         const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         const program = ts.createProgram(entry, this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
 
-        const checker = program.getTypeChecker();
-        ts.createSourceFile
-        ts.factory.createSourceFile
-        ts.setSourceMapRange
-        program.getTypeChecker
-        program.getSemanticDiagnostics
         const files: TypeScriptResult['files'] = [];
         const emitResult = program.emit(undefined, createWriteFileHook(this.options, files), undefined, undefined);
 
         const success = printEmitResult(emitResult);
         return { success, files };
-    }
-
-    public check2() {
-        logInfo('tsc', chalk`once {yellow ${this.options.entry}}`);
-        if (this.options.base != 'normal' || typeof this.options.configSubstitution == 'undefined' || this.options.configSubstitution) {
-            setupReadFileHookForConfigSubstitution();
-        }
-
-        const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
-        const program = ts.createProgram(entry, this.compilerOptions, ts.createCompilerHost(this.compilerOptions));
-
     }
 
     // callback only called when watch recheck success

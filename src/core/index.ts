@@ -5,7 +5,7 @@ import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
-import type { PoolConfig } from 'mysql';
+import type { PoolConfig } from 'mysql2';
 import type { AdminCoreCommand } from '../shared/admin';
 import type { ContextState } from './auth';
 import type { StaticContentConfig } from './content';
