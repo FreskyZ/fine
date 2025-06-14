@@ -1,6 +1,7 @@
 import path from 'node:path';
 import ts from 'typescript';
 import chalk from 'chalk-template';
+import chalkNotTemplate from 'chalk';
 import { logError, logInfo } from '../common';
 import { config } from '../config';
 
@@ -118,10 +119,10 @@ function printDiagnostic({ category, code, messageText, file, start }: ts.Diagno
         return;
     } else {
         const displayColor = {
-            [ts.DiagnosticCategory.Warning]: chalk.red,
-            [ts.DiagnosticCategory.Error]: chalk.red,
-            [ts.DiagnosticCategory.Suggestion]: chalk.green,
-            [ts.DiagnosticCategory.Message]: chalk.cyan,
+            [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
+            [ts.DiagnosticCategory.Error]: chalkNotTemplate.red,
+            [ts.DiagnosticCategory.Suggestion]: chalkNotTemplate.green,
+            [ts.DiagnosticCategory.Message]: chalkNotTemplate.cyan,
         }[category];
         const displayCode = displayColor(`  TS${code} `);
 

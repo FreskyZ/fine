@@ -1,10 +1,6 @@
 {
     "javascript.format.semicolons": "insert",
-    "javascript.inlayHints.functionLikeReturnTypes.enabled": true,
-    "javascript.inlayHints.parameterNames.enabled": "literals",
     "js/ts.implicitProjectConfig.strictNullChecks": false,
     "js/ts.implicitProjectConfig.target": "ESNext",
     "typescript.format.semicolons": "insert",
-    "typescript.inlayHints.functionLikeReturnTypes.enabled": true,
-    "typescript.inlayHints.parameterNames.enabled": "literals"
 }

@@ -1,7 +1,7 @@
-import type * as http from 'http';
-import * as net from 'net';
+import type * as http from 'node:http';
+import * as net from 'node:net';
 import { Mutex } from 'async-mutex';
-import * as chalk from 'chalk';
+import chalk from 'chalk-template';
 import type { AdminCoreCommand } from '../../src/shared/admin';
 import { logInfo, logError, formatAdminCoreCommand } from '../common';
 

@@ -5,7 +5,7 @@ import * as http2 from 'http2';
 import * as net from 'net';
 import * as Koa from 'koa';
 import * as bodyParser from 'koa-bodyparser';
-import type { PoolConfig } from 'mysql2';
+import type { PoolOptions } from 'mysql2';
 import type { AdminCoreCommand } from '../shared/admin';
 import type { ContextState } from './auth';
 import type { StaticContentConfig } from './content';
@@ -36,7 +36,7 @@ process.on('unhandledRejection', handleProcessRejection);
 // load config
 const config = JSON.parse(fs.readFileSync('config', 'utf-8')) as {
     ssl: { key: string, cert: string },
-    database: PoolConfig,
+    database: PoolOptions,
     'static-content': StaticContentConfig,
 };
 setupDatabaseConnection(config.database);

@@ -1,9 +1,9 @@
 
-import * as fs from 'fs';
-import type * as http from 'http';
-import * as https from 'https';
-import * as net from 'net';
-import * as WebSocket from 'ws';
+import fs from 'node:fs';
+import type * as http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
+import { WebSocketServer } from 'ws';
 import { logInfo, logError, logCritical } from '../common';
 import { port, decrypt, initializeSecurity } from './security';
 import { sendCoreCommand, handleCoreCommand } from './core';
@@ -16,7 +16,7 @@ const config = JSON.parse(fs.readFileSync('config', 'utf-8'));
 initializeSecurity(config['codebook']);
 
 const httpsServer = https.createServer({ key: fs.readFileSync(config['ssl']['key']), cert: fs.readFileSync(config['ssl']['fullchain']) }, handleCommand);
-const wsServer = new WebSocket.Server({ server: httpsServer });
+const wsServer = new WebSocketServer({ server: httpsServer });
 
 function handleCommand(request: http.IncomingMessage, response: http.ServerResponse) {
     if (handleDevScriptRequest(port, request, response)) { return; } // only this one do not require encrypted command

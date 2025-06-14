@@ -1,6 +1,6 @@
-import type * as http from 'http';
-import * as chalk from 'chalk';
-import * as WebSocket from 'ws';
+import type * as http from 'node:http';
+import chalk from 'chalk-template';
+import { WebSocket } from 'ws';
 import { AdminDevPageCommand } from '../../src/shared/admin';
 import { logInfo, logError } from '../common';
 

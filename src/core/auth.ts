@@ -5,9 +5,10 @@ import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import type { UserDevice, UserCredential } from '../shared/auth';
 import type { AdminAuthCommand } from '../shared/admin';
-import { query, QueryResult, QueryDateTimeFormat } from '../adk/database';
+import { query, pool, QueryResult, QueryDateTimeFormat } from '../adk/database';
 import { MyError } from './error';
 import { logInfo } from './logger';
+import mysql from 'mysql2/promise';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
@@ -75,10 +76,10 @@ async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ acc
         LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime),
         LastAccessAddress: ctx.socket.remoteAddress,
     };
-    const { value: { insertId: userDeviceId } } = await query<QueryResult>(
+    const [result] = await pool.execute(
         'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?, ?)',
-        userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime, userDevice.LastAccessAddress);
-    userDevice.Id = userDeviceId!;
+        [userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime, userDevice.LastAccessAddress]);
+    userDevice.Id = (result as mysql.ResultSetHeader).insertId!;
     userDeviceStorage.push(userDevice);
 
     return { accessToken };

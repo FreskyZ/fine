@@ -6,7 +6,7 @@ so they are now in configuration, making this document and content handling in c
 
 ## Design Principles
 
-- public files are available in all domains' (subdomains') root path
+- public files are available in all domains'/subdomains' root path
 - apis are available at one `api.domain.com` with authentication
 - only api invocation can handle non-GET requests
 - only api invocation returns status 404 for unknown api, others temporary redirect to 404 page

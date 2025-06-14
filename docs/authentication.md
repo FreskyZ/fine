@@ -1,5 +1,60 @@
 # Authentication
 
+The core module implements authentication so apps don't need to duplicate the work.
+
+### Single Sign-on
+
+if you forget, single sign-on allows user to
+sign in one app and don't need to input user credentials again in another app,
+if you forget, the major issue in cross subdomain single sign-on
+is localstorage/cookie DON'T share between subdomains, because different subdomain is different origin,
+
+> if you blame this file you can find me failed to implement cookie based cross subdomain single sign-on,
+> because cookies lie to me that they support cross subdomain, but they actually very not support that,
+> but now after more than 4 years I come back with knowledge and experience from using OAuth!
+
+and the solution is send "the string" through url
+
+### Design Principles
+
+This authentication scheme is inspired by OAuth but not exactly the same
+
+> OAuth 2.0: https://datatracker.ietf.org/doc/html/rfc6749
+
+- roles:
+  - resource server: api.domain.com/* apis, accessing them need authentication
+  - client: app.domain.com web pages
+  - authorization endpoint, the web page at id.domain.com to input username and password
+  - authorization server, the server part of id.domain.com
+
+- authorization endpoint is id.domain.com, because api.domain.com does not have ui
+  and this name is short and reasonable and looks better than auth.domain.com or login.domain.com
+- for query parameters, response type is not needed, it is fixed authorization code,
+  client_id is app name, redirect uri is not needed, it is determined by client id,
+  scope is not needed, because authorization is implemented in each app,
+  state is not needed, I control all the user accounts and all apps and their data, no need to specifically avoid that,
+  so the actual authorization endpoint looks like id.domain.com/authorize?app=appname
+- how the authorization endpoint implements its own authentication is out of oauth specification's scope,
+  in this program, it is normal user name and password input, but password is otp password, normal password is not used,
+  when you don't have normal fixed password, you don't have to remember that and their is no potential leak problem
+- after authenticated user name and password input, id.domain.com stores the access token in httponly cookie,
+  which automatically sends in request and automatically expire, and then generates authorization code and calls back
+  to app's pages by url, then app's front end page calls this module
+
+no refresh token, because id.domain.com's access token works as refresh token,
+and it is rarely used (when a new page of app is opened) and id.domain.com access token is stored in httponly cookie,
+and app access token is stored in memory not local storage or cookie
+
+- authorization endpoint is id.domain.com, which is short and looks better than auth.domain.com and login.domain.com
+- redirect uri parameter is not needed, because client id is app name and redirect uri can be determined by that
+
+
+- no normal password, only user name and otp password
+- only require authentication for part of the api calls
+
+TODO use URLPattern instead of pattern
+
+
 ### Design Principle
 
 - no normal password, only user name and authenticator password
