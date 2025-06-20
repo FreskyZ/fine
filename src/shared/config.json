@@ -1,43 +1,56 @@
 {
-    "ssl": {
-        "key": "key.pem",
-        "cert": "cert.pem",
-        "fullchain": "fullchain.pem"
+  "certificates": {
+    "default": {
+      "key": "key.pem",
+      "cert": "cert.pem"
     },
-    "database": {
-        "host": "",
-        "port": 3306,
-        "user": "",
-        "password": "",
-        "database": "",
-        "supportBigNumbers": true,
-        "dateStrings": true
+    "example.com": {
+      "key": "key.pem",
+      "cert": "cert.pem"
     },
-    "static-content": {
-        "example.com": {
-            ".": "home.html",
-            "index.css": "home.css",
-            "404": "404.html",
-            "418": "418.html"
-        },
-        "www.example.com": {
-            ".": "home.html",
-            "index.css": "home.css",
-            "404": "404.html",
-            "418": "418.html"
-        },
-        "app1.example.com": {
-            ".": "app2/index.html",
-            "user": "user.html",
-            "user.js": "user.js",
-            "user.css": "user.css"
-        },
-        "app2.example.com": {
-            ".": "app2/index.html",
-            "*": "app2/*"
-        },
-        "anotherexample.com": {
-            ".": "anotherexample/index.html"
-        }
+    "www.example.com": {
+      "key": "key.pem",
+      "cert": "cert.pem"
+    },
+    "api.example.com": {
+      "key": "key.pem",
+      "cert": "cert.pem"
     }
+  },
+  "database": {
+    "host": "",
+    "port": 3306,
+    "user": "",
+    "password": "",
+    "database": "",
+    "supportBigNumbers": true,
+    "dateStrings": true
+  },
+  "static-content": {
+    "example.com": {
+      ".": "home.html",
+      "index.css": "home.css",
+      "404": "404.html",
+      "418": "418.html"
+    },
+    "www.example.com": {
+      ".": "home.html",
+      "index.css": "home.css",
+      "404": "404.html",
+      "418": "418.html"
+    },
+    "app1.example.com": {
+      ".": "app2/index.html",
+      "user": "user.html",
+      "user.js": "user.js",
+      "user.css": "user.css"
+    },
+    "app2.example.com": {
+      ".": "app2/index.html",
+      "*": "app2/*"
+    },
+    "anotherexample.com": {
+      ".": "anotherexample/index.html"
+    }
+  }
 }
