@@ -1,8 +1,8 @@
-import * as fs from 'fs';
-import * as koa from 'koa';
-import { SourceMapConsumer } from 'source-map';
-import type { FineErrorKind } from '../adk/error';
-import { logError } from './logger';
+// import syncfs from 'node:fs';
+import type * as koa from 'koa';
+// import { SourceMapConsumer } from 'source-map';
+import type { FineErrorKind } from '../adk/error.ts';
+import { log } from './logger.js';
 
 // contains request and process unexpected error handlers
 
@@ -26,28 +26,28 @@ interface StackFrame {
     originalColumn?: number,
 }
 
-// key is full path in stack
-const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
-// return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
-async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
-    if (!jsFileName.startsWith("webroot")) {
-        return null;
-    }
-    const mapFileName = jsFileName + '.map';
-    if (!fs.existsSync(mapFileName)) {
-        return null;
-    }
+// // key is full path in stack
+// const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
+// // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
+// async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
+//     if (!jsFileName.startsWith("webroot")) {
+//         return null;
+//     }
+//     const mapFileName = jsFileName + '.map';
+//     if (!syncfs.existsSync(mapFileName)) {
+//         return null;
+//     }
 
-    if (!(jsFileName in sourcemaps)) {
-        try {
-            sourcemaps[jsFileName] = await new SourceMapConsumer(JSON.parse(fs.readFileSync(mapFileName, 'utf-8')));
-        } catch {
-            sourcemaps[jsFileName] = null; // insert null or else next times it will continue try loading
-        }
-    }
+//     if (!(jsFileName in sourcemaps)) {
+//         try {
+//             sourcemaps[jsFileName] = await new SourceMapConsumer(JSON.parse(syncfs.readFileSync(mapFileName, 'utf-8')));
+//         } catch {
+//             sourcemaps[jsFileName] = null; // insert null or else next times it will continue try loading
+//         }
+//     }
 
-    return sourcemaps[jsFileName];
-}
+//     return sourcemaps[jsFileName];
+// }
 
 function printStackFrame(frames: StackFrame[]) {
     for (const frame of frames) {
@@ -97,13 +97,13 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
             const file = match1.groups['file'];
             const [line, column] = [parseInt(match1.groups['line']), parseInt(match1.groups['column'])];
 
-            const sourcemap = await tryGetSourceMap(file);
-            if (!sourcemap) {
+            // const sourcemap = await tryGetSourceMap(file);
+            // if (!sourcemap) {
                 frames.push({ file, line, column });
-            } else {
-                const position = sourcemap.originalPositionFor({ line, column });
-                frames.push({ file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
-            }
+            // } else {
+            //     const position = sourcemap.originalPositionFor({ line, column });
+            //     frames.push({ file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
+            // }
             continue;
         }
 
@@ -113,13 +113,13 @@ async function parseStack(raw: string): Promise<StackFrame[]> {
             const file = match2.groups['file'];
             const [line, column] = [parseInt(match2.groups['line']), parseInt(match2.groups['column'])];
 
-            const sourcemap = await tryGetSourceMap(file);
-            if (!sourcemap) {
+            // const sourcemap = await tryGetSourceMap(file);
+            // if (!sourcemap) {
                 frames.push({ name, async, asName, file, line, column });
-            } else {
-                const position = sourcemap.originalPositionFor({ line, column });
-                frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
-            }
+            // } else {
+            //     const position = sourcemap.originalPositionFor({ line, column });
+            //     frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
+            // }
             continue;
         }
 
@@ -146,7 +146,7 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
     } catch (error) {
         const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
         if (error === null || typeof error == 'undefined') {
-            logError({ type: 'request handler error', request: summary, error: 'error' });
+            log.error({ type: 'request handler error', request: summary, error: 'error' });
             console.log(`${summary}: <empty rejection>`);
         }
 
@@ -158,17 +158,17 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
                 : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
-            logError({ type: myerror.kind, request: summary, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
+            log.error({ type: myerror.kind, request: summary, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
         } else {
             ctx.status = 500;
             const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
             if ('stack' in error) {
                 const stack = await parseStack(error.stack);
-                logError({ type: 'request handler error', request: summary, error: errorMessage, stack });
+                log.error({ type: 'request handler error', request: summary, error: errorMessage, stack });
                 console.log(`${summary}: ${errorMessage}: `);
                 printStackFrame(stack);
             } else {
-                logError({ type: 'request handler error', request: summary, error: errorMessage });
+                log.error({ type: 'request handler error', request: summary, error: errorMessage });
                 console.log(`${summary}: ${errorMessage}`);
             }
         }
@@ -179,22 +179,22 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
 export async function handleProcessException(error: Error): Promise<void> {
     if (error.message == 'read ECONNRESET') {
         // ignore read connection reset beceause it does not corrupt state while it seems to be not catchable by many on('error')s
-        logError({ type: 'uncaught read connection reset', error });
+        log.error({ type: 'uncaught read connection reset', error });
         return;
     } else if (error.message.includes('deps/openssl/openssl')) {
         // ignore openssl error because I guess it does not corrupt state while it seems to be not catchable by many on('error')s
-        logError({ type: 'openssl error, I guess', error });
+        log.error({ type: 'openssl error, I guess', error });
         return;
     }
 
     try {
         if (error.stack) {
             const stack = await parseStack(error.stack);
-            logError({ type: 'uncaught exception', error: error.message, stack });
+            log.error({ type: 'uncaught exception', error: error.message, stack });
             console.log(`uncaught exception: ${error.message}: `);
             printStackFrame(stack);
         } else {
-            logError({ type: 'uncaught exception', error: error.message });
+            log.error({ type: 'uncaught exception', error: error.message });
             console.log(`uncaught exception: ${error.message}`);
         }
     } catch {
@@ -210,11 +210,11 @@ export async function handleProcessRejection(reason: any): Promise<never> {
         const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : 'error';
         if ('stack' in reason) {
             const stack = await parseStack(reason.stack);
-            logError({ type: 'unhandled rejection', message, stack });
+            log.error({ type: 'unhandled rejection', message, stack });
             console.log(`unhandled rejection: ${message}: `);
             printStackFrame(stack);
         } else {
-            logError({ type: 'unhandled rejection', message });
+            log.error({ type: 'unhandled rejection', message });
             console.log(`unhandled rejection: ${message}: `);
         }
     } catch {

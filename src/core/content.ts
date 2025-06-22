@@ -13,25 +13,6 @@ import { logInfo } from './logger';
 // public files does not cache in core process memory and use weak cache key
 // static files cache in core process memory and use strong cache key
 
-// if certificating, return dummy value for required domains
-export async function handleCertificate(ctx: koa.Context, next: koa.Next): Promise<any> {
-    if (!('FINE_CERTIFICATE' in process.env)) {
-        return await next();
-    }
-
-    if (ctx.path == '/') {
-        ctx.status = 200;
-    } else {
-        try {
-            ctx.body = fs.readFileSync(path.join('public', ctx.path));
-            ctx.status = 200;
-        } catch {
-            // there is still hostile access to random maybe-glitch-in-other-platform files when certificating
-            ctx.status = 404;
-        }
-    }
-}
-
 // if source map is enabled and source map name related js file exists, will try to find the source map file and compress and return
 let AllowSourceMap = false;
 // auto close source map after 2 hours in case akari (server) does not close it

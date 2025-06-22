@@ -1,35 +1,41 @@
 import fs from 'node:fs/promises';
-import fsnp from 'node:fs';
+import syncfs from 'node:fs';
 import http from 'node:http';
 import http2 from 'node:http2';
 import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
+import { log } from './logger.js';
+import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 
 const app = new koa();
 
+app.use(handleRequestError);
 app.use(async (ctx: koa.Context, _next: koa.Next) => {
     ctx.type = 'html';
     ctx.body = await fs.readFile('static/home.html', 'utf-8');
 });
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
-const config = JSON.parse(fsnp.readFileSync('config', 'utf-8')) as {
+process.on('uncaughtException', handleProcessException);
+process.on('unhandledRejection', handleProcessRejection);
+
+const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     certificates: {
         default: { key: string, cert: string },
         [domain: string]: { key: string, cert: string },
-    }, 
+    },
 };
 
 // admin interface
-if (fsnp.existsSync('/tmp/fine.socket')) {
-    fsnp.unlinkSync('/tmp/fine.socket');
+if (syncfs.existsSync('/tmp/fine.socket')) {
+    syncfs.unlinkSync('/tmp/fine.socket');
 }
 
 const adminServer = net.createServer();
-// const _handleSocketServerError = (error: Error) => {
-//     console.log(`admin server error: ${error.message}`);
-// };
+const handleSocketServerError = (error: Error) => {
+    console.log(`admin server error: ${error.message}`);
+};
 
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
@@ -41,26 +47,26 @@ adminServer.on('connection', connection => {
     connection.on('error', error => {
         console.log(`admin connection error: ${error.message}`);
     });
-    // connection.on('data', data => {
-    //     const payload = data.toString('utf-8');
-    //     let message = { type: 'ping' } as AdminCoreCommand;
-    //     try {
-    //         message = JSON.parse(payload);
-    //     } catch {
-    //         logError({ type: 'parse admin payload', payload });
-    //     }
-    //     // ACK after data decoded or else data seems to be discarded after that end closed
-    //     connection.write('ACK');
-    //     // do nothing for ping, ACK is enough for stating 'I'm alive'
+    connection.on('data', data => {
+        const payload = data.toString('utf-8');
+        let message = { type: 'ping' } // as AdminCoreCommand;
+        try {
+            message = JSON.parse(payload);
+        } catch {
+            log.error({ type: 'parse admin payload', payload });
+        }
+        // ACK after data decoded or else data seems to be discarded after that end closed
+        connection.write('ACK');
+        // do nothing for ping, ACK is enough for stating 'I'm alive'
 
-    //     if (message.type == 'shutdown') {
-    //         shutdown();
-    //     } else if (message.type == 'auth') {
-    //         handleAuthCommand(message.sub);
-    //     } else if (message.type == 'content') {
-    //         handleContentCommand(message.sub);
-    //     }
-    // });
+        if (message.type == 'shutdown') {
+            shutdown();
+        } else if (message.type == 'auth') {
+            // handleAuthCommand(message.sub);
+        } else if (message.type == 'content') {
+            // handleContentCommand(message.sub);
+        }
+    });
 });
 
 // TODO also redirect www. to @
@@ -112,8 +118,7 @@ httpServer.on('connection', socket => {
         } else if (error.code == 'HPE_INVALID_METHOD') {
             // ignore
         } else {
-            // TODO logError
-            console.log({ type: 'http socket error', error });
+            log.error({ type: 'http socket error', error });
         }
     });
     socket.on('close', () => delete httpConnections[key]);
@@ -122,26 +127,25 @@ httpsServer.on('connection', (socket: net.Socket) => {
     const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
     httpConnections[key] = socket;
     socket.on('error', error => {
-        // TODO logError
-        console.log({ type: 'https socket error', error });
+        log.error({ type: 'https socket error', error });
     });
     socket.on('close', () => delete httpConnections[key]);
 });
 
 // servers start and close // that's how they are implemented braceful
 Promise.all([
-    // new Promise<void>((resolve, reject) => {
-    //     const handleListenError = (error: Error) => {
-    //         console.log(`admin server error: ${error.message}`);
-    //         reject();
-    //     };
-    //     adminServer.once('error', handleListenError);
-    //     adminServer.listen('/tmp/fine.socket', () => {
-    //         adminServer.removeListener('error', handleListenError);
-    //         adminServer.on('error', handleSocketServerError); // install normal error handler after listen success
-    //         resolve();
-    //     });
-    // }),
+    new Promise<void>((resolve, reject) => {
+        const handleListenError = (error: Error) => {
+            console.log(`admin server error: ${error.message}`);
+            reject();
+        };
+        adminServer.once('error', handleListenError);
+        adminServer.listen('/tmp/fine.socket', () => {
+            adminServer.removeListener('error', handleListenError);
+            adminServer.on('error', handleSocketServerError); // install normal error handler after listen success
+            resolve();
+        });
+    }),
     new Promise<void>((resolve, reject) => {
         const handleListenError = (error: Error) => {
             console.log(`http server error: ${error.message}`);
@@ -173,7 +177,7 @@ Promise.all([
         });
     }),
 ]).then(() => {
-    // TODO logInfo
+    log.info('fine startup complete');
     console.log('fine startup complete');
 }).catch(() => {
     console.error('fine startup failed');
@@ -186,12 +190,14 @@ function shutdown() {
     shuttingdown = true; // prevent reentry
 
     setTimeout(() => {
-        console.log('fine core shutdown timeout, abort');
+        console.log('fine shutdown timeout, abort');
         process.exit(102);
     }, 30_000);
 
     // destroy connections
-    // TODO socketConnections
+    for (const socket of adminInterfaceConnections) {
+        socket.destroy();
+    }
     for (const key in httpConnections) {
         httpConnections[key].destroy();
     }
@@ -211,11 +217,11 @@ function shutdown() {
             else { resolve(); }
         })),
     ]).then(() => {
-        // logInfo('fine core shutdown');
-        console.log('fine core shutdown');
+        log.info('fine shutdown');
+        console.log('fine shutdown');
         process.exit(0);
     }, () => {
-        console.log('fine core shutdown with error');
+        console.log('fine shutdown with error');
         process.exit(102);
     });
 }

@@ -1,136 +1,145 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as dayjs from 'dayjs';
-import * as utc from 'dayjs/plugin/utc';
+import syncfs from 'node:fs';
+import path from 'node:path';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js'; // why does this need .js?
 
-// logging, usage
-//
-// import { logInfo, logError } as log from './logger'
-// logInfo({ type: 'request', path: '/', by: 'some user' });
-// logError({ type: 'request error', message: 'message', stack: [{ location, name }] })
-
-// internal
-// normal contents are cached until certain amount of entries added
-// eager contents (errors) are flushed immediately
-
-// TODO: change to yabai/logger
+// logging, usage:
+//    import { log } from './logger';
+//    log.info("some message");
+//    log.info({ type: 'some information', data });
+//    log.error(some error);
+//    log.error({ type: 'request error', error });
+//    log.debug(event); // debug log is only enabled by environment variable
 
 // because initialize require utc, while index do not use dayjs, so put it here
 dayjs.extend(utc);
-
-type Level = 'info' | 'error';
-const levels: Level[] = ['info', 'error'];
-
-type CachePolicy = 'lazy' | 'eager';
-const policies: { [key in Level]: CachePolicy } = { 'info': 'lazy', 'error': 'eager' };
-
-interface Entry {
-    t: string, // time, dayjs.toJson ISO8601 format
-    c: any,    // content is any to-json-able object
-}
-
-const lazyFlushCount = 42;         // arbitray not too small and not big value
-const lazyFlushInterval = 600_000; // 10 minutes to flush normal
-const cleanupInterval = 3600_000;  // 1 hour to cleanup outdated logs
-const logReserveDays = 7;          // reserve log for 1 week
-
+// logs are in logs directory, there is no meaning to configure it
 const logsDirectory = path.resolve('logs');
-function getLogFileName(date: dayjs.Dayjs, level: Level) {
-    return path.join(logsDirectory, `${date.format('YYYY-MM-DD')}-${level}.log`);
+
+interface LoggerOptions {
+    readonly postfix: string, // file name postfix
+    readonly flushByCount: number,
+    readonly flushByInterval: number, // in second, flush when this logger is idle and has something to flush
+    readonly reserveDays: number,
 }
 
-function loadOrInitializeEntries(fileName: string): Entry[] {
-    if (fs.existsSync(fileName)) {
-        const content = fs.readFileSync(fileName).toString();
-        try {
-            return JSON.parse(content);
-        } catch {
-            // ignore here and reset file content later in this function
+class Logger {
+    private time: dayjs.Dayjs = dayjs.utc();
+    private handle: number = 0;
+    private notFlushCount: number = 0;
+    // not null only when have not flush count
+    private notFlushTimeout: NodeJS.Timeout = null;
+
+    constructor(private readonly options: LoggerOptions) {}
+
+    init() {
+        syncfs.mkdirSync('logs', { recursive: true });
+        this.handle = syncfs.openSync(path.join(logsDirectory,
+            `${this.time.format('YYMMDD')}${this.options.postfix}.log`), 'a');
+    }
+
+    deinit() {
+        if (this.handle) {
+            syncfs.fsyncSync(this.handle);
+            if (this.notFlushTimeout) {
+                clearTimeout(this.notFlushTimeout);
+            }
+            syncfs.closeSync(this.handle);
         }
     }
 
-    // if file not exists or json parse failure, set log file content to empty
-    fs.writeFileSync(fileName, "[]");
-    return [];
-}
+    flush() {
+        // no if this.handle: according to flush strategy,
+        // this function will not be called with this.handle == 0
 
-type State = { [key in Level]: {
-    date: dayjs.Dayjs,
-    filename: string,
-    entries: Entry[],
-    notFlushedCount: number,
-} };
-const state = levels.reduce<Partial<State>>((s, level) => {
-    const date = dayjs.utc();
-    const filename = getLogFileName(date, level);
-    const entries = loadOrInitializeEntries(filename);
-    s[level] = { date, filename, entries, notFlushedCount: 0 };
-    return s;
-}, {}) as State;
+        this.notFlushCount = 0;
+        syncfs.fsyncSync(this.handle);
 
-function flush(level: Level): void {
-    const { date, filename, entries } = state[level];
-
-    state[level].notFlushedCount = 0;
-    fs.writeFileSync(filename, JSON.stringify(entries));
-
-    // every level does their switch log file on their own;
-    if (!date.isSame(dayjs.utc(), 'date')) {
-        state[level].date = dayjs.utc();
-        state[level].filename = getLogFileName(date, level);
-        state[level].entries = loadOrInitializeEntries(state[level].filename);
-        // state[level].notFlushedCount = 0; // already cleared
-    }
-}
-function write(level: Level, content: any) {
-    const { entries, notFlushedCount } = state[level];
-
-    if (typeof content != 'object') {
-        content = { content };
+        if (this.notFlushTimeout) {
+            // clear timeout incase this flush is triggered by write
+            // does not setup new timeout because now not flush count is 0
+            clearTimeout(this.notFlushTimeout);
+            this.notFlushTimeout = null;
+        }
+        if (!this.time.isSame(dayjs.utc(), 'date')) {
+            this.time = dayjs.utc();
+            syncfs.closeSync(this.handle);
+            this.init(); // do not repeat init file handle
+            this.notFlushCount = null;
+        }
     }
 
-    // insert time intrusively to reduce content depth
-    content.$$t = dayjs.utc().toJSON();
-    entries.push(content);
+    cleanup() {
+        for (const filename of syncfs.readdirSync(logsDirectory)) {
+            const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYMMDD');
+            if (date.isValid() && date.add(this.options.reserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
+                try {
+                    syncfs.unlinkSync(path.resolve(logsDirectory, filename));
+                } catch {
+                    // ignore
+                }
+            }
+        }
+    }
 
-    if (policies[level] == 'lazy') {
-        if (notFlushedCount == lazyFlushCount) {
-            flush(level);
+    write(c: string | object) {
+        if (!this.handle) {
+            this.init();
+        }
+        const content = typeof c == 'string' ? c : JSON.stringify(c);
+        syncfs.writeSync(this.handle, `${dayjs.utc().format('HH:mm:ss')} ${content}\n`);
+        if (this.notFlushCount + 1 > this.options.flushByCount) {
+            this.flush();
         } else {
-            state[level].notFlushedCount += 1;
-        }
-    } else {
-        flush(level);
-    }
-}
-
-// a very simple tracing method to use with akari watch core
-const TRACE = 'FINE_TRACE' in process.env;
-export const logTrace = TRACE ? (...args: any[]) => console.log(...args) : (..._args: any[]) => {};
-
-export function logInfo(content: any): void { write('info', content); logTrace(content); }
-export function logError(content: any): void { write('error', content); logTrace(content); }
-
-function flushAll() {
-    levels.map(level => flush(level));
-}
-setInterval(flushAll, lazyFlushInterval).unref(); // use unref unless it will block process exit
-
-function cleanup() {
-    for (const filename of fs.readdirSync(logsDirectory)) {
-        const date = dayjs.utc(path.basename(filename).slice(0, 10), 'YYYY-MM-DD');
-        if (date.isValid() && date.add(logReserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
-            try {
-                fs.unlinkSync(path.resolve(logsDirectory, filename));
-            } catch {
-                // ignore
+            this.notFlushCount += 1;
+            if (this.notFlushCount == 1) {
+                this.notFlushTimeout = setTimeout(() => this.flush(), this.options.flushByInterval * 1000);
             }
         }
     }
 }
-setInterval(cleanup, cleanupInterval).unref();
 
+type Level = 'info' | 'error' | 'debug';
+const levels: Record<Level, LoggerOptions> = {
+    // normal log
+    info: { postfix: 'I', flushByCount: 11, flushByInterval: 600, reserveDays: 14 },
+    // error log, flush immediately, in that case, flush by interval is not used
+    error: { postfix: 'E', flushByCount: 0, flushByInterval: 0, reserveDays: 14 },
+    // debug log, raw message and transformed message, is written frequently, so flush by count is kind of large
+    debug: { postfix: 'D', flushByCount: 101, flushByInterval: 600, reserveDays: 14 },
+};
+
+// @ts-ignore ts does not understand object.entries, actually it does not understand reduce<>(..., {}), too
+const loggers: Record<Level, Logger> =
+    Object.fromEntries(Object.entries(levels).map(([level, options]) => [level, new Logger(options)]));
+
+// @ts-ignore again
+export const log: Record<Level, (content: string | object) => void> = Object.fromEntries(Object.entries(loggers)
+    .map(([level, logger]) => [level, level == 'debug' && !('FINE_DEBUG' in process.env) ? (() => {}) : logger.write.bind(logger)]));
+
+// try cleanup outdated logs per hour
+setInterval(() => Object.entries(loggers).map(([_, logger]) => logger.cleanup()), 3600_000).unref();
+
+// flush logger on exit is more proper (compare to recent versions of wacq)
 process.on('exit', () => {
-    flushAll();
-    cleanup();
+    Object.entries(loggers).map(([_, logger]) => logger.deinit());
+});
+// log and abort for all uncaught exceptions and unhandled rejections
+process.on('uncaughtException', async error => {
+    console.log('uncaught exception', error);
+    try {
+        log.error(`uncaught exception: ${error.message}`);
+    } catch {
+        // nothing, this happens when logger initialize have error
+    }
+    process.exit(103);
+});
+process.on('unhandledRejection', async reason => {
+    console.log('unhandled rejection', reason);
+    try {
+        log.error(`unhandled rejection: ${reason}`);
+    } catch {
+        // nothing, this happens when logger initialize have error
+    }
+    process.exit(104);
 });
