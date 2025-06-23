@@ -8,7 +8,7 @@ import type { AdminAuthCommand } from '../shared/admin';
 import { query, pool, QueryResult, QueryDateTimeFormat } from '../adk/database';
 import { MyError } from './error';
 import { logInfo } from './logger';
-import mysql from 'mysql2/promise';
+import mysql, { RowDataPacket } from 'mysql2/promise';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
@@ -42,6 +42,7 @@ interface UserData {
     Active: boolean,
     Token: string,
 }
+type UserDataPacket = UserData & RowDataPacket;
 interface UserDeviceData {
     Id: number,
     App: string,
@@ -100,11 +101,11 @@ async function handleSignIn(ctx) {
     }
 
     const user = userStorage.find(u => !collator.compare(u.Name, claim.username)) ?? await (async () => {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
-        if (!Array.isArray(value) || value.length == 0) {
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
+        if (!Array.isArray(rows) || rows.length == 0) {
             throw new MyError('common', 'unknonw user or incorrect password');
         }
-        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token };
+        const user: UserData = { Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token };
         userStorage.push(user);
         return user;
     })();

@@ -5,7 +5,9 @@ import http2 from 'node:http2';
 import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
+import type { PoolOptions } from 'mysql2';
 import type { AdminCoreCommand } from '../shared/admin.js';
+import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
@@ -22,11 +24,13 @@ process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     certificates: { [domain: string]: { key: string, cert: string } },
+    database: PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
 };
-await setupStaticContent(config['static-content']);
+setupDatabaseConnection(config.database);
 setupShortLinkService(config['short-link']);
+await setupStaticContent(config['static-content']);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {

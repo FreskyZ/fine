@@ -4,8 +4,10 @@ import path from 'node:path';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
+import type { RowDataPacket } from 'mysql2';
 import zlib from 'zlib';
 import type { AdminContentCommand } from '../shared/admin.js';
+import { pool } from '../adk/database.js';
 import { MyError } from './error.js';
 import { log } from './logger.js';
 
@@ -14,6 +16,7 @@ import { log } from './logger.js';
 // public files does not cache in core process memory and use weak cache key
 // static files cache in core process memory and use strong cache key
 //
+// see also short-link.md
 // short links looks like normal static link or public link,
 // for the get part, while the actual 301/307 is not going to be supported in concrete apps,
 // it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
@@ -138,46 +141,52 @@ export async function setupStaticContent(config: StaticContentConfig) {
 }
 
 // for now only domain is configured
-export interface ShortLinkConfig {
-    domain: string,
-}
+export interface ShortLinkConfig { domain: string }
 let shortLinkConfig: ShortLinkConfig;
 export function setupShortLinkService(config: ShortLinkConfig) { shortLinkConfig = config; }
 
-interface Redirection {
+interface ShortLinkData {
+    Id: number,
     // path without leading slash, e.g. 'abc' in shortexample.com/abc
-    readonly name: string,
-    // for now only time expiration
-    // absolute expiration time utc
-    absoluteExpire: dayjs.Dayjs,
+    Name: string,
     // the value to be in Location header, should be a url
-    value: string,
+    Value: string,
+    // absolute expiration time utc
+    ExpireTime: string,
 }
+type ShortLinkDataPacket = ShortLinkData & RowDataPacket;
 interface ShortLinkCache {
     // short link records
-    readonly items: Redirection[],
+    readonly items: ShortLinkData[],
 }
+// ATTENTION not used for now, think later
 const redirectioncache: ShortLinkCache = { items: [] };
 
 async function handleRequestShortLink(ctx: koa.Context) {
-    // after entering here, the status is always 307 to redirect somewhere
-    // if have records, redirect to the records, if not, redirect to 404, that's also why this does not need next
-    ctx.status = 307;
-    ctx.type = 'text/plain';
-    ctx.body = 'redirecting...';
+    const name = ctx.path.substring(1); // ctx.path == '/' is already checked
+    const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
 
-    // ATTENTION mock data
-    if (ctx.path == '/42') {
-        ctx.set('Location', 'https://en.wikipedia.org/wiki/Phrases_from_The_Hitchhiker%27s_Guide_to_the_Galaxy#Answer_to_the_Ultimate_Question_of_Life,_the_Universe,_and_Everything_(42)');
-    } else if (ctx.path == '/pta') {
-        ctx.set('Location', 'http://www.catb.org/~esr/faqs/smart-questions.html');
-    } else {
+    const redirect = (location: string) => {
+        ctx.status = 307;
+        ctx.type = 'text/plain';
+        ctx.body = 'Redirecting...';
+        ctx.set('Location', location);
+    }
+    const notfound = () => {
         if (!(`${ctx.host}/404` in contentcache.virtualmap)) {
-            // but if this is not configured, this will be infinite redirection if keep redirecting to self
+            // need to prevent infinite redirection if not configured
             ctx.status = 404;
         } else {
-            ctx.set('Location', `https://${shortLinkConfig.domain}/404`);
+            redirect(`https://${shortLinkConfig.domain}/404`);
         }
+    }
+    if (!Array.isArray(records) || records.length == 0) {
+        notfound();
+    } else if (dayjs.utc(records[0].ExpireTime).isBefore(dayjs.utc())) {
+        await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
+        notfound();
+    } else {
+        redirect(records[0].Value);
     }
 }
 
@@ -260,7 +269,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         
         const exists = syncfs.existsSync(realpath);
         // short link records have lower priority then static files and public files
-        if (!exists && ctx.host == shortLinkConfig.domain) { handleRequestShortLink(ctx); return; }
+        if (!exists && ctx.host == shortLinkConfig.domain) { await handleRequestShortLink(ctx); return; }
         if (!exists) { ctx.status = 404; return; }
 
         ctx.type = path.extname(ctx.path);
