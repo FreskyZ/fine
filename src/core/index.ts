@@ -5,27 +5,28 @@ import http2 from 'node:http2';
 import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
+import type { AdminCoreCommand } from '../shared/admin.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
+import type { StaticContentConfig, ShortLinkConfig } from './content.js';
+import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
 
 const app = new koa();
 
 app.use(handleRequestError);
-app.use(async (ctx: koa.Context, _next: koa.Next) => {
-    ctx.type = 'html';
-    ctx.body = await fs.readFile('static/home.html', 'utf-8');
-});
+app.use(handleRequestContent);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
-    certificates: {
-        default: { key: string, cert: string },
-        [domain: string]: { key: string, cert: string },
-    },
+    certificates: { [domain: string]: { key: string, cert: string } },
+    'short-link': ShortLinkConfig,
+    'static-content': StaticContentConfig,
 };
+await setupStaticContent(config['static-content']);
+setupShortLinkService(config['short-link']);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {
@@ -49,7 +50,7 @@ adminServer.on('connection', connection => {
     });
     connection.on('data', data => {
         const payload = data.toString('utf-8');
-        let message = { type: 'ping' } // as AdminCoreCommand;
+        let message = { type: 'ping' } as AdminCoreCommand;
         try {
             message = JSON.parse(payload);
         } catch {
@@ -64,7 +65,7 @@ adminServer.on('connection', connection => {
         } else if (message.type == 'auth') {
             // handleAuthCommand(message.sub);
         } else if (message.type == 'content') {
-            // handleContentCommand(message.sub);
+            handleContentCommand(message.sub);
         }
     });
 });
@@ -75,29 +76,20 @@ const httpServer = http.createServer((request, response) => {
 });
 
 // read all certificate files in one Promise.all should
-// be ok for startup performance (even better for original 2 sequential fsnp.readfilesync calls)
-const certificatePaths = new Set<string>();
-for (const { key, cert } of Object.values(config.certificates)) {
-    certificatePaths.add(key);
-    certificatePaths.add(cert);
-}
-const certificateContents = Object.fromEntries(await Promise.all(
-    Array.from(certificatePaths).map(async path => [path, await fs.readFile(path, 'utf-8')])));
-const httpsCertificates = Object.fromEntries(Object
-    .entries(config.certificates)
-    .map(([domain, { key, cert }]) => [
-        domain, {
-            key: certificateContents[key],
-            cert: certificateContents[cert],
-        }
-    ] as const));
+// be ok for startup performance (even better for original 2 sequential syncfs.readfilesync calls)
+const httpsCertificatePaths = Object.values(config.certificates).map(c => [c.key, c.cert]).flat();
+const httpsCertificateContents = Object.fromEntries(await Promise.all(
+    Array.from(httpsCertificatePaths).map(async path => [path, await fs.readFile(path, 'utf-8')])));
+const httpsCertificates = Object.entries(config.certificates)
+    .map(([origin, { key, cert }]) => ({ origin, context: tls.createSecureContext({
+        key: httpsCertificateContents[key],
+        cert: httpsCertificateContents[cert],
+    }) }));
 const httpsServer = http2.createSecureServer({
-    key: httpsCertificates.default.key,
-    cert: httpsCertificates.default.cert,
-    SNICallback: (serverName, callback) => {
-        const certificate = httpsCertificates[serverName];
-        if (certificate) {
-            callback(null, tls.createSecureContext({ key: certificate.key, cert: certificate.cert }));
+    SNICallback: (servername, callback) => {
+        const context = httpsCertificates.find(c => c.origin.localeCompare(servername) == 0)?.context;
+        if (context) {
+            callback(null, context);
         } else {
             callback(new Error('SNI certificate request not found'));
         }

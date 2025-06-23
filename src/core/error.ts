@@ -1,6 +1,4 @@
-// import syncfs from 'node:fs';
 import type * as koa from 'koa';
-// import { SourceMapConsumer } from 'source-map';
 import type { FineErrorKind } from '../adk/error.ts';
 import { log } from './logger.js';
 
@@ -11,121 +9,6 @@ export class MyError extends Error {
         super(message);
         this.name = 'MyError';
     }
-}
-
-interface StackFrame {
-    raw?: string,
-    name?: string,
-    async?: boolean,
-    asName?: string,
-    file?: string,
-    line?: number,
-    column?: number,
-    originalFile?: string,
-    originalLine?: number,
-    originalColumn?: number,
-}
-
-// // key is full path in stack
-// const sourcemaps: { [jsFileName: string]: SourceMapConsumer } = {};
-// // return resolve(null) for 1. not my js file, 2. js.map not exist, 3. failed to load source map
-// async function tryGetSourceMap(jsFileName: string): Promise<SourceMapConsumer> {
-//     if (!jsFileName.startsWith("webroot")) {
-//         return null;
-//     }
-//     const mapFileName = jsFileName + '.map';
-//     if (!syncfs.existsSync(mapFileName)) {
-//         return null;
-//     }
-
-//     if (!(jsFileName in sourcemaps)) {
-//         try {
-//             sourcemaps[jsFileName] = await new SourceMapConsumer(JSON.parse(syncfs.readFileSync(mapFileName, 'utf-8')));
-//         } catch {
-//             sourcemaps[jsFileName] = null; // insert null or else next times it will continue try loading
-//         }
-//     }
-
-//     return sourcemaps[jsFileName];
-// }
-
-function printStackFrame(frames: StackFrame[]) {
-    for (const frame of frames) {
-        if (frame.raw) {
-            console.log('  at ' + frame.raw);
-            continue;
-        }
-
-        let result = '  at';
-        if (frame.name) {
-            result += ` ${frame.async ? 'async ' : ''}${frame.name}`;
-            if (frame.asName) {
-                result += ` [as ${frame.asName}]`;
-            }
-        }
-
-        if (frame.originalFile != null && frame.originalLine != null && frame.originalColumn != null) {
-            result += ` (${frame.originalFile}:${frame.originalLine}:${frame.originalColumn})`;
-
-            if (frame.file != null && frame.line != null && frame.column != null) {
-                result += ` (${frame.file}:${frame.line}:${frame.column})`;
-            }
-        } else if (frame.file != null && frame.line != null && frame.column != null) {
-            result += ` (${frame.file}:${frame.line}:${frame.column})`;
-        }
-
-        console.log(result);
-    }
-}
-
-const stackFrameRegex1 = /^(?<file>.+):(?<line>\d+):(?<column>\d+)$/;
-const stackFrameRegex2 = /^(?<async>async )?(?<name>[\w.]+)( \[as (?<asName>.+)\])? \((?<file>.+):(?<line>\d+):(?<column>\d+)\)$/;
-async function parseStack(raw: string): Promise<StackFrame[]> {
-    // example
-    // Error: some message
-    //   at async function3 (/path/to/file3.js:20:30)
-    //   at function_name (/path/to/file.js:10:20)
-    //   at function2 [as function3] (path/to/file2.js:10:20)
-    //   at path/to/file3.js:10:20
-
-    const frames: StackFrame[] = [];
-    for (let rawFrame of raw.split('\n').slice(1)) { // slice to remove first row
-        rawFrame = rawFrame.trim().slice(3); // remove heading '  at '
-
-        const match1 = stackFrameRegex1.exec(rawFrame);
-        if (match1) {
-            const file = match1.groups['file'];
-            const [line, column] = [parseInt(match1.groups['line']), parseInt(match1.groups['column'])];
-
-            // const sourcemap = await tryGetSourceMap(file);
-            // if (!sourcemap) {
-                frames.push({ file, line, column });
-            // } else {
-            //     const position = sourcemap.originalPositionFor({ line, column });
-            //     frames.push({ file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
-            // }
-            continue;
-        }
-
-        const match2 = stackFrameRegex2.exec(rawFrame);
-        if (match2) {
-            const [name, async, asName] = [match2.groups['name'], !!match2.groups['async'], match2.groups['asName']];
-            const file = match2.groups['file'];
-            const [line, column] = [parseInt(match2.groups['line']), parseInt(match2.groups['column'])];
-
-            // const sourcemap = await tryGetSourceMap(file);
-            // if (!sourcemap) {
-                frames.push({ name, async, asName, file, line, column });
-            // } else {
-            //     const position = sourcemap.originalPositionFor({ line, column });
-            //     frames.push({ name, async, asName, file, line, column, originalFile: position.source, originalLine: position.line, originalColumn: position.column });
-            // }
-            continue;
-        }
-
-        frames.push({ raw: rawFrame });
-    }
-    return frames;
 }
 
 // catch all request exceptions and continue
@@ -140,16 +23,13 @@ const ErrorCodes: { [errorType in FineErrorKind]: number } = {
     'service-not-available': 503,
     'gateway-timeout': 504,
 };
+
+// the major error wrapper in middleware workflow
 export async function handleRequestError(ctx: koa.Context, next: koa.Next): Promise<void> {
     try {
         await next();
     } catch (error) {
-        const summary =  `${ctx.method} ${ctx.host}${ctx.url}`;
-        if (error === null || typeof error == 'undefined') {
-            log.error({ type: 'request handler error', request: summary, error: 'error' });
-            console.log(`${summary}: <empty rejection>`);
-        }
-
+        const request = `${ctx.method} ${ctx.host}${ctx.url}`;
         // NOTE: app response error is json parsed and will not have prototype MyError, check .name instead
         if (error instanceof MyError || error.name == 'FineError') {
             const myerror = error as MyError;
@@ -158,68 +38,40 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
                 : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
-            log.error({ type: myerror.kind, request: summary, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
+            log.error({ type: myerror.kind, request, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
         } else {
             ctx.status = 500;
-            const errorMessage = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
-            if ('stack' in error) {
-                const stack = await parseStack(error.stack);
-                log.error({ type: 'request handler error', request: summary, error: errorMessage, stack });
-                console.log(`${summary}: ${errorMessage}: `);
-                printStackFrame(stack);
-            } else {
-                log.error({ type: 'request handler error', request: summary, error: errorMessage });
-                console.log(`${summary}: ${errorMessage}`);
-            }
+            const message = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
+            log.error({ type: 'request handling unexpected error', request, error: message, stack: error.stack });
+            console.log(`${request}: ${message}`);
         }
     }
 }
 
 // log and abort for all uncaught exceptions
-export async function handleProcessException(error: Error): Promise<void> {
+export function handleProcessException(error: Error) {
+
+    // hardcode exclude some special cases
     if (error.message == 'read ECONNRESET') {
-        // ignore read connection reset beceause it does not corrupt state while it seems to be not catchable by many on('error')s
+        // ignore read connection reset beceause it does not corrupt state while it seems to be not catchable by on('error')
         log.error({ type: 'uncaught read connection reset', error });
         return;
     } else if (error.message.includes('deps/openssl/openssl')) {
-        // ignore openssl error because I guess it does not corrupt state while it seems to be not catchable by many on('error')s
+        // ignore openssl error because I guess it does not corrupt state while it seems to be not catchable by on('error')
         log.error({ type: 'openssl error, I guess', error });
         return;
     }
 
-    try {
-        if (error.stack) {
-            const stack = await parseStack(error.stack);
-            log.error({ type: 'uncaught exception', error: error.message, stack });
-            console.log(`uncaught exception: ${error.message}: `);
-            printStackFrame(stack);
-        } else {
-            log.error({ type: 'uncaught exception', error: error.message });
-            console.log(`uncaught exception: ${error.message}`);
-        }
-    } catch {
-        console.log(error);
-    } finally {
-        process.exit(103);
-    }
+    log.error({ type: 'uncaught exception', error });
+    console.log(`uncaught exception: ${error.message}`);
+    process.exit(103);
 }
 
 // log and abort for all unhandled rejections
-export async function handleProcessRejection(reason: any): Promise<never> {
-    try {
-        const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : 'error';
-        if ('stack' in reason) {
-            const stack = await parseStack(reason.stack);
-            log.error({ type: 'unhandled rejection', message, stack });
-            console.log(`unhandled rejection: ${message}: `);
-            printStackFrame(stack);
-        } else {
-            log.error({ type: 'unhandled rejection', message });
-            console.log(`unhandled rejection: ${message}: `);
-        }
-    } catch {
-        console.log(reason);
-    } finally {
-        process.exit(104);
-    }
+export function handleProcessRejection(reason: any) {
+    const message = reason instanceof Error ? reason.message : Symbol.toStringTag in reason ? reason.toString() : reason;
+
+    log.error({ type: 'unhandled rejection', message });
+    console.log(`unhandled rejection: ${message}: `);
+    process.exit(104);
 }

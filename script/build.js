@@ -350,7 +350,7 @@ while (true) {
     }
 }
 // entry must be in last batch of modules, but may not be last module, you need to explicitly do that
-const finalSortedModules = sortedModules.filter(m => m.path != '/vbuild/core/index.js').concat(modules[0]);
+const finalSortedModules = sortedModules.filter(m => m.path != '/vbuild/core/index.js').concat(sortedModules.find(m => m.path == '/vbuild/core/index.js'));
 console.log(`sorted modules: ${finalSortedModules.map(m => m.path).join(',')}`);
 
 // finally merge
@@ -376,11 +376,13 @@ for (const declaration of allExternalReferences) {
     }
     resultJs = resultJs.slice(0, -2) + ` from \'${declaration.moduleName}\'\n`;
 }
-for (const module of sortedModules) {
+for (const module of finalSortedModules) {
     resultJs += '\n';
     resultJs += `// ${module.path}\n`;
     for (const line of module.content.split('\n').filter(r => !r.trim().startsWith('import'))) {
-        resultJs += line + '\n';
+        // no need to export symbol, or else terser will keep the name
+        const noexport = line.startsWith('export ') ? line.substring(7) : line;
+        resultJs += noexport + '\n';
     }
 }
 

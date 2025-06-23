@@ -10,6 +10,7 @@ export type AdminAuthCommand =
 export type AdminContentCommand =
     | { type: 'reload-static', key: string }
     | { type: 'reload-config' }
+    | { type: 'reset-short-link' }
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 

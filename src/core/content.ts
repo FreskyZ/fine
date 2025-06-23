@@ -1,17 +1,24 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as zlib from 'zlib';
-import * as koa from 'koa';
+import syncfs from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import dayjs from 'dayjs';
+import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
-import type { AdminContentCommand } from '../shared/admin';
-import { MyError } from './error';
-import { logInfo } from './logger';
+import zlib from 'zlib';
+import type { AdminContentCommand } from '../shared/admin.js';
+import { MyError } from './error.js';
+import { log } from './logger.js';
 
-// see file-structure.md and server-routing.md
-// handle all kinds of file requests, include boring files like robots.txt and build results include html/js/css files
-//
+// see also file-structure.md and server-routing.md
+// handle all kinds of public and static file requests
 // public files does not cache in core process memory and use weak cache key
 // static files cache in core process memory and use strong cache key
+//
+// short links looks like normal static link or public link,
+// for the get part, while the actual 301/307 is not going to be supported in concrete apps,
+// it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
+
+// ATTENTION TODO remove /var/fine when fixed or upgraded config substitution
 
 // if source map is enabled and source map name related js file exists, will try to find the source map file and compress and return
 let AllowSourceMap = false;
@@ -27,18 +34,17 @@ type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Buffer }
 const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
 
 // host => path => realpath mapping
-// - host is the host in same origin policy, note that any text difference, include domain.com and www.domain.com is not same host
+// - host is the host in same origin policy, note that any text difference, e.g. example.com and www.example.com is not same host
 // - path can be "." which means empty
 // - real path must be one of html/js/css or source map's .js.map
 // - last path can be a "*" point to a real path ends with "/*", like "real/path/*",
 //   which loads and maps file in webroot/static/real/path directory, not recursive
 export type StaticContentConfig = Record<string, Record<string, string>>;
 
-type Item = {
+interface Item {
     // relative path
     // - reload will use begin with to invalidate cache items
-    // - specially for builtin page, index.html/index.css is 'home', 'user.html/user.js/user.css' is 'user',
-    //   other files are in their own directory and should have proper reload key
+    //   use index to reload index.html and index.css, other files are in their own directory and can use that as reload key
     readonly realpath: string,
     // absolute path, calculate in advance to reduce a little work in handle request
     readonly absolutePath: string,
@@ -65,62 +71,112 @@ type Item = {
     content: Buffer | null,
     // encoding is defined in `encodingToEncoder`
     encodedContent: { [encoding: string]: Buffer },
-};
-type StaticContent = {
-    // primary key is realpath
+}
+
+interface StaticContentCache {
+    // identifier is realpath
     readonly items: Item[];
     // ${host}/${path} to cache item
     readonly virtualmap: { [virtual: string]: Item };
     // use wildcard configs, realdir is relative directory path without ending '/*'
     readonly wildcards: { host: string, realdir: string }[];
 }
+let contentcache: StaticContentCache;
 
-let SC: StaticContent;
-
-function getOrAddItem(realpath: string): Item {
-    let item = SC.items.find(f => f.realpath == realpath);
+function getOrAddItem(items: Item[], realpath: string): Item {
+    let item = items.find(f => f.realpath == realpath);
     if (typeof item == 'undefined') {
         item = {
             realpath,
-            absolutePath: path.join('webroot', 'static', realpath),
+            absolutePath: path.join('/var/fine', 'static', realpath),
             contentType: extensionToContentType[path.extname(realpath)],
             cacheKey: getnow(),
             lastModified: new Date(),
             content: null,
             encodedContent: {},
         };
-        SC.items.push(item);
+        items.push(item);
     }
     return item;
 }
 
 // initialize, or reinitialize
-export function setupStaticContent(config: StaticContentConfig) {
-    SC = { items: [], virtualmap: {}, wildcards: [] };
+export async function setupStaticContent(config: StaticContentConfig) {
+    // NOTE this is reassigned for reinitialize
+    contentcache = { items: [], virtualmap: {}, wildcards: [] };
 
-    for (const [host, virtualpath, realpath] of Object.entries(config)
-        .flatMap(([host, mappings]) => Object.entries(mappings).map(([vpath, rpath]) => [host, vpath, rpath]))) {
+    await Promise.all(Object.entries(config)
+        .flatMap(([host, mappings]) => Object.entries(mappings).map(([vpath, rpath]) => [host, vpath, rpath]))
+        .map(async ([host, virtualpath, realpath]) =>
+    {
         if (virtualpath != '*') {
             if (path.extname(realpath) in extensionToContentType) {
-                SC.virtualmap[path.join(host, virtualpath)] = getOrAddItem(realpath);
+                contentcache.virtualmap[path.join(host, virtualpath)] = getOrAddItem(contentcache.items, realpath);
             } else {
-                logInfo(`content: configured realpath not allowed: ${host} => ${virtualpath} => ${realpath}`);
+                log.info(`content: realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
             }
+        } else if (!realpath.endsWith('/*')) {
+            log.info(`content: wildcard virtual path need wildcard real path: ${host} + ${virtualpath} => ${realpath}`);
         } else {
+            // now virtualpath is '*' and realpath ends with '/*'
             const realdir = realpath.slice(0, realpath.length - 2);
-            const absoluteDir = path.join('webroot', 'static', realdir);
-            if (!fs.existsSync(absoluteDir)) {
-                logInfo(`content: configured realpath not exist: ${host} => ${virtualpath} => ${realpath}`);
-                continue;
+            const absoluteDir = path.join('/var/fine', 'static', realdir);
+            if (!syncfs.existsSync(absoluteDir)) {
+                log.info(`content: realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
+                return;
             }
-            for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true }).filter(e => e.isFile())) {
+            for (const entry of (await fs.readdir(absoluteDir, { withFileTypes: true })).filter(e => e.isFile())) {
                 if (path.extname(entry.name) in extensionToContentType) {
-                    SC.virtualmap[path.join(host, entry.name)] = getOrAddItem(path.join(realdir, entry.name));
+                    contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
                 } else {
-                    logInfo(`content: configured realpath ${host} => ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
+                    log.info(`content: realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
                 }
             }
-            SC.wildcards.push({ host, realdir });
+            contentcache.wildcards.push({ host, realdir });
+        }
+    }));
+}
+
+// for now only domain is configured
+export interface ShortLinkConfig {
+    domain: string,
+}
+let shortLinkConfig: ShortLinkConfig;
+export function setupShortLinkService(config: ShortLinkConfig) { shortLinkConfig = config; }
+
+interface Redirection {
+    // path without leading slash, e.g. 'abc' in shortexample.com/abc
+    readonly name: string,
+    // for now only time expiration
+    // absolute expiration time utc
+    absoluteExpire: dayjs.Dayjs,
+    // the value to be in Location header, should be a url
+    value: string,
+}
+interface ShortLinkCache {
+    // short link records
+    readonly items: Redirection[],
+}
+const redirectioncache: ShortLinkCache = { items: [] };
+
+async function handleRequestShortLink(ctx: koa.Context) {
+    // after entering here, the status is always 307 to redirect somewhere
+    // if have records, redirect to the records, if not, redirect to 404, that's also why this does not need next
+    ctx.status = 307;
+    ctx.type = 'text/plain';
+    ctx.body = 'redirecting...';
+
+    // ATTENTION mock data
+    if (ctx.path == '/42') {
+        ctx.set('Location', 'https://en.wikipedia.org/wiki/Phrases_from_The_Hitchhiker%27s_Guide_to_the_Galaxy#Answer_to_the_Ultimate_Question_of_Life,_the_Universe,_and_Everything_(42)');
+    } else if (ctx.path == '/pta') {
+        ctx.set('Location', 'http://www.catb.org/~esr/faqs/smart-questions.html');
+    } else {
+        if (!(`${ctx.host}/404` in contentcache.virtualmap)) {
+            // but if this is not configured, this will be infinite redirection if keep redirecting to self
+            ctx.status = 404;
+        } else {
+            ctx.set('Location', `https://${shortLinkConfig.domain}/404`);
         }
     }
 }
@@ -133,12 +189,12 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     // disabled source map
     if (virtual.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
 
-    if (virtual in SC.virtualmap) {
-        const item = SC.virtualmap[virtual];
+    if (virtual in contentcache.virtualmap) {
+        const item = contentcache.virtualmap[virtual];
 
         if (item.content === null) {
-            if (!fs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
-            item.content = await fs.promises.readFile(item.absolutePath);
+            if (!syncfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
+            item.content = await fs.readFile(item.absolutePath);
         }
 
         // https://www.rfc-editor.org/rfc/rfc7232#section-4.1
@@ -197,11 +253,18 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
         if (ctx.path == '/') { ctx.status = 404; return; }
 
-        const real = path.join("webroot", 'public', ctx.path);
-        if (!fs.existsSync(real)) { ctx.status = 404; return; }
+        const publicDirectory = path.join('/var/fine', 'public');
+        const realpath = path.join(publicDirectory, ctx.path);
+        // this is a '..' (parent directory) attack
+        if (!realpath.startsWith(publicDirectory)) { ctx.status = 404; return; }
+        
+        const exists = syncfs.existsSync(realpath);
+        // short link records have lower priority then static files and public files
+        if (!exists && ctx.host == shortLinkConfig.domain) { handleRequestShortLink(ctx); return; }
+        if (!exists) { ctx.status = 404; return; }
 
         ctx.type = path.extname(ctx.path);
-        ctx.body = await fs.promises.readFile(real);
+        ctx.body = await fs.readFile(realpath);
         ctx.set('Cache-Control', 'public');
 
         // use default cache control
@@ -211,14 +274,14 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
 
 function handleReloadStatic(key: string) {
 
-    for (const item of SC.items.filter(i => i.realpath.startsWith(key))) {
-        if (!fs.existsSync(item.absolutePath)) {
-            SC.items.splice(SC.items.findIndex(i => i.realpath == item.realpath), 1);
+    for (const item of contentcache.items.filter(i => i.realpath.startsWith(key))) {
+        if (!syncfs.existsSync(item.absolutePath)) {
+            contentcache.items.splice(contentcache.items.findIndex(i => i.realpath == item.realpath), 1);
         } else if (item.content === null) {
             // nothing happen when item never requested,
             // when actually requested, the handler will load newest content
         } else {
-            const newContent = fs.readFileSync(item.absolutePath);
+            const newContent = syncfs.readFileSync(item.absolutePath);
             if (Buffer.compare(item.content, newContent)) {
                 item.cacheKey = getnow();
                 item.lastModified = new Date(),
@@ -228,30 +291,32 @@ function handleReloadStatic(key: string) {
         }
     }
 
-    for (const { host, realdir } of SC.wildcards.filter(w => w.realdir.startsWith(key))) {
+    for (const { host, realdir } of contentcache.wildcards.filter(w => w.realdir.startsWith(key))) {
         const absolutedir = path.join('webroot', 'static', realdir);
-        if (!fs.existsSync(absolutedir)) {
+        if (!syncfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
-            logInfo(`content: configured realpath not exist: ${host} => * => ${realdir}`);
+            log.info(`content: configured realpath not exist: ${host} => * => ${realdir}`);
             continue;
         }
-        for (const entry of fs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
+        for (const entry of syncfs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
             if (path.extname(entry.name) in extensionToContentType) {
-                SC.virtualmap[path.join(host, entry.name)] = getOrAddItem(path.join(realdir, entry.name));
+                contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
             } else {
-                logInfo(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`)
+                log.info(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`)
             }
         }
     }
 }
-export function handleCommand(data: AdminContentCommand): void {
-    logInfo({ type: 'admin command content', data });
+export function handleContentCommand(data: AdminContentCommand): void {
+    log.info({ type: 'admin command content', data });
 
     if (data.type == 'reload-static') {
         handleReloadStatic(data.key);
     } else if (data.type == 'reload-config') {
         // throw away all old cache
-        setupStaticContent(JSON.parse(fs.readFileSync('config', 'utf-8'))['static-content']);
+        setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
+    } else if (data.type == 'reset-short-link') {
+        redirectioncache.items.splice(0, redirectioncache.items.length);
     } else if (data.type == 'enable-source-map') {
         AllowSourceMap = true;
         if (DisableSourceMapTimer) {

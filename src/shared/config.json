@@ -26,6 +26,9 @@
     "supportBigNumbers": true,
     "dateStrings": true
   },
+  "short-link": {
+    "domain": "shortexample.com"
+  },
   "static-content": {
     "example.com": {
       ".": "home.html",
