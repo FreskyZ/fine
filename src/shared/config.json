@@ -1,4 +1,5 @@
 {
+  "webroot": "/var/fine",
   "certificates": {
     "default": {
       "key": "key.pem",
@@ -49,5 +50,11 @@
     "anotherexample.com": {
       ".": "anotherexample/index.html"
     }
-  }
+  },
+  "webapps": [
+    {
+      "name": "note",
+      "subdomain": false
+    } 
+  ]
 }

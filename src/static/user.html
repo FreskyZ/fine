@@ -1,21 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>&sharp;FINE</title>
+  <title>user</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="ROBOTS" content="INDEX">
   <link rel="icon" type='image/x-icon' href="/favicon.ico">
-  <link rel="stylesheet" type="text/css" href="https://unpkg.com/antd@4.9.3/dist/antd.min.css">
-  <link rel="stylesheet" type="text/css" href="/user.css">
 </head>
 <body style="width:320px;margin:calc(50vh - 180px) auto;height:calc(50vh + 180px)">
   <header>
-    <span style="text-decoration:none;font-family:Georgia,serif;font-size:24px" title='返回首页'><a href="/#">&sharp;FINE</a></span>
+    <span style="text-decoration:none;font-family:Georgia,serif;font-size:24px" title='返回首页'><a href="/#">I</a></span>
     <span id="subtitle2" style="font-size:14px;margin-left:12px;font-family:sans-serif;display:none"></span>
   </header>
 
-  <main>
-    <div class='initial-loading'>正在加载</div>
+  <main style="width:320px;margin:auto;overflow:hidden;transition:height ease 0.25s">
+    <div style="text-align:center;margin-top:32px;font-size:18px">正在加载</div>
   </main>
 
   <footer style="position:absolute;bottom:16px;width:320px">
@@ -29,11 +27,6 @@
     <span id="the-notification" style="padding:8px;background-color:white;border-radius:4px;display:none;box-shadow:3px 3px 10px 4px rgba(0,0,0,0.15)"></span>
   </div>
   
-  <script defer crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
-  <script defer crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script defer src="https://unpkg.com/dayjs@1.10.3/dayjs.min.js"></script>
-  <script defer src="https://unpkg.com/dayjs@1.10.3/plugin/utc.js"></script>
-  <script defer src="https://unpkg.com/dayjs@1.10.3/plugin/timezone.js"></script>
-  <script defer src="/user.js"></script>
+  <script type="module" src="/user.js"></script>
 </body>
 </html>

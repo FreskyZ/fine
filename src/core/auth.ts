@@ -1,14 +1,14 @@
-import { randomBytes } from 'crypto';
-import * as dayjs from 'dayjs';
-import * as koa from 'koa';
+import crypto from 'node:crypto';
+import dayjs from 'dayjs';
+import koa from 'koa';
 import { authenticator } from 'otplib';
-import * as qrcode from 'qrcode';
-import type { UserDevice, UserCredential } from '../shared/auth';
-import type { AdminAuthCommand } from '../shared/admin';
-import { query, pool, QueryResult, QueryDateTimeFormat } from '../adk/database';
-import { MyError } from './error';
-import { logInfo } from './logger';
-import mysql, { RowDataPacket } from 'mysql2/promise';
+import qrcode from 'qrcode';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { UserDevice, UserCredential } from '../shared/auth.js';
+import type { AdminAuthCommand } from '../shared/admin.js';
+import { pool, QueryDateTimeFormat } from '../adk/database.js';
+import { MyError } from './error.js';
+import { log } from './logger.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
@@ -20,19 +20,14 @@ export interface ContextState {
 }
 export type AuthContext = koa.ParameterizedContext<ContextState>;
 
-// config in akaric
-export const appsetting: {
-    // app name, will become ctx.state.app (for now) and is api's path: api.domain.com/:app/v1/...
+export interface WebappConfig {
     name: string,
-    // the origin url, this present, has api, and has user.html (and user.js) should be same
-    // note that origin includes the beginning 'https://'
-    origin: string,
-    // app's unix domain socket path 
-    socket: string,
-// @ts-ignore simply ignore should be easier for these variables
-}[] = APPSETTING;
-
-const allowedOrigins = Object.fromEntries(appsetting.map(a => [a.origin, a.name]));
+    subdomain: boolean, // true for use subdomain: name.example.com, false use app.example.com/name
+}
+let webappconfig: WebappConfig[];
+export function setupAccessControl(webapps: WebappConfig[]) {
+    webappconfig = webapps;
+}
 
 // db types are postfixed 'Data' compared to non postfixed api types (the UserDevice)
 // they are defined here because they are not used outside
@@ -42,7 +37,6 @@ interface UserData {
     Active: boolean,
     Token: string,
 }
-type UserDataPacket = UserData & RowDataPacket;
 interface UserDeviceData {
     Id: number,
     App: string,
@@ -52,6 +46,8 @@ interface UserDeviceData {
     LastAccessTime: string,
     LastAccessAddress: string,
 }
+type UserDataPacket = UserData & RowDataPacket;
+type UserDeviceDataPacket = UserDeviceData & RowDataPacket;
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
 const userStorage: UserData[] = [];
@@ -67,7 +63,7 @@ let AllowSignUpTimer: NodeJS.Timeout; // similar to some other features, sign up
 async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ accessToken: string }> {
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
-    const accessToken = randomBytes(42).toString('base64').slice(0, 42);
+    const accessToken = crypto.randomBytes(42).toString('base64').slice(0, 42);
     const userDevice: UserDeviceData = {
         Id: 0,
         App: ctx.state.app,
@@ -77,10 +73,10 @@ async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ acc
         LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime),
         LastAccessAddress: ctx.socket.remoteAddress,
     };
-    const [result] = await pool.execute(
+    const [result] = await pool.execute<ResultSetHeader>(
         'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?, ?)',
         [userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime, userDevice.LastAccessAddress]);
-    userDevice.Id = (result as mysql.ResultSetHeader).insertId!;
+    userDevice.Id = result.insertId;
     userDeviceStorage.push(userDevice);
 
     return { accessToken };
@@ -140,15 +136,15 @@ async function handleGetAuthenticatorToken(ctx, parameters) {
     if (userStorage.some(u => !collator.compare(u.Name, username))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
-        if (Array.isArray(value) && value.length != 0) {
-            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
+        if (Array.isArray(rows) && rows.length != 0) {
+            userStorage.push({ Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token });
             throw new MyError('common', 'user name already exists');
         }
     }
 
     const secret = authenticator.generateSecret();
-    const text = `otpauth://totp/domain.com:${username}?secret=${secret}&period=30&digits=6&algorithm=SHA1&issuer=domain.com`;
+    const text = `otpauth://totp/example.com:${username}?secret=${secret}&period=30&digits=6&algorithm=SHA1&issuer=example.com`;
     const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
 
     ctx.status = 200;
@@ -166,9 +162,9 @@ async function handleRegister(ctx) {
     if (userStorage.some(u => !collator.compare(u.Name, username))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
-        if (Array.isArray(value) && value.length != 0) {
-            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
+        if (Array.isArray(rows) && rows.length != 0) {
+            userStorage.push({ Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token });
             throw new MyError('common', 'user name already exists');
         }
     }
@@ -186,9 +182,9 @@ async function handleRegister(ctx) {
         throw new MyError('common', 'incorrect password');
     }
 
-    const { value } = await query<QueryResult>(
-        'INSERT INTO `User` (`Name`, `Token`, `Active`) VALUES (?, ?, 1)', username, token);
-    const user: UserData = { Id: value.insertId, Name: username, Active: true, Token: token };
+    const [result] = await pool.execute<ResultSetHeader>(
+        'INSERT INTO `User` (`Name`, `Token`, `Active`) VALUES (?, ?, 1)', [username, token]);
+    const user: UserData = { Id: result.insertId, Name: username, Active: true, Token: token };
     userStorage.push(user);
 
     const accessToken = await createUserDevice(ctx, user.Id);
@@ -205,12 +201,13 @@ async function authenticate(ctx: AuthContext) {
 
     // this means ctx.state.user.deviceId must be in userDeviceStorage after pass authentication
     const userDevice = userDeviceStorage.find(d => d.Token == accessToken) ?? await (async () => {
-        const { value } = await query<UserDeviceData[]>('SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `Token` = ?', accessToken);
-        if (!Array.isArray(value) || value.length == 0) {
+        const [rows] = await pool.query<UserDeviceDataPacket[]>(
+            'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `Token` = ?', [accessToken]);
+        if (!Array.isArray(rows) || rows.length == 0) {
             throw new MyError('auth', 'unauthorized');
         }
-        userDeviceStorage.push(value[0]);
-        return value[0];
+        userDeviceStorage.push(rows[0]);
+        return rows[0];
     })();
 
     if (userDevice.App != ctx.state.app) {
@@ -220,16 +217,16 @@ async function authenticate(ctx: AuthContext) {
     }
     if (dayjs.utc(userDevice.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
         // check expires or update last access time
-        await query('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
+        await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
         userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == userDevice.Id), 1);
         throw new MyError('auth', 'authorization expired');
     }
 
     // this means ctx.state.user.id must be in userStorage after pass authentication
     const user = userStorage.find(u => u.Id == userDevice.UserId) ?? await (async () => {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
         // no need to check value is not empty because foreign key will be validated by db
-        const user: UserData = { Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token };
+        const user: UserData = { Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token };
         userStorage.push(user);
         return user;
     })();
@@ -239,9 +236,9 @@ async function authenticate(ctx: AuthContext) {
 
     userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
     userDevice.LastAccessAddress = ctx.socket.remoteAddress;
-    await query(
+    await pool.query(
         'UPDATE `UserDevice` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
-        userDevice.LastAccessTime, userDevice.LastAccessAddress, userDevice.Id);
+        [userDevice.LastAccessTime, userDevice.LastAccessAddress, userDevice.Id]);
 
     ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
 }
@@ -257,7 +254,7 @@ async function handleGetUserCredential(ctx) {
 // use PATCH /user-credential instead of PATCH /users/:userid because I do not have /users related features
 [/^PATCH \/user-credential$/,
 async function handleUpdateUserName(ctx) {
-    const newUserName = ctx.request.body?.name;
+    const newUserName = (ctx.request.body as any)?.name;
     if (!newUserName) { throw new MyError('common', 'invalid new user name'); }
 
     const user = userStorage.find(u => u.Id == ctx.state.user.id);
@@ -266,15 +263,16 @@ async function handleUpdateUserName(ctx) {
     if (userStorage.some(u => u.Id != user.Id && !collator.compare(u.Name, newUserName))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const { value } = await query<UserData[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` <> ? AND `Name` = ?', user.Id, newUserName);
-        if (Array.isArray(value) && value.length != 0) {
-            userStorage.push({ Id: value[0].Id, Name: value[0].Name, Active: value[0].Active, Token: value[0].Token });
+        const [rows] = await pool.query<UserDataPacket[]>(
+            'SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` <> ? AND `Name` = ?', [user.Id, newUserName]);
+        if (Array.isArray(rows) && rows.length != 0) {
+            userStorage.push({ Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token });
             throw new MyError('common', 'user name already exists');
         }
     }
 
     user.Name = newUserName;
-    await query('UPDATE `User` SET `Name` = ? WHERE `Id` = ?', newUserName, user.Id);
+    await pool.execute('UPDATE `User` SET `Name` = ? WHERE `Id` = ?', [newUserName, user.Id]);
 
     ctx.status = 201;
 }],
@@ -284,8 +282,8 @@ async function handleGetUserDevices(ctx) {
     // you always cannot tell whether all devices already loaded from db (unless new runtime memory storage added)
     // so always load from db and replace user device storage
 
-    const { value: userDevices } = await query<UserDeviceData[]>(
-        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', ctx.state.user.id, ctx.state.app);
+    const [userDevices] = await pool.query<UserDeviceDataPacket[]>(
+        'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `UserId` = ? AND `App` = ?', [ctx.state.user.id, ctx.state.app]);
 
     // update storage
     // // this is how you filter by predicate in place
@@ -304,7 +302,7 @@ async function handleUpdateDeviceName(ctx, parameters) {
     const deviceId = parseInt(parameters['device_id']);
     if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
 
-    const newDeviceName = ctx.request.body?.name;
+    const newDeviceName = (ctx.request.body as any)?.name;
     if (!newDeviceName) { throw new MyError('common', 'invalid new device name'); }
 
     const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
@@ -316,7 +314,7 @@ async function handleUpdateDeviceName(ctx, parameters) {
     }
 
     userDevice.Name = newDeviceName;
-    await query('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', newDeviceName, deviceId);
+    await pool.execute('UPDATE `UserDevice` SET `Name` = ? WHERE `Id` = ?', [newDeviceName, deviceId]);
 
     ctx.status = 201;
 }],
@@ -340,17 +338,30 @@ async function handleRemoveDevice(ctx, parameters) {
     }
 
     userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == deviceId), 1);
-    await query('DELETE FROM `UserDevice` WHERE `Id` = ?', deviceId);
+    await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', [deviceId]);
 
     ctx.status = 204;
 }]];
 
+// handle cors, api.example.com does not have ui, all invocation to here is cross origin
 export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
-    // all functions need access control because all of them are called cross origin (from app.domain.com or even anotherdomain.com to api.domain.com)
+    // all functions need access control because all of them are called cross origin (from app.example.com or even anotherexample.com to api.example.com)
 
     const origin = ctx.get('origin');
-    if (!(origin in allowedOrigins)) { return; } // do not set access-control-* and let browser reject it
+
+    let app: string;
+    if (origin == 'https://id.example.com') {
+        app = 'id';
+    } else if (origin == 'https://app.example.com') {
+        app = ctx.URL.pathname.split('/')[0];
+    } else {
+        const host = new URL(origin).host;
+        app = webappconfig.find(a => `${a.name}.example.com` == host && a.subdomain)?.name;
+    }
+
+    // ATTENTION all current authentication apis are for the user page (for the original per subdomain user page)
+    if (!app) { return; } // do not set access-control-* and let browser reject it
 
     ctx.vary('Origin');
     ctx.set('Access-Control-Allow-Origin', origin);
@@ -380,7 +391,7 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     // // but I think modern browser will not respect the second part, at least I always want to see it in devtool
     ctx.set('Cache-Control', 'no-store');
 
-    ctx.state.app = allowedOrigins[origin];
+    ctx.state.app = app;
     await next();
 }
 
@@ -403,27 +414,27 @@ export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Ne
     return await next();
 }
 
-export async function handleCommand(command: AdminAuthCommand): Promise<void> {
-    logInfo({ type: 'admin command auth', data: command });
+export async function handleAuthCommand(command: AdminAuthCommand): Promise<void> {
+    log.info({ type: 'admin command auth', data: command });
 
     // activate/inactivate user
     if (command.type == 'activate-user') {
-        await query('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', command.userId);
+        await pool.execute('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', command.userId);
         const maybeCache = userStorage.find(u => u.Id == command.userId);
         if (maybeCache) { maybeCache.Active = true; }
     } else if (command.type == 'inactivate-user') {
-        await query('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', command.userId);
+        await pool.execute('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', command.userId);
         const maybeCache = userStorage.find(u => u.Id == command.userId);
         if (maybeCache) { maybeCache.Active = false; }
         // remove all user devices because front end when get unauthorized will discard access token
-        await query('DELETE FROM `UserDevice` WHERE `UserId` = ?', command.userId);
+        await pool.execute('DELETE FROM `UserDevice` WHERE `UserId` = ?', command.userId);
         while (userDeviceStorage.some(d => d.UserId == command.userId)) {
             userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.UserId == command.userId), 1);
         }
 
     // force unauthenciate
     } else if (command.type == 'remove-device') {
-        await query('DELETE FROM `UserDevice` WHERE `Id` = ?', command.deviceId);
+        await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', command.deviceId);
         const maybeIndex = userDeviceStorage.findIndex(d => d.Id == command.deviceId);
         if (maybeIndex >= 0) { userDeviceStorage.splice(maybeIndex, 1); }
 

@@ -5,6 +5,7 @@ import http2 from 'node:http2';
 import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
+import bodyParser from 'koa-bodyparser';
 import type { PoolOptions } from 'mysql2';
 import type { AdminCoreCommand } from '../shared/admin.js';
 import { setupDatabaseConnection } from '../adk/database.js';
@@ -12,25 +13,33 @@ import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
 import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
+import type { WebappConfig } from './auth.js';
+import { setupAccessControl, handleRequestAccessControl, handleRequestAuthentication, handleAuthCommand } from './auth.js';
 
 const app = new koa();
 
 app.use(handleRequestError);
 app.use(handleRequestContent);
+app.use(handleRequestAccessControl);
+app.use(bodyParser());
+app.use(handleRequestAuthentication);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
+    webroot: string,
     certificates: { [domain: string]: { key: string, cert: string } },
     database: PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
+    webapps: WebappConfig[],
 };
 setupDatabaseConnection(config.database);
 setupShortLinkService(config['short-link']);
-await setupStaticContent(config['static-content']);
+await setupStaticContent(config.webroot, config['static-content']);
+setupAccessControl(config.webapps);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {
@@ -67,7 +76,7 @@ adminServer.on('connection', connection => {
         if (message.type == 'shutdown') {
             shutdown();
         } else if (message.type == 'auth') {
-            // handleAuthCommand(message.sub);
+            handleAuthCommand(message.sub);
         } else if (message.type == 'content') {
             handleContentCommand(message.sub);
         }

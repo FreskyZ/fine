@@ -382,7 +382,9 @@ for (const module of finalSortedModules) {
     for (const line of module.content.split('\n').filter(r => !r.trim().startsWith('import'))) {
         // no need to export symbol, or else terser will keep the name
         const noexport = line.startsWith('export ') ? line.substring(7) : line;
-        resultJs += noexport + '\n';
+        // ATTENTION temp config substituion
+        const substitution = noexport.replaceAll('example.com', 'freskyz.com');
+        resultJs += substitution + '\n';
     }
 }
 

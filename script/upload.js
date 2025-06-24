@@ -17,6 +17,10 @@ const workflows = {
     home: [
         ['src/static/home.html', 'static/home.html'],
     ],
+    user: [
+        ['src/static/user.html', 'static/user.html'],
+        ['user.js', 'static/user.js'],
+    ],
     short: [
         ['src/static/short.html', 'static/short.html'],
     ],

@@ -21,8 +21,7 @@ import { log } from './logger.js';
 // for the get part, while the actual 301/307 is not going to be supported in concrete apps,
 // it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
 
-// ATTENTION TODO remove /var/fine when fixed or upgraded config substitution
-
+let WEBROOT: string;
 // if source map is enabled and source map name related js file exists, will try to find the source map file and compress and return
 let AllowSourceMap = false;
 // auto close source map after 2 hours in case akari (server) does not close it
@@ -91,7 +90,7 @@ function getOrAddItem(items: Item[], realpath: string): Item {
     if (typeof item == 'undefined') {
         item = {
             realpath,
-            absolutePath: path.join('/var/fine', 'static', realpath),
+            absolutePath: path.join(WEBROOT, 'static', realpath),
             contentType: extensionToContentType[path.extname(realpath)],
             cacheKey: getnow(),
             lastModified: new Date(),
@@ -104,7 +103,8 @@ function getOrAddItem(items: Item[], realpath: string): Item {
 }
 
 // initialize, or reinitialize
-export async function setupStaticContent(config: StaticContentConfig) {
+export async function setupStaticContent(webroot: string, config: StaticContentConfig) {
+    WEBROOT = webroot;
     // NOTE this is reassigned for reinitialize
     contentcache = { items: [], virtualmap: {}, wildcards: [] };
 
@@ -123,7 +123,7 @@ export async function setupStaticContent(config: StaticContentConfig) {
         } else {
             // now virtualpath is '*' and realpath ends with '/*'
             const realdir = realpath.slice(0, realpath.length - 2);
-            const absoluteDir = path.join('/var/fine', 'static', realdir);
+            const absoluteDir = path.join(WEBROOT, 'static', realdir);
             if (!syncfs.existsSync(absoluteDir)) {
                 log.info(`content: realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
                 return;
@@ -270,7 +270,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
         if (ctx.path == '/') { ctx.status = 404; return; }
 
-        const publicDirectory = path.join('/var/fine', 'public');
+        const publicDirectory = path.join(WEBROOT, 'public');
         const realpath = path.join(publicDirectory, ctx.path);
         // this is a '..' (parent directory) attack
         if (!realpath.startsWith(publicDirectory)) { ctx.status = 404; return; }
@@ -309,7 +309,7 @@ function handleReloadStatic(key: string) {
     }
 
     for (const { host, realdir } of contentcache.wildcards.filter(w => w.realdir.startsWith(key))) {
-        const absolutedir = path.join('webroot', 'static', realdir);
+        const absolutedir = path.join(WEBROOT, 'static', realdir);
         if (!syncfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
             log.info(`content: configured realpath not exist: ${host} => * => ${realdir}`);
@@ -331,7 +331,7 @@ export function handleContentCommand(data: AdminContentCommand): void {
         handleReloadStatic(data.key);
     } else if (data.type == 'reload-config') {
         // throw away all old cache
-        setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
+        setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
     } else if (data.type == 'reset-short-link') {
         redirectioncache.items.splice(0, redirectioncache.items.length);
     } else if (data.type == 'enable-source-map') {
