@@ -36,12 +36,6 @@
       "404": "404.html",
       "418": "418.html"
     },
-    "www.example.com": {
-      ".": "home.html",
-      "index.css": "home.css",
-      "404": "404.html",
-      "418": "418.html"
-    },
     "app1.example.com": {
       ".": "app2/index.html",
       "user": "user.html",

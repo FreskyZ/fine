@@ -194,6 +194,14 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     if (ctx.subdomains[0] == 'api') { return await next(); } // goto api
     if (ctx.method != 'GET') { throw new MyError('method-not-allowed'); } // reject not GET
 
+    // redirect www.example.com to example.com, preserving path, query, and hash
+    if (ctx.subdomains.length == 1 && ctx.subdomains[0] == 'www') {
+        ctx.status = 301;
+        ctx.URL.host = ctx.host.split('.').slice(1).join('.');
+        ctx.set('Location', ctx.URL.toString());
+        return;
+    }
+
     const virtual = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
     // disabled source map
     if (virtual.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
