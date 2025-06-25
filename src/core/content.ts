@@ -159,13 +159,24 @@ interface ShortLinkCache {
     // short link records
     readonly items: ShortLinkData[],
 }
-// ATTENTION not used for now, think later
 const redirectioncache: ShortLinkCache = { items: [] };
 
-async function handleRequestShortLink(ctx: koa.Context) {
-    const name = ctx.path.substring(1); // ctx.path == '/' is already checked
-    const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
+// rate limit the db operation
+// use max tokens = 10, refill rate = 1 per second
+const shortLinkRateLimitBuckets: Record<string, {
+    count: number, // remining token count
+    lastAccessTime: dayjs.Dayjs, // see usage
+}> = {};
+// clear filled buckets regularly
+setInterval(() => {
+    for (const [key] of Object.entries(shortLinkRateLimitBuckets)
+        .filter(e => e[1].count == 10 && dayjs.utc().diff(e[1].lastAccessTime, 'hour') > 1)
+    ) {
+        delete shortLinkRateLimitBuckets[key];
+    }
+}, 3600_000);
 
+async function handleRequestShortLink(ctx: koa.Context) {
     const redirect = (location: string) => {
         ctx.status = 307;
         ctx.type = 'text/plain';
@@ -180,12 +191,45 @@ async function handleRequestShortLink(ctx: koa.Context) {
             redirect(`https://${shortLinkConfig.domain}/404`);
         }
     }
+
+    const name = ctx.path.substring(1); // ctx.path == '/' is already checked
+    const cacheItem = redirectioncache.items.find(i => i.Name == name);
+    if (cacheItem) {
+        if (dayjs.utc(cacheItem.ExpireTime).isBefore(dayjs.utc())) {
+            redirect(cacheItem.Value);
+        } else {
+            const index = redirectioncache.items.findIndex(i => i.Name == name);
+            redirectioncache.items.splice(index, 1);
+            // and goto normal load from db
+        }
+    }
+
+    // rate limit the db operation
+    const ip = ctx.socket.remoteAddress || 'unknown';
+    let bucket = shortLinkRateLimitBuckets[ip];
+    if (!bucket) {
+        bucket = { count: 10, lastAccessTime: dayjs.utc() };
+        shortLinkRateLimitBuckets[ip] = bucket;
+    } else {
+        const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'minute');
+        bucket.count = Math.min(10, bucket.count + elapsed);
+        bucket.lastAccessTime = dayjs.utc();
+    }
+    bucket.count -= 1;
+    if (bucket.count <= 0) {
+        ctx.status = 429;
+        ctx.body = 'Too Many Requests';
+        return;
+    }
+
+    const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
     if (!Array.isArray(records) || records.length == 0) {
         notfound();
     } else if (dayjs.utc(records[0].ExpireTime).isBefore(dayjs.utc())) {
         await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
         notfound();
     } else {
+        redirectioncache.items.push(records[0]);
         redirect(records[0].Value);
     }
 }

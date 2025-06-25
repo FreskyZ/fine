@@ -1,19 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import chalk from 'chalk-template';
+import SFTPClient from 'ssh2-sftp-client';
 import { minify } from 'terser';
 import ts from 'typescript';
 
-// this script builds the entire build script (aka akari)
+const debug = 'AKARI_DEBUG' in process.env;
+const config = JSON.parse(await fs.readFile('akaric', 'utf-8'));
 
-// akari used to build self by self, but that's proved to be too complex and cause too many errors
-// so use this standalone one-file non-typescript script instead, this script is called akari-build
-// although one-file and non-typescript, akari-build still follow the design pattern to call typescript
-// nodejs api and bundle on my own
-
-const entryFile = path.resolve('src/core/index.ts');
-
-// Create a program
-const program = ts.createProgram([entryFile], {
+const program = ts.createProgram([path.resolve('src/core/index.ts')], {
     lib: ['lib.esnext.d.ts'],
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.NodeNext,
@@ -39,6 +34,8 @@ const program = ts.createProgram([entryFile], {
     outDir: '/vbuild',
 });
 
+let hasError = false;
+console.log('collecting top level names');
 const /** @type {Record<string, string[]>} */ topLevelNames = {};
 const sourceFiles = program.getSourceFiles().filter(sf => !sf.fileName.includes('node_modules') && sf.fileName.startsWith(process.cwd()));
 for (const sourceFile of sourceFiles) {
@@ -46,8 +43,8 @@ for (const sourceFile of sourceFiles) {
     ts.forEachChild(sourceFile, node => {
         if (ts.isVariableStatement(node)) {
             if (node.declarationList.declarations.length > 1) {
-                // TODO collect errors and report later
-                console.error('not support multiple declarations in variable declaration, I will not do that, when will that happen?');
+                hasError = true;
+                console.error(chalk`{red error} not support multiple declarations in variable declaration, I will not do that, when will that happen?`);
                 return;
             }
             const declaration = node.declarationList.declarations[0];
@@ -79,8 +76,9 @@ for (const sourceFile of sourceFiles) {
         } else if (ts.isExportDeclaration(node)) {
             // this looks like dedicated export statement `export { a, b as c };`,
             // export const and export function is normal variable statement or function definition statement
+            hasError = true;
             const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-            console.error(`${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
+            console.error(chalk`{red error} ${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
         } else if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
             // not relavent to js
         } else if (ts.isClassDeclaration(node)) {
@@ -92,8 +90,9 @@ for (const sourceFile of sourceFiles) {
         } else if (node.kind == 1) {
             // this is the EOF token
         } else {
+            hasError = true;
             const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-            console.error(`${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
+            console.error(chalk`{red error} ${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
         }
     });
     topLevelNames[sourceFile.fileName] = names;
@@ -102,15 +101,23 @@ for (const [fileName, names] of Object.entries(topLevelNames)) {
     for (const name of names) {
         const previousFileName = Object.entries(topLevelNames).find(file => file[0] != fileName && file[1].includes(name))?.[0];
         if (previousFileName) {
-            console.error(`${fileName} top level name ${name} has appeared in previous file ${previousFileName}`);
+            hasError = true;
+            console.error(chalk`{red error} ${fileName} top level name ${name} has appeared in previous file ${previousFileName}`);
         }
     }
 }
-for (const [fileName, names] of Object.entries(topLevelNames)) {
-    console.log(`${fileName}: ${names.join(',')}`)
+if (debug) {
+    for (const [fileName, names] of Object.entries(topLevelNames)) {
+        console.log(`${fileName}: ${names.join(',')}`)
+    }
+}
+if (hasError) {
+    console.log('there are errors in collecting top level names');
+    process.exit(1);
 }
 
-// Emit the program
+hasError = false;
+console.log('transpiling');
 /** @type {Record<string, string>} */
 const emittedFiles = {};
 const emitResult = program.emit(undefined, (fileName, data) => {
@@ -118,16 +125,25 @@ const emitResult = program.emit(undefined, (fileName, data) => {
         emittedFiles[fileName] = data;
     }
 });
-ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).forEach(diagnostic => {
+const transpileErrors = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).map(diagnostic => {
     if (diagnostic.file) {
         const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
         const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-        console.error(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
+        return chalk`{red error} ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
     } else {
-        console.error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+        return chalk`{red error} ` + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
     }
 });
+for (const message of transpileErrors.filter((v, i, a) => a.indexOf(v) == i)) {
+    hasError = true;
+    console.log(message);
+}
+if (hasError) {
+    console.log('there are errors in transpiling');
+    process.exit(1);
+}
 
+hasError = false;
 // syntax:
 // import a from 'module'; // default import
 // import { b, c, d } from 'module'; // named import
@@ -152,6 +168,7 @@ ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).forEach(diagnos
  * @property {ImportDeclaration[]} imports import declarations
  */
 
+console.log('collecting imports');
 /** @type {PackingModule[]} */
 const modules = [];
 for (const [fileName, fileContent] of Object.entries(emittedFiles)) {
@@ -175,13 +192,15 @@ for (const [fileName, fileContent] of Object.entries(emittedFiles)) {
         if (line.startsWith('*')) {
             line = line.substring(1).trimStart();
             if (!line.startsWith('as')) {
-                console.error(`${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (1)`);
+                hasError = true;
+                console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (1)`);
                 return;
             }
             line = line.substring(2).trimStart();
             match = /^(?<name>\w+\s)/.exec(line);
             if (!match) {
-                console.error(`${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (2)`);
+                hasError = true;
+                console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (2)`);
                 return;
             }
             declaration.namespaceName = match.groups.name.trim();
@@ -195,7 +214,8 @@ for (const [fileName, fileContent] of Object.entries(emittedFiles)) {
                     break; // this is end of name list, not error
                 }
                 if (match.groups.alias) {
-                    console.error(`${fileName}:${rowNumber}: ${raw}: not support import name alias for now`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: not support import name alias for now`);
                     return;
                 }
                 declaration.names.push([match.groups.name, match.groups.alias ?? match.groups.name]);
@@ -205,20 +225,23 @@ for (const [fileName, fileContent] of Object.entries(emittedFiles)) {
                 }
             }
             if (!line.startsWith('}')) {
-                console.error(`${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (4)`);
+                hasError = true;
+                console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (4)`);
                 return;
             }
             line = line.substring(1).trimStart(); // move over right brace
         }
         if (!line.startsWith('from ')) {
-            console.error(`${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (5)`);
+            hasError = true;
+            console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (5)`);
             return;
         }
         line = line.substring(5).trimStart(); // move over from
 
         match = /^['"](?<name>.+)['"]/.exec(line);
         if (!match) {
-            console.error(`${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (6)`);
+            hasError = true;
+            console.error(chalk`{red error} ${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (6)`);
             return;
         }
         declaration.moduleName = match.groups.name;
@@ -226,14 +249,22 @@ for (const [fileName, fileContent] of Object.entries(emittedFiles)) {
     });
     modules.push(module);
 }
-for (const module of modules) {
-    console.log(`${module.path}: `);
-    for (const declaration of module.imports) {
-        console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
-            || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.names.join(',')}`);
+if (debug) {
+    for (const module of modules) {
+        console.log(`${module.path}: `);
+        for (const declaration of module.imports) {
+            console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
+                || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.names.join(',')}`);
+        }
     }
 }
+if (hasError) {
+    console.log('there are errors in collecting imports');
+    process.exit(1);
+}
 
+hasError = false;
+console.log('checking external references');
 // check non relative reference consistency and merge
 // if namespace import and named import are used at the same time, they use one entry, but will generate 2 import statements in result
 /** @type {ImportDeclaration[]} */
@@ -247,32 +278,38 @@ for (const module of modules) {
         } else {
             if (declaration.defaultName) {
                 if (resultDeclaration.defaultName && resultDeclaration.defaultName != declaration.defaultName) {
-                    console.error(`${module.path}: inconsistent default import from '${declaration.moduleName}', previous use ${resultDeclaration.defaultName}, here use ${declaration.defaultName}`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: inconsistent default import from '${declaration.moduleName}', previous use ${resultDeclaration.defaultName}, here use ${declaration.defaultName}`);
                 } else if (allExternalReferences.some(er =>
                     er.moduleName != declaration.moduleName
                     && (er.defaultName == declaration.defaultName
                     || er.namespaceName == declaration.defaultName
                     || er.names.some(n => n[1] == declaration.defaultName))
                 )) {
-                    console.error(`${module.path}: default import ${declaration.defaultName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: default import ${declaration.defaultName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (resultDeclaration.names.some(n => n[1] == declaration.defaultName)) {
-                    console.error(`${module.path}: default import ${declaration.defaultName} from '${declaration.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: default import ${declaration.defaultName} from '${declaration.moduleName}' has appeared previous named imports from this module, when will this happen?`);
                 } else if (!declaration.defaultName) {
                     resultDeclaration.defaultName = declaration.defaultName;
                 }
             }
             if (declaration.namespaceName) {
                 if (resultDeclaration.namespaceName && resultDeclaration.namespaceName != declaration.namespaceName) {
-                    console.error(`${module.path}: inconsistent namespace import from '${declaration.moduleName}', previous use ${resultDeclaration.namespaceName}, here use ${declaration.namespaceName}`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: inconsistent namespace import from '${declaration.moduleName}', previous use ${resultDeclaration.namespaceName}, here use ${declaration.namespaceName}`);
                 } else if (allExternalReferences.some(er =>
                     er.moduleName != declaration.moduleName
                     && (er.defaultName == declaration.namespaceName
                     || er.namespaceName == declaration.namespaceName
                     || er.names.some(n => n[1] == declaration.namespaceName))
                 )) {
-                    console.error(`${module.path}: namespace import ${declaration.namespaceName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: namespace import ${declaration.namespaceName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (resultDeclaration.names.some(n => n[1] == declaration.namespaceName)) {
-                    console.error(`${module.path}: namespace import ${declaration.namespaceName} from '${declaration.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: namespace import ${declaration.namespaceName} from '${declaration.moduleName}' has appeared previous named imports from this module, when will this happen?`);
                 } else if (!declaration.namespaceName) {
                     resultDeclaration.defaultName = declaration.defaultName;
                 }
@@ -284,7 +321,8 @@ for (const module of modules) {
                     || er.namespaceName == namedName
                     || er.names.some(n => n[1] == namedName))
                 )) {
-                    console.error(`${module.path}: import ${namedName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
+                    hasError = true;
+                    console.error(chalk`{red error} ${module.path}: import ${namedName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);
                 }
             }
             // merge, dedup and sort
@@ -305,13 +343,20 @@ allExternalReferences.sort((lhs, rhs) => {
     // this correctly handles rest part after node: and non node module names
     return lhs.moduleName.localeCompare(rhs.moduleName);
 });
-console.log('final external references: ');
-for (const declaration of allExternalReferences) {
-    console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
-        || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.names.join(',')}`);
+if (debug) {
+    console.log('final external references: ');
+    for (const declaration of allExternalReferences) {
+        console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
+            || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.names.join(',')}`);
+    }
+}
+if (hasError) {
+    console.log('there are errors in checking external references');
+    process.exit(1);
 }
 
-// resolve relative import
+hasError = false;
+console.log('checking relative imports');
 // https://nodejs.org/api/esm.html#resolution-algorithm
 for (const module of modules) {
     for (const declaration of module.imports.filter(d => d.moduleName.startsWith('.'))) {
@@ -320,13 +365,13 @@ for (const module of modules) {
             path.resolve(path.dirname(module.path), declaration.moduleName, './index.js'),
         ].find(p => modules.some(m => m.path == p));
         if (!resolvedModuleName) {
-            console.error(`${module.path}: import '${declaration.moduleName}' not found, when will this happen?`);
+            hasError = true;
+            console.error(chalk`{red error} ${module.path}: import '${declaration.moduleName}' not found, when will this happen?`);
             continue;
         }
         declaration.relative = modules.find(m => m.path == resolvedModuleName);
     }
 }
-// sort modules
 /** @type {PackingModule[]} */
 const sortedModules = [];
 // clone another dependency mapping, don't modify original data
@@ -345,15 +390,22 @@ while (true) {
     }
     depth += 1;
     if (depth >= 10) {
-        console.error('too deep dependency or recursive dependency');
+        hasError = true;
+        console.error(chalk`{red error} too deep dependency or recursive dependency`);
         break;
     }
 }
 // entry must be in last batch of modules, but may not be last module, you need to explicitly do that
 const finalSortedModules = sortedModules.filter(m => m.path != '/vbuild/core/index.js').concat(sortedModules.find(m => m.path == '/vbuild/core/index.js'));
-console.log(`sorted modules: ${finalSortedModules.map(m => m.path).join(',')}`);
+if (debug) {
+    console.log(`sorted modules:\n${finalSortedModules.map(m => m.path).join('\n')}`);
+}
+if (hasError) {
+    console.log('there are errors in checking relative imports');
+    process.exit(1);
+}
 
-// finally merge
+console.log(`combining into single file`);
 let resultJs = '';
 for (const declaration of allExternalReferences) {
     resultJs += 'import ';
@@ -382,25 +434,33 @@ for (const module of finalSortedModules) {
     for (const line of module.content.split('\n').filter(r => !r.trim().startsWith('import'))) {
         // no need to export symbol, or else terser will keep the name
         const noexport = line.startsWith('export ') ? line.substring(7) : line;
-        // ATTENTION temp config substituion
-        const substitution = noexport.replaceAll('example.com', 'freskyz.com');
+        const substitution = noexport.replaceAll('example.com', config['main-domain']);
         resultJs += substitution + '\n';
     }
 }
 
+let minifyResult;
+console.log(`minify`);
 try {
-    const minifyResult = await minify(resultJs, {
+    minifyResult = await minify(resultJs, {
         sourceMap: false,
         module: true,
         compress: { ecma: 2022 },
     });
-    await fs.writeFile('server.js', minifyResult.code);
 } catch (err) {
-    console.error('terser error', err, resultJs);
+    console.error(chalk`{red error} terser`, err, resultJs);
+    process.exit(1);
 }
 
-if (emitResult.emitSkipped) {
-    process.exit(1);
-} else {
-    console.log('TypeScript transpilation completed successfully.');
-}
+console.log(`uploading`);
+const client = new SFTPClient();
+await client.connect({
+    host: config['main-domain'],
+    username: config.ssh.user,
+    privateKey: await fs.readFile(config.ssh.identity),
+    passphrase: config.ssh.passphrase,
+});
+
+await client.put(Buffer.from(minifyResult.code), path.join(config.webroot, 'index.js'));
+client.end();
+console.log(`complete build core`);

@@ -1,16 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import chalk from 'chalk-template';
+import SFTPClient from 'ssh2-sftp-client';
 import { minify } from 'terser';
 import ts from 'typescript';
 
-// build user.tsx
-// invoke ts node api only, no bundle,
-// but need to handle config substitution and import mapping, which is very different from build core, so separate file for now
+const debug = 'AKARI_DEBUG' in process.env;
+const config = JSON.parse(await fs.readFile('akaric', 'utf-8'));
 
-const entryFile = path.resolve('src/static/user.tsx');
-
-// Create a program
-const program = ts.createProgram([entryFile], {
+const program = ts.createProgram(['src/static/user.tsx'], {
     lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'],
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.NodeNext,
@@ -37,7 +35,8 @@ const program = ts.createProgram([entryFile], {
     outDir: '/vbuild',
 });
 
-// Emit the program
+let hasError = false;
+console.log('transpiling');
 /** @type {Record<string, string>} */
 const emittedFiles = {};
 const emitResult = program.emit(undefined, (fileName, data) => {
@@ -45,19 +44,26 @@ const emitResult = program.emit(undefined, (fileName, data) => {
         emittedFiles[fileName] = data;
     }
 });
-ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).forEach(diagnostic => {
+const transpileErrors = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics).map(diagnostic => {
     if (diagnostic.file) {
         const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
         const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-        console.error(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
+        return chalk`{red error}: ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
     } else {
-        console.error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+        return chalk`{red error}: ` + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
     }
 });
+for (const message of transpileErrors.filter((v, i, a) => a.indexOf(v) == i)) {
+    hasError = true;
+    console.log(message);
+}
+if (hasError) {
+    console.log('there are errors in transpiling');
+    process.exit(1);
+}
 
+console.log('postprocessing');
 let resultJs = emittedFiles['/vbuild/user.js'];
-// console.log(resultJs);
-
 resultJs = resultJs.replaceAll('example.com', 'freskyz.com');
 const dependencies = {
     'react': 'https://esm.sh/react@19.1.0',
@@ -72,20 +78,30 @@ for (const [devModule, runtimeModule] of Object.entries(dependencies)) {
     resultJs = resultJs.replace(new RegExp(`from ['"]${devModule}['"]`), `from '${runtimeModule}'`);
 }
 
+let minifyResult;
+console.log(`minify`);
 try {
-    const minifyResult = await minify(resultJs, {
+    minifyResult = await minify(resultJs, {
         sourceMap: false,
         module: true,
         compress: { ecma: 2022 },
         format: { max_line_len: 160 },
     });
-    await fs.writeFile('user.js', minifyResult.code);
 } catch (err) {
-    console.error('terser error', err, resultJs);
+    console.error(chalk`{red error} terser`, err, resultJs);
+    process.exit(1);
 }
 
-if (emitResult.emitSkipped) {
-    process.exit(1);
-} else {
-    console.log('TypeScript transpilation completed successfully.');
-}
+console.log(`uploading`);
+const client = new SFTPClient();
+await client.connect({
+    host: config['main-domain'],
+    username: config.ssh.user,
+    privateKey: await fs.readFile(config.ssh.identity),
+    passphrase: config.ssh.passphrase,
+});
+
+await client.fastPut('src/static/user.html', path.join(config.webroot, 'static/user.html'));
+await client.put(Buffer.from(minifyResult.code), path.join(config.webroot, 'static/user.js'));
+client.end();
+console.log(`complete build user page`);

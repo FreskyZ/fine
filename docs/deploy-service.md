@@ -60,8 +60,18 @@ import net from 'node:net';
 // Redirect TCP from port 80 to 6001 (HTTP)
 net.createServer((clientSocket) => {
   const targetSocket = net.connect(6001, '127.0.0.1');
+
   clientSocket.pipe(targetSocket);
   targetSocket.pipe(clientSocket);
+
+  clientSocket.on('error', (err) => {
+    console.error('Client socket error:', err);
+    targetSocket.destroy();
+  });
+  targetSocket.on('error', (err) => {
+    console.error('Target socket error:', err);
+    clientSocket.destroy();
+  });
 }).listen(80, () => {
   console.log('TCP redirector listening on port 80 -> 6001');
 });
@@ -69,8 +79,18 @@ net.createServer((clientSocket) => {
 // Redirect TCP from port 443 to 6002 (HTTPS)
 net.createServer((clientSocket) => {
   const targetSocket = net.connect(6002, '127.0.0.1');
+
   clientSocket.pipe(targetSocket);
   targetSocket.pipe(clientSocket);
+
+  clientSocket.on('error', (err) => {
+    console.error('Client socket error:', err);
+    targetSocket.destroy();
+  });
+  targetSocket.on('error', (err) => {
+    console.error('Target socket error:', err);
+    clientSocket.destroy();
+  });
 }).listen(443, () => {
   console.log('TCP redirector listening on port 443 -> 6002');
 });
