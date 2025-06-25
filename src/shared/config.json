@@ -51,10 +51,12 @@
       ".": "anotherexample/index.html"
     }
   },
-  "webapps": [
-    {
-      "name": "note",
+  "webapps": {
+    "note": {
       "subdomain": false
-    } 
-  ]
+    },
+    "chat": {
+      "subdomain": false
+    }
+  }
 }

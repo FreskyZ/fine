@@ -34,7 +34,7 @@ const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     database: PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
-    webapps: WebappConfig[],
+    webapps: WebappConfig,
 };
 setupDatabaseConnection(config.database);
 setupShortLinkService(config['short-link']);

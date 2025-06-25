@@ -44,7 +44,7 @@ const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate':
 export type StaticContentConfig = Record<string, Record<string, string>>;
 
 interface Item {
-    // relative path
+    // relative path after 'static/', does not include 'static/'
     // - reload will use begin with to invalidate cache items
     //   use index to reload index.html and index.css, other files are in their own directory and can use that as reload key
     readonly realpath: string,
@@ -80,8 +80,14 @@ interface StaticContentCache {
     readonly items: Item[];
     // ${host}/${path} to cache item
     readonly virtualmap: { [virtual: string]: Item };
-    // use wildcard configs, realdir is relative directory path without ending '/*'
-    readonly wildcards: { host: string, realdir: string }[];
+    // wildcard configs, this is saved for reloading,
+    // the path mapping is readdir'd and stored in virtualmap,
+    // realdir is relative directory path after 'static/' and without ending '/*'
+    readonly wildcardToWildcard: { host: string, realdir: string }[];
+    // ${host}/${path} to cache item, for html5 browser history web apps,
+    // e.g. a1.example.com/* => static/a1/index.html store as ['a1.example.com', 'a1/index.html']
+    // e.g. app.example.com/a1/* => static/a1/index.html store as ['app.example.com/a1', 'a1/index.html']
+    readonly wildcardToNonWildcardMap: { virtual: string, item: Item }[],
 }
 let contentcache: StaticContentCache;
 
@@ -106,36 +112,40 @@ function getOrAddItem(items: Item[], realpath: string): Item {
 export async function setupStaticContent(webroot: string, config: StaticContentConfig) {
     WEBROOT = webroot;
     // NOTE this is reassigned for reinitialize
-    contentcache = { items: [], virtualmap: {}, wildcards: [] };
+    contentcache = { items: [], virtualmap: {}, wildcardToWildcard: [], wildcardToNonWildcardMap: [] };
 
     await Promise.all(Object.entries(config)
         .flatMap(([host, mappings]) => Object.entries(mappings).map(([vpath, rpath]) => [host, vpath, rpath]))
         .map(async ([host, virtualpath, realpath]) =>
     {
-        if (virtualpath != '*') {
+        if (virtualpath != '*' && !virtualpath.endsWith('/*')) {
             if (path.extname(realpath) in extensionToContentType) {
                 contentcache.virtualmap[path.join(host, virtualpath)] = getOrAddItem(contentcache.items, realpath);
             } else {
                 log.info(`content: realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
             }
-        } else if (!realpath.endsWith('/*')) {
-            log.info(`content: wildcard virtual path need wildcard real path: ${host} + ${virtualpath} => ${realpath}`);
-        } else {
-            // now virtualpath is '*' and realpath ends with '/*'
+        } else if (realpath.endsWith('/*')) {
             const realdir = realpath.slice(0, realpath.length - 2);
-            const absoluteDir = path.join(WEBROOT, 'static', realdir);
-            if (!syncfs.existsSync(absoluteDir)) {
+            const absoluteDirectory = path.join(WEBROOT, 'static', realdir);
+            if (!syncfs.existsSync(absoluteDirectory)) {
                 log.info(`content: realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
                 return;
             }
-            for (const entry of (await fs.readdir(absoluteDir, { withFileTypes: true })).filter(e => e.isFile())) {
+            for (const entry of (await fs.readdir(absoluteDirectory, { withFileTypes: true })).filter(e => e.isFile())) {
                 if (path.extname(entry.name) in extensionToContentType) {
                     contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
                 } else {
                     log.info(`content: realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
                 }
             }
-            contentcache.wildcards.push({ host, realdir });
+            contentcache.wildcardToWildcard.push({ host, realdir });
+        } else {
+            if (path.extname(realpath) in extensionToContentType) {
+                const key = path.join(host, virtualpath == '*' ? '' : virtualpath.substring(0, virtualpath.length - 2));
+                contentcache.wildcardToNonWildcardMap.push({ virtual: key, item: getOrAddItem(contentcache.items, realpath) });
+            } else {
+                log.info(`content: realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
+            }
         }
     }));
 }
@@ -246,12 +256,13 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         return;
     }
 
-    const virtual = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
-    // disabled source map
-    if (virtual.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
+    const cacheKey = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
+    // when source map is disabled
+    if (cacheKey.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
 
-    if (virtual in contentcache.virtualmap) {
-        const item = contentcache.virtualmap[virtual];
+    const item = contentcache.virtualmap[cacheKey]
+        ?? contentcache.wildcardToNonWildcardMap.find(m => cacheKey.startsWith(m.virtual))?.item;
+    if (item) {
 
         if (item.content === null) {
             if (!syncfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
@@ -352,7 +363,7 @@ function handleReloadStatic(key: string) {
         }
     }
 
-    for (const { host, realdir } of contentcache.wildcards.filter(w => w.realdir.startsWith(key))) {
+    for (const { host, realdir } of contentcache.wildcardToWildcard.filter(w => w.realdir.startsWith(key))) {
         const absolutedir = path.join(WEBROOT, 'static', realdir);
         if (!syncfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed

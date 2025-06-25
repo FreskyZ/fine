@@ -11,11 +11,12 @@ await client.connect({
 });
 
 const workflows = {
-    home: [
+    // pure non-js html files
+    html: [
         ['src/static/home.html', 'static/home.html'],
-    ],
-    short: [
         ['src/static/short.html', 'static/short.html'],
+        ['src/static/404.html', 'static/404.html'],
+        ['src/static/418.html', 'static/418.html'],
     ],
     // temp standalone admin
     tsadmin: [

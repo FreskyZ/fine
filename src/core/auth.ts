@@ -13,21 +13,22 @@ import { log } from './logger.js';
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
 
+// app name => config
+export type WebappConfig = Record<string, {
+    subdomain: boolean, // true for use subdomain: name.example.com, false use app.example.com/name
+}>;
+
+let webappconfig: WebappConfig;
+export function setupAccessControl(config: WebappConfig) {
+    webappconfig = config;
+}
+
 export interface ContextState {
     now: dayjs.Dayjs,
     app: string,
     user: UserCredential,
 }
 export type AuthContext = koa.ParameterizedContext<ContextState>;
-
-export interface WebappConfig {
-    name: string,
-    subdomain: boolean, // true for use subdomain: name.example.com, false use app.example.com/name
-}
-let webappconfig: WebappConfig[];
-export function setupAccessControl(webapps: WebappConfig[]) {
-    webappconfig = webapps;
-}
 
 // db types are postfixed 'Data' compared to non postfixed api types (the UserDevice)
 // they are defined here because they are not used outside
@@ -46,12 +47,14 @@ interface UserDeviceData {
     LastAccessTime: string,
     LastAccessAddress: string,
 }
-type UserDataPacket = UserData & RowDataPacket;
-type UserDeviceDataPacket = UserDeviceData & RowDataPacket;
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
 const userStorage: UserData[] = [];
 const userDeviceStorage: UserDeviceData[] = [];
+// mysql query function need RowDataPacket, but this makes me
+// cannot contrust a UserData if UserData extends RowDataPacket, so need separate types
+type UserDataPacket = UserData & RowDataPacket;
+type UserDeviceDataPacket = UserDeviceData & RowDataPacket;
 
 // ignore case comparator, this may need to be moved to some utility module
 const collator = Intl.Collator('en', { sensitivity: 'base' });
@@ -84,9 +87,10 @@ async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ acc
 
 // use regex to dispatch special apis
 // // this makes the usage looks like c# property/java annotation/python annotation/typescript metadata
-type Matcher = [RegExp, (ctx: AuthContext, parameters: Record<string, string>) => Promise<void>];
+type Router = [RegExp, (ctx: AuthContext, parameters: Record<string, string>) => Promise<void>];
 
-const matchers1: Matcher[] = [ // special apis before authenticate
+// actions batch 1, special api used by id.example.com that cannot authenticate, namely sign in and sign up
+const actions1: Router[] = [
 
 [/^POST \/signin$/,
 async function handleSignIn(ctx) {
@@ -243,7 +247,8 @@ async function authenticate(ctx: AuthContext) {
     ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
 }
 
-const matchers2: Matcher[] = [ // special apis after authenticate
+// actions batch 2, special api used by id.example.com that require authenticate
+const actions2: Router[] = [
 
 [/^GET \/user-credential$/,
 async function handleGetUserCredential(ctx) {
@@ -343,25 +348,17 @@ async function handleRemoveDevice(ctx, parameters) {
     ctx.status = 204;
 }]];
 
-// handle cors, api.example.com does not have ui, all invocation to here is cross origin
+// handle cors, because api.example.com does not have ui, all invocation here is cross origin
 export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] != 'api') { throw new MyError('unreachable'); }
-    // all functions need access control because all of them are called cross origin (from app.example.com or even anotherexample.com to api.example.com)
 
     const origin = ctx.get('origin');
 
-    let app: string;
-    if (origin == 'https://id.example.com') {
-        app = 'id';
-    } else if (origin == 'https://app.example.com') {
-        app = ctx.URL.pathname.split('/')[0];
-    } else {
-        const host = new URL(origin).host;
-        app = webappconfig.find(a => `${a.name}.example.com` == host && a.subdomain)?.name;
-    }
-
-    // ATTENTION all current authentication apis are for the user page (for the original per subdomain user page)
-    if (!app) { return; } // do not set access-control-* and let browser reject it
+    ctx.state.app = origin == 'https://id.example.com' ? 'id' // use id for id.example.com
+        // this correctly handles multiple path segment and empty pathname, although empty pathname should not happen
+        : origin == 'https://app.example.com' ? ctx.URL.pathname.split('/')[0]
+        : Object.entries(webappconfig).find(a => a[1].subdomain && `https://${a[0]}.example.com` == origin)?.[0];
+    if (!ctx.state.app) { return; } // do not set access-control-* and let browser reject it
 
     ctx.vary('Origin');
     ctx.set('Access-Control-Allow-Origin', origin);
@@ -373,7 +370,7 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     ctx.set('Access-Control-Max-Age', '3600');
     if (ctx.method == 'OPTIONS') { ctx.status = 200; return; } // handling of OPTIONS is finished here
 
-    // api content should not cache
+    // api result should not cache
     // Pragma: no-cache is not specified for response and is deprecated, https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Pragma
     // Expires: has lower priority to cache-control:max-age, https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Expires
     // Surrogate-Control: is for surrogate, such as CDN or reverse proxy, https://www.w3.org/TR/edge-arch/
@@ -391,7 +388,6 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     // // but I think modern browser will not respect the second part, at least I always want to see it in devtool
     ctx.set('Cache-Control', 'no-store');
 
-    ctx.state.app = app;
     await next();
 }
 
@@ -399,14 +395,14 @@ export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Ne
     ctx.state.now = dayjs.utc();
     const key = `${ctx.method} ${ctx.path}`;
 
-    for (const [regex, handler] of matchers1) {
+    for (const [regex, handler] of actions1) {
         const match = regex.exec(key);
         if (match) { await handler(ctx, match.groups!); return; }
     }
 
     await authenticate(ctx);
 
-    for (const [regex, handler] of matchers2) {
+    for (const [regex, handler] of actions2) {
         const match = regex.exec(key);
         if (match) { await handler(ctx, match.groups!); return; }
     }
