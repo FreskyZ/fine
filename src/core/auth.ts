@@ -13,17 +13,8 @@ import { log } from './logger.js';
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
 
-// app name => config
-export type WebappConfig = Record<string, {
-    subdomain: boolean, // true for use subdomain: name.example.com, false use app.example.com/name
-}>;
-
-let webappconfig: WebappConfig;
-export function setupAccessControl(config: WebappConfig) {
-    webappconfig = config;
-}
-
-export interface ContextState {
+// koa context parameter after authentication
+interface ContextState {
     now: dayjs.Dayjs,
     app: string,
     user: UserCredential,
@@ -38,7 +29,7 @@ interface UserData {
     Active: boolean,
     Token: string,
 }
-interface UserDeviceData {
+interface UserSessionData {
     Id: number,
     App: string,
     Name: string,
@@ -47,17 +38,38 @@ interface UserDeviceData {
     LastAccessTime: string,
     LastAccessAddress: string,
 }
+interface AuthorizationCodeData {
+    app: string,
+    value: string,
+    expireTime: dayjs.Dayjs,
+}
+
 // cache user crendentials to prevent db operation every api call
 // entries will not expire, because I should and will not directly update db User and UserDevice table
 const userStorage: UserData[] = [];
-const userDeviceStorage: UserDeviceData[] = [];
+// ATTENTION also include application access token which is not saved in database
+const userSessionStorage: UserSessionData[] = [];
+// also put this here by the way, authorization code is not saved in database
+const authorizationCodeStorage: AuthorizationCodeData[] = [];
+
 // mysql query function need RowDataPacket, but this makes me
 // cannot contrust a UserData if UserData extends RowDataPacket, so need separate types
 type UserDataPacket = UserData & RowDataPacket;
-type UserDeviceDataPacket = UserDeviceData & RowDataPacket;
+type UserDeviceDataPacket = UserSessionData & RowDataPacket;
 
 // ignore case comparator, this may need to be moved to some utility module
 const collator = Intl.Collator('en', { sensitivity: 'base' });
+
+export type WebappConfig = Record<string, {
+    // small app use app.example.com/appname/, and is loaded in same process
+    // major app use appname.example.com, and is communicated with domain socket
+    small: boolean,
+}>;
+
+let webappconfig: WebappConfig;
+export function setupAccessControl(config: WebappConfig) {
+    webappconfig = config;
+}
 
 let AllowSignUp = false;
 let AllowSignUpTimer: NodeJS.Timeout; // similar to some other features, sign up is timeout disabled after 12 hours if not manually disabled or reenabled
@@ -67,7 +79,7 @@ async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ acc
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     // actually randomBytes(42) will be 56 chars after base64 encode, but there is no way to get exactly 42 characters after encode, so just use these parameters
     const accessToken = crypto.randomBytes(42).toString('base64').slice(0, 42);
-    const userDevice: UserDeviceData = {
+    const userDevice: UserSessionData = {
         Id: 0,
         App: ctx.state.app,
         Name: '<unnamed>',
@@ -80,13 +92,14 @@ async function createUserDevice(ctx: AuthContext, userId: number): Promise<{ acc
         'INSERT INTO `UserDevice` (`App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?, ?)',
         [userDevice.App, userDevice.Name, userDevice.Token, userDevice.UserId, userDevice.LastAccessTime, userDevice.LastAccessAddress]);
     userDevice.Id = result.insertId;
-    userDeviceStorage.push(userDevice);
+    userSessionStorage.push(userDevice);
 
     return { accessToken };
 }
 
 // use regex to dispatch special apis
 // // this makes the usage looks like c# property/java annotation/python annotation/typescript metadata
+// TODO consider URLPattern
 type Router = [RegExp, (ctx: AuthContext, parameters: Record<string, string>) => Promise<void>];
 
 // actions batch 1, special api used by id.example.com that cannot authenticate, namely sign in and sign up
@@ -95,15 +108,28 @@ const actions1: Router[] = [
 [/^POST \/signin$/,
 async function handleSignIn(ctx) {
 
-    const claim = { username: ctx.get('X-Name'), password: ctx.get('X-Token') };
-    if (!claim.username || !claim.password) {
-        throw new MyError('common', 'user name or password cannot be empty');
+    const encoded = ctx.get('authorization');
+    if (!encoded) {
+        throw new MyError('common', 'invalid user name or password');
     }
 
-    const user = userStorage.find(u => !collator.compare(u.Name, claim.username)) ?? await (async () => {
-        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', claim.username);
+    let decoded: string;
+    try {
+        decoded = atob(encoded);
+    } catch (error) {
+        throw new MyError('common', 'invalid user name or password');
+    }
+
+    const splitted = decoded.split(':').map(v => v.trim()).filter(x => x);
+    if (splitted.length != 2) {
+        throw new MyError('common', 'invalid user name or password');
+    }
+    const [username, password] = splitted;
+
+    const user = userStorage.find(u => !collator.compare(u.Name, username)) ?? await (async () => {
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Name` = ?', username);
         if (!Array.isArray(rows) || rows.length == 0) {
-            throw new MyError('common', 'unknonw user or incorrect password');
+            throw new MyError('common', 'invalid user name or password');
         }
         const user: UserData = { Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token };
         userStorage.push(user);
@@ -113,14 +139,12 @@ async function handleSignIn(ctx) {
     if (!user.Active) {
         throw new MyError('common', 'user is not active');
     }
-    if (!authenticator.check(claim.password, user.Token)) {
-        throw new MyError('common', 'unknown user or incorrect password');
+    if (!authenticator.check(password, user.Token)) {
+        throw new MyError('common', 'invalid user name or password');
     }
 
-    const accessToken = await createUserDevice(ctx, user.Id);
-
     ctx.status = 200;
-    ctx.body = accessToken; // another 'it's for safety so limited' issue is that fetch cross origin response header is limited, so can only send by response body
+    ctx.body = await createUserDevice(ctx, user.Id);
 }],
 
 [/^GET \/signup$/,
@@ -158,6 +182,25 @@ async function handleGetAuthenticatorToken(ctx, parameters) {
 [/^POST \/signup/,
 async function handleRegister(ctx) {
     if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
+
+
+    const encoded = ctx.get('authorization');
+    if (!encoded) {
+        throw new MyError('common', 'invalid user name or password');
+    }
+
+    let decoded: string;
+    try {
+        decoded = atob(encoded);
+    } catch (error) {
+        throw new MyError('common', 'invalid user name or password');
+    }
+
+    const splitted = decoded.split(':').map(v => v.trim()).filter(x => x);
+    if (splitted.length != 2) {
+        throw new MyError('common', 'invalid user name or password');
+    }
+    const [username, secret, password] = splitted;
 
     const username = ctx.get('X-Name');
     if (!username) {
@@ -197,59 +240,12 @@ async function handleRegister(ctx) {
     ctx.body = accessToken;
 }]];
 
-// read X-Token and save user credential to ctx.state is needed by all functions accept sign in
-async function authenticate(ctx: AuthContext) {
-
-    const accessToken = ctx.get('X-Token');
-    if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
-
-    // this means ctx.state.user.deviceId must be in userDeviceStorage after pass authentication
-    const userDevice = userDeviceStorage.find(d => d.Token == accessToken) ?? await (async () => {
-        const [rows] = await pool.query<UserDeviceDataPacket[]>(
-            'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `Token` = ?', [accessToken]);
-        if (!Array.isArray(rows) || rows.length == 0) {
-            throw new MyError('auth', 'unauthorized');
-        }
-        userDeviceStorage.push(rows[0]);
-        return rows[0];
-    })();
-
-    if (userDevice.App != ctx.state.app) {
-        // actually this will only happen when I manually copy token from db or from other app
-        // but need to be checked anyway
-        throw new MyError('auth', 'unauthorized');
-    }
-    if (dayjs.utc(userDevice.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
-        // check expires or update last access time
-        await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
-        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == userDevice.Id), 1);
-        throw new MyError('auth', 'authorization expired');
-    }
-
-    // this means ctx.state.user.id must be in userStorage after pass authentication
-    const user = userStorage.find(u => u.Id == userDevice.UserId) ?? await (async () => {
-        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
-        // no need to check value is not empty because foreign key will be validated by db
-        const user: UserData = { Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token };
-        userStorage.push(user);
-        return user;
-    })();
-    if (!user.Active) {
-        throw new MyError('auth', 'authorization inactive');
-    }
-
-    userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
-    userDevice.LastAccessAddress = ctx.socket.remoteAddress;
-    await pool.query(
-        'UPDATE `UserDevice` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
-        [userDevice.LastAccessTime, userDevice.LastAccessAddress, userDevice.Id]);
-
-    ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
-}
-
 // actions batch 2, special api used by id.example.com that require authenticate
 const actions2: Router[] = [
 
+// this is same as in actions3, 
+// it is ok to duplicate because it is really small,
+// it is available in both id.example.com and app.example.com
 [/^GET \/user-credential$/,
 async function handleGetUserCredential(ctx) {
     ctx.status = 200;
@@ -292,10 +288,10 @@ async function handleGetUserDevices(ctx) {
 
     // update storage
     // // this is how you filter by predicate in place
-    while (userDeviceStorage.some(d => d.UserId == ctx.state.user.id)) {
-        userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.UserId == ctx.state.user.id), 1);
+    while (userSessionStorage.some(d => d.UserId == ctx.state.user.id)) {
+        userSessionStorage.splice(userSessionStorage.findIndex(d => d.UserId == ctx.state.user.id), 1);
     }
-    userDeviceStorage.push(...userDevices);
+    userSessionStorage.push(...userDevices);
 
     ctx.status = 200;
     ctx.body = userDevices.map<UserDevice>(d => ({ id: d.Id, name: d.Name, lastTime: d.LastAccessTime, lastAddress: d.LastAccessAddress }));
@@ -310,7 +306,7 @@ async function handleUpdateDeviceName(ctx, parameters) {
     const newDeviceName = (ctx.request.body as any)?.name;
     if (!newDeviceName) { throw new MyError('common', 'invalid new device name'); }
 
-    const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
+    const userDevice = userSessionStorage.find(d => d.Id == deviceId);
     if (userDevice.UserId != ctx.state.user.id) {
         throw new MyError('common', 'not my device');
     }
@@ -330,7 +326,7 @@ async function handleRemoveDevice(ctx, parameters) {
     const deviceId = parseInt(parameters['device_id']);
     if (isNaN(deviceId) || deviceId == 0) { throw new MyError('common', 'invalid device id'); }
 
-    const userDevice = userDeviceStorage.find(d => d.Id == deviceId);
+    const userDevice = userSessionStorage.find(d => d.Id == deviceId);
     if (!userDevice) {
         throw new MyError('common', 'invalid device id');
     }
@@ -342,11 +338,39 @@ async function handleRemoveDevice(ctx, parameters) {
         throw new MyError('common', 'not my device');
     }
 
-    userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.Id == deviceId), 1);
+    userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == deviceId), 1);
     await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', [deviceId]);
 
     ctx.status = 204;
-}]];
+}],
+];
+
+// actions batch 3, for app.example.com
+const actions3: Router[] = [
+
+// this is same as in actions2, 
+// it is ok to duplicate because it is really small,
+// it is available in both id.example.com and app.example.com
+[/^GET \/user-credential$/,
+async function handleGetUserCredential(ctx) {
+    ctx.status = 200;
+    ctx.body = ctx.state.user;
+}],
+
+[/^POST \/signout$/,
+async function handleSignOut(ctx) {
+
+    const deviceId = ctx.state.user.deviceId;
+    const userDevice = userSessionStorage.find(d => d.Id == deviceId);
+    if (!userDevice) {
+        throw new MyError('common', 'invalid device id');
+    }
+    userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == deviceId), 1);
+    await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', [deviceId]);
+
+    ctx.status = 204;
+}],
+];
 
 // handle cors, because api.example.com does not have ui, all invocation here is cross origin
 export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Next): Promise<void> {
@@ -357,13 +381,13 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     ctx.state.app = origin == 'https://id.example.com' ? 'id' // use id for id.example.com
         // this correctly handles multiple path segment and empty pathname, although empty pathname should not happen
         : origin == 'https://app.example.com' ? ctx.URL.pathname.split('/')[0]
-        : Object.entries(webappconfig).find(a => a[1].subdomain && `https://${a[0]}.example.com` == origin)?.[0];
+        : Object.entries(webappconfig).find(a => !a[1].small && `https://${a[0]}.example.com` == origin)?.[0];
     if (!ctx.state.app) { return; } // do not set access-control-* and let browser reject it
 
     ctx.vary('Origin');
     ctx.set('Access-Control-Allow-Origin', origin);
     ctx.set('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,DELETE,PATCH');
-    ctx.set('Access-Control-Allow-Headers', 'Content-Type,X-Name,X-Token');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     // my token lasts for 30 days, but preflight request max age is capped at 2 hours in chromium,
     // https://github.com/chromium/chromium/blob/16d2d3f596a96a70bf1dfc2766ba33fbd042d121/services/network/cors/preflight_result.cc#L38
     // so use a simple 1 hour, although I can expire a user device at any time as I wish, I actually never used the feature and should be ok
@@ -391,6 +415,56 @@ export async function handleRequestAccessControl(ctx: AuthContext, next: koa.Nex
     await next();
 }
 
+// read X-Token and save user credential to ctx.state is needed by all functions accept sign in
+async function authenticate(ctx: AuthContext) {
+
+    const accessToken = ctx.get('X-Token');
+    if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
+
+    // this means ctx.state.user.deviceId must be in userDeviceStorage after pass authentication
+    const userDevice = userSessionStorage.find(d => d.Token == accessToken) ?? await (async () => {
+        const [rows] = await pool.query<UserDeviceDataPacket[]>(
+            'SELECT `Id`, `App`, `Name`, `Token`, `UserId`, `LastAccessTime`, `LastAccessAddress` FROM `UserDevice` WHERE `Token` = ?', [accessToken]);
+        if (!Array.isArray(rows) || rows.length == 0) {
+            throw new MyError('auth', 'unauthorized');
+        }
+        userSessionStorage.push(rows[0]);
+        return rows[0];
+    })();
+
+    if (userDevice.App != ctx.state.app) {
+        // actually this will only happen when I manually copy token from db or from other app
+        // but need to be checked anyway
+        throw new MyError('auth', 'unauthorized');
+    }
+    if (dayjs.utc(userDevice.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
+        // check expires or update last access time
+        await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ? ', userDevice.Id);
+        userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == userDevice.Id), 1);
+        throw new MyError('auth', 'authorization expired');
+    }
+
+    // this means ctx.state.user.id must be in userStorage after pass authentication
+    const user = userStorage.find(u => u.Id == userDevice.UserId) ?? await (async () => {
+        const [rows] = await pool.query<UserDataPacket[]>('SELECT `Id`, `Name`, `Active`, `Token` FROM `User` WHERE `Id` = ?', userDevice.UserId);
+        // no need to check value is not empty because foreign key will be validated by db
+        const user: UserData = { Id: rows[0].Id, Name: rows[0].Name, Active: rows[0].Active, Token: rows[0].Token };
+        userStorage.push(user);
+        return user;
+    })();
+    if (!user.Active) {
+        throw new MyError('auth', 'authorization inactive');
+    }
+
+    userDevice.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
+    userDevice.LastAccessAddress = ctx.socket.remoteAddress;
+    await pool.query(
+        'UPDATE `UserDevice` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
+        [userDevice.LastAccessTime, userDevice.LastAccessAddress, userDevice.Id]);
+
+    ctx.state.user = { id: user.Id, name: user.Name, deviceId: userDevice.Id, deviceName: userDevice.Name };
+}
+
 export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Next): Promise<any> {
     ctx.state.now = dayjs.utc();
     const key = `${ctx.method} ${ctx.path}`;
@@ -403,6 +477,10 @@ export async function handleRequestAuthentication(ctx: AuthContext, next: koa.Ne
     await authenticate(ctx);
 
     for (const [regex, handler] of actions2) {
+        const match = regex.exec(key);
+        if (match) { await handler(ctx, match.groups!); return; }
+    }
+    for (const [regex, handler] of actions3) {
         const match = regex.exec(key);
         if (match) { await handler(ctx, match.groups!); return; }
     }
@@ -424,15 +502,15 @@ export async function handleAuthCommand(command: AdminAuthCommand): Promise<void
         if (maybeCache) { maybeCache.Active = false; }
         // remove all user devices because front end when get unauthorized will discard access token
         await pool.execute('DELETE FROM `UserDevice` WHERE `UserId` = ?', command.userId);
-        while (userDeviceStorage.some(d => d.UserId == command.userId)) {
-            userDeviceStorage.splice(userDeviceStorage.findIndex(d => d.UserId == command.userId), 1);
+        while (userSessionStorage.some(d => d.UserId == command.userId)) {
+            userSessionStorage.splice(userSessionStorage.findIndex(d => d.UserId == command.userId), 1);
         }
 
     // force unauthenciate
     } else if (command.type == 'remove-device') {
         await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', command.deviceId);
-        const maybeIndex = userDeviceStorage.findIndex(d => d.Id == command.deviceId);
-        if (maybeIndex >= 0) { userDeviceStorage.splice(maybeIndex, 1); }
+        const maybeIndex = userSessionStorage.findIndex(d => d.Id == command.deviceId);
+        if (maybeIndex >= 0) { userSessionStorage.splice(maybeIndex, 1); }
 
     // enable/disable signup
     } else if (command.type == 'enable-signup') {

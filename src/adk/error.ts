@@ -7,6 +7,7 @@ export type FineErrorKind =
     | 'not-found'
     | 'auth'
     | 'unreachable'
+    | 'rate-limit'
     | 'method-not-allowed'
     | 'internal'
     | 'bad-gateway'

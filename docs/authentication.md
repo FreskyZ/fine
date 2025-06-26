@@ -1,75 +1,144 @@
 # Authentication
 
-The core module implements authentication so apps don't need to duplicate the work.
+- Some applications are private and require authentication
+  or [Identity and Access Management (IAM)](https://learn.microsoft.com/en-us/entra/fundamentals/identity-fundamental-concepts).
+- To avoid duplicating IAM work in each application,
+  [Single Sign-On (SSO)](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/what-is-single-sign-on) is used.
+- SSO is a concept that requires concrete protocols and implementations.
+  In this project, [OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749)
+  and [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html) are not used.
 
-### Single Sign-on
+### OAuth 2.0 and OpenID Connect
 
-if you forget, single sign-on allows user to
-sign in one app and don't need to input user credentials again in another app,
-if you forget, the major issue in cross subdomain single sign-on
-is localstorage/cookie DON'T share between subdomains, because different subdomain is different origin,
+OAuth 2.0 is an industry-standard protocol for authorization, allowing applications to securely access resources
+on a user's behalf without sharing credentials. It provides a framework for delegated access, enabling users to
+grant limited permissions to third-party applications. OpenID Connect extends OAuth 2.0 with an identity layer,
+supporting authentication in addition to authorization. This enables applications to verify user identities and
+obtain basic profile information securely and consistently, making OAuth 2.0 and OpenID Connect fundamental to
+modern identity management.
 
-> if you blame this file you can find me failed to implement cookie based cross subdomain single sign-on,
-> because cookies lie to me that they support cross subdomain, but they actually very not support that,
-> but now after more than 4 years I come back with knowledge and experience from using OAuth!
+OAuth 2.0 and OIDC is not used here because they do not fit the requirements. OAuth 2.0 is designed for scenarios
+involving three parties: an authorization server, a resource server, and a client. In this program, I'd like to
+manage users directly and typically use the same server for both the authentication and application proxy.
+The resource server concept is primarily for authorization, which is not needed here, and OIDC adds further
+complexity with additional protocol requirements and protection from more attack surfaces that are not relevant
+to this setup. Additionally, the use of the "JW*" family of standards
 
-and the solution is send "the string" through url
+- [JWS](https://datatracker.ietf.org/doc/html/rfc7515)
+- [JWE](https://datatracker.ietf.org/doc/html/rfc7516)
+- [JWK](https://datatracker.ietf.org/doc/html/rfc7517)
+- [JWA](https://datatracker.ietf.org/doc/html/rfc7518)
+- [JWT](https://datatracker.ietf.org/doc/html/rfc7519)
+
+requires complex cryptographic operations and specialized libraries. Open source implementations like
+[authentik](https://goauthentik.io/) and [authelia](https://www.authelia.com/) are comprehensive frameworks
+covering everything from database to UI, highlighting the overall complexity of these protocols.
+
+> By the way, Cross Subdomain Single sign-on based on Cookie (CSSC)
+
+If you blame this document you might notice I never managed to implement CSSC. While cookies are supposed
+to work across subdomains, browsers seem to *hate* this feature and rarely respect it in practice. I suspect
+browsers have a long-standing grudge against cookies - after all, in the early days of frontend engineering,
+cookies caused plenty of security headaches. As a result, modern browsers make cross subdomain cookies
+unreliable, and most web apps avoid them altogether. So, I abandoned the idea and settled for a separate
+login and user management page for each application (each subdomain), all sharing a common backend API.
+This solution worked, but it was inconvenient for years. However, after gaining experience with OAuth and
+OIDC, I finally discovered the real answer to sharing authentication across subdomains is...
+
+*send the text through url*
+
+### OIDC Workflow
+
+for reference
+
+1. An end user attempts to access a protected service.
+2. The Relying Party (RP, also known as the Client) initiates an authentication request by redirecting the
+  user's browser to the OpenID Provider (OP, the authorization server). The request includes parameters:
+  - `scope`: Specifies the requested permissions; must include `openid` for OIDC.
+  - `response_type`: Typically set to `code` to indicate the authorization code flow.
+  - `client_id` and `redirect_uri`: Identify and validate the client and specify where the OP should send the response.
+  - `state`: A unique value to prevent CSRF attacks and maintain request integrity.
+3. The user authenticates with the OP, for example by entering a username and password or using another
+   authentication method and may include use of 2FA or MFA.
+4. Upon successful authentication, the OP redirects the user back to the RP's `redirect_uri`,
+   including a temporary authorization code and the original `state` value.
+5. The RP's backend exchanges the authorization code for tokens by making a secure
+   server-to-server request to the OP, authenticating itself with its client credentials. The OP responds with:
+  - An ID token (containing user identity claims)
+  - An access token (for accessing protected resources)
+  - Optionally, a refresh token
+6. The RP validates the ID token’s claims (such as `iss`, `sub`, `aud`, `exp`, `iat`) to ensure authenticity
+   and integrity, then uses the access token to request additional user information from the OP’s userinfo endpoint
+   if needed. The authentication process is now complete, and the RP can proceed with authorization as required.
+
+### Workflow
+
+the actual workflow implemented here
+
+1. An end user attempts to access a protected service.
+2. The application (app1.example.com) redirects end user to identity provider (id.example.come),
+   parameters only include `return=app1`, the return address will be calculated from this,
+   no need to use state parameter because if I accidentally save information to another user, I can fix that in db
+3. The user authenticates with the identity provider
+4. Upon successful authentication, the identity provider returns to the application with a temporary authorization
+   code (app1.example.com?code=randomhexvalue), the application server (or the identity provider server, this is not
+   important here) directly checks valid authorization codes and issue an access token to the application client side
+5. The application use the access token to access its own api
 
 ### Design Principles
 
-This authentication scheme is inspired by OAuth but not exactly the same
+- all server side authentication operations happens at api.example.com, same as before
+- the identity provider need ui, but api.example.com does not have ui,
+  so the ui is at id.example.com, no need to put ui at each application,
+  this subdomain also looks better then auth.example.com or login.example.com
+- if id.example.com is opened with ?return, it will return when or after signed in,
+  if opened with no parameter, it is user management page
+- application may open with pathname, it should save the pathname or other state before redirection
+  and recover after authenticated if need, this makes identity provider parameter looks better
+- no static password, only authenticator password (otp password),
+  when you don't have normal fixed password, you don't have to remember that and cannot leak password
+- identity provider's access token is stored at localstorage is long lived and auto refresh and
+  stored in database, same as before
+- still use authorization code, not directly send token back, because showing the token on the user
+  agent (the browser) is kind of strange and may cause security issues?
+- authorization code is stored in memory, it is short lived and no need to recover if server restart,
+  it is one time use, any usage will invalidate the authorization code, include error
+- use random hex value token, no need to use jwt to convey user information,
+  application can directly call the user information api to get user information,
+  jwt is designed for stateless, but to implement revoke feature you always need to store which
+  makes stateless feature meaningless
+- still auto refresh access token at server side, eliminate the requirements to refresh token workflow
+- application's access token is stored in memory and not in localstorage or similar storage,
+  open page will automatically require new access token, this token is stored in server memory not database
 
-> OAuth 2.0: https://datatracker.ietf.org/doc/html/rfc6749
+### Security Considerations
 
-- roles:
-  - resource server: api.domain.com/* apis, accessing them need authentication
-  - client: app.domain.com web pages
-  - authorization endpoint, the web page at id.domain.com to input username and password
-  - authorization server, the server part of id.domain.com
+References:
 
-- authorization endpoint is id.domain.com, because api.domain.com does not have ui
-  and this name is short and reasonable and looks better than auth.domain.com or login.domain.com
-- for query parameters, response type is not needed, it is fixed authorization code,
-  client_id is app name, redirect uri is not needed, it is determined by client id,
-  scope is not needed, because authorization is implemented in each app,
-  state is not needed, I control all the user accounts and all apps and their data, no need to specifically avoid that,
-  so the actual authorization endpoint looks like id.domain.com/authorize?app=appname
-- how the authorization endpoint implements its own authentication is out of oauth specification's scope,
-  in this program, it is normal user name and password input, but password is otp password, normal password is not used,
-  when you don't have normal fixed password, you don't have to remember that and their is no potential leak problem
-- after authenticated user name and password input, id.domain.com stores the access token in httponly cookie,
-  which automatically sends in request and automatically expire, and then generates authorization code and calls back
-  to app's pages by url, then app's front end page calls this module
+- [OAuth 2.0 Security Considerations](https://datatracker.ietf.org/doc/html/rfc6749#section-10)
+- [OAuth 2.0 Bearer Token Security](https://datatracker.ietf.org/doc/html/rfc6750#section-5)
+- [OAuth 2.0 more Security Considerations](https://datatracker.ietf.org/doc/html/rfc6819)
+- [OIDC Security Considerations](https://openid.net/specs/openid-connect-core-1_0.html#Security)
 
-no refresh token, because id.domain.com's access token works as refresh token,
-and it is rarely used (when a new page of app is opened) and id.domain.com access token is stored in httponly cookie,
-and app access token is stored in memory not local storage or cookie
+After reviewing these documents, most concerns are not applicable to this implementation due to the following:
 
-- authorization endpoint is id.domain.com, which is short and looks better than auth.domain.com and login.domain.com
-- redirect uri parameter is not needed, because client id is app name and redirect uri can be determined by that
+- HTTPS is standard today, mitigating MITM risks that were more relevant when OAuth 2.0 was introduced.
+- JWT is not used, so related signature and validation issues do not apply.
+- Server-side secrets are secured; direct server compromise is outside this scope.
+- No use of `redirect_uri`, so redirection vulnerabilities are avoided.
+- The identity provider and client run on the same server, eliminating the need for client validation and token audience checks.
+- Authorization-specific issues (e.g., misconfigured scopes) are not relevant, as this module focuses solely on authentication.
+- I'm correctly educated to checking HTTPS certificate and domain name before entering user
+  credentials and will not tell my user credentials to other people.
 
+As a result, the main security risks are limited to
 
-- no normal password, only user name and otp password
-- only require authentication for part of the api calls
+- my source code bugs
+- my dependency vulnerabilities
+- my cloud service provider issues
+- my network environment issues
 
-TODO use URLPattern instead of pattern
-
-
-### Design Principle
-
-- no normal password, only user name and authenticator password
-- only require authentication for api call (request to api subdomain)
-- random token, live for 1 month, self refresh
-- after sign in user should name the device, user is able to remove some device from authorized device list
-- each app has its own login page and device list
-
-> Do not use cookie or single sign-on because cross origin (cross subdomain is also cross origin) cookie have these limitations
-> - request from domain.com to sub.domain.com, all set-cookie headers are ignored regardless of cookie domain option SILENTLY
-> - request from domain.com to domain.com, set-cookie to sub.domain.com is ignored
-> - request from domain.com to domain.com, set-cookie to domain.com or .domain.com, cookie is not sent in request from sub.domain.com to sub2.domain.com
-> - request from sub.domain.com to sub2.domain.com, set-cookie to sub.domain.com or sub2.domain.com bot ignored SILENTLY
-> - cookies with path sometime disappears in devtool application tab or website information (the lock icon in front of address bar) cookie in use menu, clear all sometimes failed to clear all
-> - regardless of domain.com, sub.domain.com and sub2.domain.com are all same ip and same port
+These are general risks and not specific to the authentication design described here.
 
 ### Data Structure
 
@@ -85,7 +154,7 @@ CREATE TABLE `User` (
 
 CREATE TABLE `UserDevice` (
   `Id` INT NOT NULL AUTO_INCREMENT,
-  `App` VARCHAR(20) NOT NULL,
+  `App` VARCHAR(20) NOT NULL, -- same as ctx.state.app, id access token use app='id'
   `Name` VARCHAR(100) NOT NULL,
   `Token` CHAR(42) DEFAULT NULL,
   `UserId` INT NOT NULL,
@@ -100,7 +169,8 @@ CREATE TABLE `UserDevice` (
 ### API Reference
 
 - `POST /api/signin`
-  - request custom header `X-Name` and `X-Token`
+  - allow origin id.example.com
+  - use request header `authorization: Basic {base64 encoded username:password}`
   - response status `200` body `{ accessToken: string }`
   - expected errors include
     - 400 username or password cannot be empty
@@ -108,13 +178,15 @@ CREATE TABLE `UserDevice` (
   - always creates new device
 
 - `GET /api/signup/:username`
+  - allow origin id.example.com
   - response body `{ data: string }` string is data url
   - generate random authenticator token and return qr code image
-  - qrcode content `otpauth://totp/domain.com:USERNAME?secret=SECRET&period=30&digits=6&algorithm=SHA1&issuer=domain.com`
-  - // this name is signup instead of register/adduser beceause it is same length as signin and have same beginning as signin
+  - qrcode content `otpauth://totp/example.com:USERNAME?secret=SECRET&period=30&digits=6&algorithm=SHA1&issuer=example.com`
+  - this name is signup instead of register/adduser beceause it is same length as signin and have same beginning as signin
 
 - `POST /api/signup`
-  - request custom header `X-Name`, `X-Token`, token is `${secret}:${token}`
+  - allow origin id.example.com
+  - use request header `authorization: Basic {base64 encoded username:secret:password}`
   - response status `200` body `{ accessToken: string }`
   - expected errors include
     - 400 invalid user name
@@ -122,23 +194,34 @@ CREATE TABLE `UserDevice` (
   - creates new device (sign in) at the same time
 
 - `GET /api/user-credential`
-  - request custom header `X-Token`, all apis except signin/signup need this header
+  - allow origin id.example.com and app.example.com
+  - request authorization header `authorization: Bearer token`, all apis except signin/signup need this header
   - response status `200` body `{ id: number, name: string, deviceId: number, deviceName: string }`
 
 - `PATCH /api/user-credential`
+  - allow origin id.example.com
   - request body `{ name: string }`
   - response status `201`
   - update user name
 
 - `GET /api/user-devices`
+  - allow origin id.example.com
   - response status `200` body `{ id: number, name: string }[]`
 
 - `PATCH /api/user-devices/:deviceid`
+  - allow origin id.example.com
   - request body `{ name: string }`
   - response status `201`
   - update device name
 
 - `DELETE /api/user-devices/:deviceid`
-  - amazingly this is logout, although device management page will not allow delete self, logout actually can use this while clearing local stored token
+  - allow origin id.example.com
+  - remove an logged in user device
+  - if removed access token is id access token, this also log out id.example.com
   - response status `204` (also for invalid deviceid)
   - physical delete user device (same as `akari remove-device`)
+
+- `POST /api/signout`
+  - allow origin app.example.com
+  - response status `204`
+  - physically delete user device

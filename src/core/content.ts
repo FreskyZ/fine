@@ -35,6 +35,39 @@ const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.j
 type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Buffer }
 const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
 
+// no common module in this library, put it here for now
+export class RateLimit {
+    private readonly buckets: Record<string, {
+        count: number, // remining token count
+        lastAccessTime: dayjs.Dayjs, // see usage
+    }> = {};
+    public constructor(
+        public readonly maxCount: number, // max tokens
+        public readonly refillRate: number // refill count per second
+    ) {
+        // clear filled buckets regularly
+        setInterval(() => Object.entries(this.buckets)
+            .filter(e => e[1].count == this.maxCount && dayjs.utc().diff(e[1].lastAccessTime, 'hour') > 1)
+            .forEach(([key]) => delete this.buckets[key]), 3600_000);
+    }
+
+    public request(key: string) {
+        let bucket = this.buckets[key];
+        if (!bucket) {
+            bucket = { count: 10, lastAccessTime: dayjs.utc() };
+            this.buckets[key] = bucket;
+        } else {
+            const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'minute');
+            bucket.count = Math.min(10, bucket.count + elapsed);
+            bucket.lastAccessTime = dayjs.utc();
+        }
+        bucket.count -= 1;
+        if (bucket.count <= 0) {
+            throw new MyError('rate-limit');
+        }
+    }
+}
+
 // host => path => realpath mapping
 // - host is the host in same origin policy, note that any text difference, e.g. example.com and www.example.com is not same host
 // - path can be "." which means empty
@@ -169,22 +202,9 @@ interface ShortLinkCache {
     // short link records
     readonly items: ShortLinkData[],
 }
-const redirectioncache: ShortLinkCache = { items: [] };
-
+const shortlinkcache: ShortLinkCache = { items: [] };
 // rate limit the db operation
-// use max tokens = 10, refill rate = 1 per second
-const shortLinkRateLimitBuckets: Record<string, {
-    count: number, // remining token count
-    lastAccessTime: dayjs.Dayjs, // see usage
-}> = {};
-// clear filled buckets regularly
-setInterval(() => {
-    for (const [key] of Object.entries(shortLinkRateLimitBuckets)
-        .filter(e => e[1].count == 10 && dayjs.utc().diff(e[1].lastAccessTime, 'hour') > 1)
-    ) {
-        delete shortLinkRateLimitBuckets[key];
-    }
-}, 3600_000);
+const shortlinkratelimit = new RateLimit(10, 1);
 
 async function handleRequestShortLink(ctx: koa.Context) {
     const redirect = (location: string) => {
@@ -203,34 +223,19 @@ async function handleRequestShortLink(ctx: koa.Context) {
     }
 
     const name = ctx.path.substring(1); // ctx.path == '/' is already checked
-    const cacheItem = redirectioncache.items.find(i => i.Name == name);
+    const cacheItem = shortlinkcache.items.find(i => i.Name == name);
     if (cacheItem) {
         if (dayjs.utc(cacheItem.ExpireTime).isBefore(dayjs.utc())) {
             redirect(cacheItem.Value);
         } else {
-            const index = redirectioncache.items.findIndex(i => i.Name == name);
-            redirectioncache.items.splice(index, 1);
+            const index = shortlinkcache.items.findIndex(i => i.Name == name);
+            shortlinkcache.items.splice(index, 1);
             // and goto normal load from db
         }
     }
 
-    // rate limit the db operation
-    const ip = ctx.socket.remoteAddress || 'unknown';
-    let bucket = shortLinkRateLimitBuckets[ip];
-    if (!bucket) {
-        bucket = { count: 10, lastAccessTime: dayjs.utc() };
-        shortLinkRateLimitBuckets[ip] = bucket;
-    } else {
-        const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'minute');
-        bucket.count = Math.min(10, bucket.count + elapsed);
-        bucket.lastAccessTime = dayjs.utc();
-    }
-    bucket.count -= 1;
-    if (bucket.count <= 0) {
-        ctx.status = 429;
-        ctx.body = 'Too Many Requests';
-        return;
-    }
+    // rate limit before invoking db
+    shortlinkratelimit.request(ctx.socket.remoteAddress || 'unknown');
 
     const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
     if (!Array.isArray(records) || records.length == 0) {
@@ -239,7 +244,7 @@ async function handleRequestShortLink(ctx: koa.Context) {
         await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
         notfound();
     } else {
-        redirectioncache.items.push(records[0]);
+        shortlinkcache.items.push(records[0]);
         redirect(records[0].Value);
     }
 }
@@ -388,7 +393,7 @@ export function handleContentCommand(data: AdminContentCommand): void {
         // throw away all old cache
         setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
     } else if (data.type == 'reset-short-link') {
-        redirectioncache.items.splice(0, redirectioncache.items.length);
+        shortlinkcache.items.splice(0, shortlinkcache.items.length);
     } else if (data.type == 'enable-source-map') {
         AllowSourceMap = true;
         if (DisableSourceMapTimer) {

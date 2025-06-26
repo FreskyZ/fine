@@ -1,8 +1,8 @@
-import * as net from 'net';
-import type { ForwardContext } from '../adk/api-server';
-import { MyError } from './error';
-import { logError } from './logger';
-import { AuthContext, appsetting } from './auth';
+import net from 'node:net';
+import type { ForwardContext } from '../adk/api-server.js';
+import { MyError } from './error.js';
+import { log } from './logger.js';
+import { AuthContext, WebappConfig } from './auth.js';
 
 // forward api invocations to services, with pooled connections
 

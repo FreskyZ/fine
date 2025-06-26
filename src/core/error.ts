@@ -17,6 +17,7 @@ const ErrorCodes: { [errorType in FineErrorKind]: number } = {
     'auth': 401,
     'not-found': 404,
     'method-not-allowed': 405,
+    'rate-limit': 429,
     'unreachable': 500,
     'internal': 500,
     'bad-gateway': 502,
