@@ -1,25 +1,20 @@
 /** @jsxImportSource @emotion/react */
-// @ts-ignore, vscode want this, ask them to add more no-config-config settings
-import { useState, useEffect, useMemo } from 'react'; // https://esm.sh/react
+import { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { css } from '@emotion/react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
-import type { UserCredential, UserDevice } from '../shared/auth.js';
+import type { UserCredential, UserSession } from '../shared/auth.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+// this object will not be null when rendering any react components, if not logged in, user.id is 0
+let currentuser: UserCredential;
 // not in react root elements
-const subtitle2 = document.querySelector('span#subtitle2') as HTMLSpanElement;
-const thenotification = document.querySelector('span#the-notification') as HTMLSpanElement;
-
-type Tab = 
-    | 'initial' // displays 'loading', transfer to signin if no user credential, transfer to manage if have user credential
-    | 'signin'  // transfer to signup by click button, transfer to manage by sign in success
-    | 'signup'  // transfer to signin by click button, transfer to manage by sign up success
-    | 'manage'; // transfer to signin by click logout
+const subtitle2 = document.querySelector<HTMLSpanElement>('span#subtitle2');
+const thenotification = document.querySelector<HTMLSpanElement>('span#the-notification');
 
 let lastCloseNotificationTimer: any;
 function notification(message: string) {
@@ -32,14 +27,6 @@ function notification(message: string) {
         thenotification.style.display = 'none';
     }, 5000);
 }
-
-function InitialTab() {
-    const styles = useMemo(createInitialTabStyles, []);
-    return <div css={styles.loading}>还在加载</div>;
-}
-const createInitialTabStyles = () => ({
-    loading: css({ textAlign: 'center', marginTop: '32px', fontSize: '18px' }),
-});
 
 function SignInTab({ handleSignUp, handleComplete }: {
     handleComplete: () => void,
@@ -65,7 +52,12 @@ function SignInTab({ handleSignUp, handleComplete }: {
         }
 
         setLoading(true);
-        const response = await fetch(`https://api.example.com/signin`, { method: 'POST', headers: { 'X-Name': username, 'X-Token': password } });
+        const response = await fetch(`https://api.example.com/signin`, {
+            method: 'POST',
+            headers: {
+                'authorization': 'Basic ' + btoa(`${username}:${password}`),
+            },
+        });
         if (response.status == 400) {
             setLoading(false);
             return notification('x ' + (await response.json()).message);
@@ -154,9 +146,12 @@ function SignUpTab({ handleSignIn, handleComplete }: {
         if (!username || !password) { return notification('x 用户名或密码不能是空的'); }
 
         setLoading(true);
-        const response = await fetch(
-            `https://api.example.com/signup`,
-            { method: 'POST', headers: { 'X-Name': username, 'X-Token': `${secret.secret}:${password}` } });
+        const response = await fetch(`https://api.example.com/signup`, {
+            method: 'POST',
+            headers: {
+                'authorization': 'Basic ' + btoa(`${username}:${secret.secret}:${password}`),
+            },
+        });
         if (response.status == 400) {
             setLoading(false);
             return notification('x ' + (await response.json()).message);
@@ -220,29 +215,31 @@ const createSignUpTabStyles = () => ({
     }),
 });
 
-type UserDeviceF = UserDevice & { lastTimeF: dayjs.Dayjs };
-function ManageTab({ user, handleSetUserName, handleSetDeviceName, handleLogOut: handleLogOutComplete }: { 
+type UserSessionF = UserSession & { lastTimeF: dayjs.Dayjs };
+function getAuthorizationHeader() { return { 'authorization': 'Bearer ' + localStorage['access-token'] }; }
+
+function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOutComplete }: { 
     user: UserCredential,
     handleSetUserName: (newUserName: string) => void,
-    handleSetDeviceName: (newDeviceName: string) => void, 
-    handleLogOut: () => void,
+    handleSetSessionName: (newSessionName: string) => void, 
+    handleSignOutComplete: () => void,
 }) {
     const styles = useMemo(createManageTabStyles, []);
 
     const [username, setUserName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.name, editing: false, loading: false });
-    const [deviceName, setDeviceName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.deviceName, editing: false, loading: false });
-    const [devices, setDevices] = useState<UserDeviceF[]>([]);
-    const [removingDevice, setRemovingDevice] = useState(false);
-    const [loggingOut, setLoggingOut] = useState(false);
+    const [sessionName, setSessionName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.sessionName, editing: false, loading: false });
+    const [sessions, setSessions] = useState<UserSessionF[]>([]);
+    const [removingSession, setRemovingSession] = useState(false);
+    const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => { (async() => {
-        const response = await fetch('https://api.example.com/user-devices', { headers: { 'X-Token': localStorage['access-token'] } });
+        const response = await fetch('https://api.example.com/user-sessions', { headers: { ...getAuthorizationHeader() } });
         if (response.status != 200) {
             return notification('x 看起来坏掉了(3)');
         }
-        const devices = (await response.json()) as UserDevice[];
-        const devicesf = devices.map<UserDeviceF>(d => ({ ...d, lastTimeF: dayjs.utc(d.lastTime) }));
-        setDevices([devicesf.find(d => d.id == user.deviceId)].concat(devicesf.filter(d => d.id != user.deviceId))); // put this device on top
+        const sessions: UserSession[] = (await response.json());
+        const sessionsf = sessions.map<UserSessionF>(d => ({ ...d, lastTimeF: dayjs.utc(d.lastAccessAddress) }));
+        setSessions([sessionsf.find(d => d.id == user.sessionId)].concat(sessionsf.filter(d => d.id != user.sessionId))); // put this session on top
     })(); }, []);
 
     const handleUpdateUserName = async() => {
@@ -251,7 +248,7 @@ function ManageTab({ user, handleSetUserName, handleSetDeviceName, handleLogOut:
         setUserName({ ...username, loading: true });
         const response = await fetch(
             `https://api.example.com/user-credential`,
-            { method: 'PATCH', headers: { 'X-Token': localStorage['access-token'], 'Content-Type': 'application/json', }, body: JSON.stringify({ name: username.value }) });
+            { method: 'PATCH', headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', }, body: JSON.stringify({ name: username.value }) });
         if (response.status == 400) {
             setUserName({ ...username, loading: false });
             return notification('x ' + (await response.json()).message);
@@ -263,48 +260,48 @@ function ManageTab({ user, handleSetUserName, handleSetDeviceName, handleLogOut:
         handleSetUserName(username.value);
         setUserName({ ...username, editing: false, loading: false });
     };
-    const handleUpdateDeviceName = async () => {
-        if (!deviceName.value) { return notification('x 设备名不能为空'); }
+    const handleUpdateSessionName = async () => {
+        if (!sessionName.value) { return notification('x 对话名不能为空'); }
 
-        setDeviceName({ ...deviceName, loading: true });
+        setSessionName({ ...sessionName, loading: true });
         const response = await fetch(
-            `https://api.example.com/user-devices/${user.deviceId}`, 
-            { method: 'PATCH', headers: { 'X-Token': localStorage['access-token'], 'Content-Type': 'application/json' }, body: JSON.stringify({ name: deviceName.value }) });
+            `https://api.example.com/user-sessions/${user.sessionId}`, 
+            { method: 'PATCH', headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: sessionName.value }) });
         if (response.status != 201) {
-            setDeviceName({ ...deviceName, loading: false });
+            setSessionName({ ...sessionName, loading: false });
             return notification('x 看起来坏掉了(5)');
         }
 
-        handleSetDeviceName(deviceName.value);
-        setDeviceName({ ...deviceName, editing: false, loading: false });
-        setDevices(devices.map<UserDeviceF>(d => d.id == user.deviceId ? { ...d, name: deviceName.value } : d));
+        handleSetSessionName(sessionName.value);
+        setSessionName({ ...sessionName, editing: false, loading: false });
+        setSessions(sessions.map<UserSessionF>(d => d.id == user.sessionId ? { ...d, name: sessionName.value } : d));
     }
-    const handleRemoveDevice = async (deviceId: number) => {
-        if (!confirm(`你确定要删除“${devices.find(d => d.id == deviceId).name}”吗？`)) { return; }
+    const handleRemoveSession = async (sessionId: number) => {
+        if (!confirm(`你确定要删除“${sessions.find(d => d.id == sessionId).name}”吗？`)) { return; }
 
-        setRemovingDevice(true);
+        setRemovingSession(true);
         const response = await fetch(
-            `https://api.example.com/user-devices/${deviceId}`,
-            { method: 'DELETE', headers: { 'X-Token': localStorage['access-token'] } });
+            `https://api.example.com/user-sessions/${sessionId}`,
+            { method: 'DELETE', headers: { ...getAuthorizationHeader() } });
         if (response.status != 204) {
             return notification('x 看起来坏掉了(6)');
         }
-        setDevices(devices.filter(d => d.id != deviceId));
-        setRemovingDevice(false);
+        setSessions(sessions.filter(d => d.id != sessionId));
+        setRemovingSession(false);
     }
     const handleLogOut = async () => {
         if (!confirm(`你确定要退出登录吗？`)) { return; }
 
-        setLoggingOut(true);
+        setSigningOut(true);
         const response = await fetch(
-            `https://api.example.com/user-devices/${user.deviceId}`,
-            { method: 'DELETE', headers: { 'X-Token': localStorage['access-token'] } });
+            `https://api.example.com/user-sessions/${user.sessionId}`,
+            { method: 'DELETE', headers: { ...getAuthorizationHeader() } });
         if (response.status != 204) {
-            setLoggingOut(false);
+            setSigningOut(false);
             return notification('x 看起来坏掉了(7)');
         }
         localStorage.removeItem('access-token');
-        handleLogOutComplete();
+        handleSignOutComplete();
     }
 
     return <div css={styles.tab}>
@@ -318,42 +315,42 @@ function ManageTab({ user, handleSetUserName, handleSetDeviceName, handleLogOut:
                 <button css={styles.editButton} disabled={username.loading} onClick={() => setUserName({ ...username, value: user.name, editing: false })}>取消</button>
             </> : <>
                 <span css={styles.formDisplay}>{username.value}</span>
-                <button css={styles.editButton} disabled={loggingOut} onClick={() => setUserName({ ...username, editing: true })}>编辑</button>
+                <button css={styles.editButton} disabled={signingOut} onClick={() => setUserName({ ...username, editing: true })}>编辑</button>
             </>}
         </div>
         <div css={styles.formItem}>
-            <label>设备名</label>
-            {deviceName.editing ? <>
-                <input css={styles.formInput} value={deviceName.value} disabled={deviceName.loading} 
-                    onChange={e => setDeviceName({ ...deviceName, value: e.target.value })} 
-                    onKeyDown={e => e.key == 'Enter' && handleUpdateDeviceName()}></input>
-                <button css={styles.editButton} disabled={deviceName.loading} onClick={handleUpdateDeviceName}>确认</button>
-                <button css={styles.editButton} disabled={deviceName.loading} onClick={() => setDeviceName({ ...deviceName, value: user.deviceName, editing: false })}>取消</button>
+            <label>对话名</label>
+            {sessionName.editing ? <>
+                <input css={styles.formInput} value={sessionName.value} disabled={sessionName.loading} 
+                    onChange={e => setSessionName({ ...sessionName, value: e.target.value })} 
+                    onKeyDown={e => e.key == 'Enter' && handleUpdateSessionName()}></input>
+                <button css={styles.editButton} disabled={sessionName.loading} onClick={handleUpdateSessionName}>确认</button>
+                <button css={styles.editButton} disabled={sessionName.loading} onClick={() => setSessionName({ ...sessionName, value: user.sessionName, editing: false })}>取消</button>
             </> : <>
-                <span css={styles.formDisplay}>{deviceName.value}</span>
-                <button css={styles.editButton} disabled={loggingOut} onClick={() => setDeviceName({ ...deviceName, editing: true })}>编辑</button>
+                <span css={styles.formDisplay}>{sessionName.value}</span>
+                <button css={styles.editButton} disabled={signingOut} onClick={() => setSessionName({ ...sessionName, editing: true })}>编辑</button>
             </>}
         </div>
-        <div css={styles.tableHeader}>已登录设备</div>
+        <div css={styles.tableHeader}>已登录对话</div>
         <table css={styles.table}>
             <thead><tr>
-                <th>名字</th>
+                <th>名字/应用</th>
                 <th css={styles.lastAccess}>上次访问</th>
                 <th></th>
             </tr></thead>
-            <tbody>{devices.map(d => <tr>
-                <td>{d.name}</td>
+            <tbody>{sessions.map(d => <tr>
+                <td>{d.name || d.app}</td>
                 <td css={styles.lastAccess}>
                     <span>{d.lastTimeF.tz().format('YYYY-MM-DD HH:mm:ss')}</span>
-                    <span>{d.lastAddress}</span>
+                    <span>{d.lastAccessAddress}</span>
                 </td>
-                <td>{d.id == user.deviceId
-                    ? <span>当前设备</span>
-                    : <button css={styles.tableButton} disabled={removingDevice || loggingOut} onClick={() => handleRemoveDevice(d.id)}>删除</button>}</td>
+                <td>{d.id == user.sessionId
+                    ? <span>当前对话</span>
+                    : <button css={styles.tableButton} disabled={removingSession || signingOut} onClick={() => handleRemoveSession(d.id)}>删除</button>}</td>
             </tr>)}</tbody>
         </table>
         <div css={styles.signOutContainer}>
-            <button css={styles.signOutButton} disabled={loggingOut} onClick={handleLogOut}>退出登录</button>
+            <button css={styles.signOutButton} disabled={signingOut} onClick={handleLogOut}>退出登录</button>
         </div>
     </div>;
 }
@@ -443,34 +440,15 @@ const createManageTabStyles = () => ({
 
 // normally root component is App, but this is not an app, so Page
 function Page() {
-    const [tab, setTab] = useState<Tab>('initial');
+    const [tab, setTab] = useState<'signin' | 'signup' | 'manage'>(() => currentuser.id ? 'manage' : 'signin');
     const [user, setUser] = useState<UserCredential | null>(null);
 
     // header subtitle is not in react root, control by side effect
     useEffect(() => {
-        subtitle2.style.display = tab != 'initial' ? 'inline' : 'none';
-        subtitle2.innerText = tab == 'initial' ? '' : tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
+        subtitle2.innerText = tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
     }, [tab]);
 
-    // initial fetch user-credential
-    const getUserCredential = async () => {
-        const response = await fetch(
-            `https://api.example.com/user-credential`, 
-            { headers: { 'X-Token': localStorage['access-token'] }});
-        if (response.status == 200) {
-            setUser(await response.json());
-            setTab('manage');
-        } else if (response.status == 401) {
-            localStorage.removeItem('access-token');
-            setTab('signin');
-        } else {
-            return notification('x 看起来坏掉了(8)');
-        }
-    };
-    useEffect(() => { /* ATTENTION do not await because useEffect does not accept this and async hook is designed to be use in this way */ getUserCredential(); }, []);
-
     switch (tab) {
-        case 'initial': return <InitialTab />;
         case 'signin': return <SignInTab 
             handleComplete={getUserCredential} 
             handleSignUp={() => setTab('signup')}/>;
@@ -480,9 +458,43 @@ function Page() {
         case 'manage': return <ManageTab 
             user={user}
             handleSetUserName={newUserName => setUser({ ...user, name: newUserName })}
-            handleSetDeviceName={newDeviceName => setUser({ ...user, deviceName: newDeviceName })} 
-            handleLogOut={() => setTab('signin')} />;
+            handleSetSessionName={newSessionName => setUser({ ...user, sessionName: newSessionName })} 
+            handleSignOutComplete={() => setTab('signin')} />;
     }
 }
+
+currentuser = null;
+const userCredentialResponse = await fetch(`https://api.example.com/user-credential`, { headers: getAuthorizationHeader() });
+if (userCredentialResponse.status == 200) {
+    currentuser = await userCredentialResponse.json();
+} else if (userCredentialResponse.status == 401) {
+    localStorage.removeItem('access-token');
+    currentuser = { id: 0, name: '' };
+} else {
+    notification('x 不知道什么东西坏掉了(8)');
+}
+
+// also called in sign in page
+async function returnToApplicationIfRequired() {
+    const returnAddress = new URLSearchParams(window.location.search).get('return');
+    if (returnAddress) {
+        const authorizationCodeResponse = await fetch(`https://api.example.com/generate-authorization-code`, {
+            method: 'POST',
+            headers: getAuthorizationHeader(),
+            body: JSON.stringify({ return: returnAddress }),
+        });
+        if (authorizationCodeResponse.status == 200) {
+            // replace: do not go back to here
+            window.location.replace(returnAddress);
+        } else {
+            notification('x 不知道什么东西坏掉了(9)');
+        }
+    }
+}
+if (currentuser.id) {
+    await returnToApplicationIfRequired();
+}
+
+
 
 createRoot(document.querySelector('main')).render(<Page />);

@@ -3,4 +3,5 @@
     "js/ts.implicitProjectConfig.strictNullChecks": false,
     "js/ts.implicitProjectConfig.target": "ESNext",
     "typescript.format.semicolons": "insert",
+    "emmet.showExpandedAbbreviation": "never",
 }

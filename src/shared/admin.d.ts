@@ -1,11 +1,11 @@
 // admin interface types
 
-export type AdminAuthCommand =
+export type AdminAccessCommand =
     | { type: 'enable-signup' }
     | { type: 'disable-signup' }
     | { type: 'activate-user', userId: number }
     | { type: 'inactivate-user', userId: number }
-    | { type: 'remove-device', deviceId: number };
+    | { type: 'revoke-session', sessionId: number };
 
 export type AdminContentCommand =
     | { type: 'reload-static', key: string }
@@ -14,11 +14,15 @@ export type AdminContentCommand =
     | { type: 'enable-source-map' }
     | { type: 'disable-source-map' };
 
+export type AdminForwardCommand =
+    | { type: 'reload-app', name: string }
+
 export type AdminCoreCommand =
     | { type: 'ping' }
     | { type: 'shutdown' }
-    | { type: 'auth', sub: AdminAuthCommand }
-    | { type: 'content', sub: AdminContentCommand };
+    | { type: 'access', sub: AdminAccessCommand }
+    | { type: 'content', sub: AdminContentCommand }
+    | { type: 'forward', sub: AdminForwardCommand };
 
 export type AdminDevPageCommand =
     | 'reload-all'

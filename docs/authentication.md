@@ -146,23 +146,25 @@ These are general risks and not specific to the authentication design described 
 CREATE TABLE `User` (
   `Id` INT NOT NULL AUTO_INCREMENT,
   `Name` VARCHAR(100) NOT NULL,
-  `Token` CHAR(16) NOT NULL,    -- authenticator token
   `Active` BIT(1) NOT NULL,
+  `Secret` CHAR(16) NOT NULL, -- authenticator secret
+  `Apps` VARCHAR(100) NOT NULL, -- comma separated allowed app names
   `CreateTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT `PK_User` PRIMARY KEY (`Id`)
 );
 
-CREATE TABLE `UserDevice` (
+-- this is identity provider's (id.example.com) user session/access token storage
+-- application access token is not saved in database
+CREATE TABLE `UserSession` (
   `Id` INT NOT NULL AUTO_INCREMENT,
-  `App` VARCHAR(20) NOT NULL, -- same as ctx.state.app, id access token use app='id'
-  `Name` VARCHAR(100) NOT NULL,
-  `Token` CHAR(42) DEFAULT NULL,
   `UserId` INT NOT NULL,
-  `LastAccessTime` DATETIME DEFAULT NULL,  -- token expires after 1 month no access
+  `Name` VARCHAR(100) NOT NULL, -- user can name a session to distinguish them
+  `AccessToken` CHAR(42) DEFAULT NULL,
+  `LastAccessTime` DATETIME DEFAULT NULL, -- token expires after 1 month no access
   `LastAccessAddress` VARCHAR(50) DEFAULT NULL, -- ip
   `CreateTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT `PK_UserDevice` PRIMARY KEY (`Id`),
-  CONSTRAINT `FK_UserDevice_User` FOREIGN KEY (`UserId`) REFERENCES `User` (`Id`)
+  CONSTRAINT `PK_UserSession` PRIMARY KEY (`Id`),
+  CONSTRAINT `FK_UserSession_User` FOREIGN KEY (`UserId`) REFERENCES `User` (`Id`)
 );
 ```
 

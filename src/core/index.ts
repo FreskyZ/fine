@@ -75,7 +75,7 @@ adminServer.on('connection', connection => {
 
         if (message.type == 'shutdown') {
             shutdown();
-        } else if (message.type == 'auth') {
+        } else if (message.type == 'access') {
             handleAuthCommand(message.sub);
         } else if (message.type == 'content') {
             handleContentCommand(message.sub);

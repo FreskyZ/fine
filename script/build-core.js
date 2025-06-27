@@ -446,6 +446,7 @@ try {
         sourceMap: false,
         module: true,
         compress: { ecma: 2022 },
+        format: { max_line_len: 160 },
     });
 } catch (err) {
     console.error(chalk`{red error} terser`, err, resultJs);
