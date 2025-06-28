@@ -13,8 +13,9 @@ import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
 import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
-import type { WebappConfig } from './auth.js';
-import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAuthCommand } from './auth.js';
+import type { WebappConfig } from './access.js';
+import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
+import { setupForwarding, handleRequestForward, handleForwardCommand } from './forward.js';
 
 const app = new koa();
 
@@ -23,6 +24,7 @@ app.use(handleRequestContent);
 app.use(handleRequestCrossOrigin);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
+app.use(handleRequestForward);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
@@ -40,6 +42,7 @@ setupDatabaseConnection(config.database);
 setupShortLinkService(config['short-link']);
 await setupStaticContent(config.webroot, config['static-content']);
 setupAccessControl(config.webapps);
+setupForwarding(config.webapps);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {
@@ -76,14 +79,15 @@ adminServer.on('connection', connection => {
         if (message.type == 'shutdown') {
             shutdown();
         } else if (message.type == 'access') {
-            handleAuthCommand(message.sub);
+            handleAccessCommand(message.sub);
         } else if (message.type == 'content') {
             handleContentCommand(message.sub);
+        } else if (message.type == 'forward') {
+            handleForwardCommand(message.sub);
         }
     });
 });
 
-// TODO also redirect www. to @
 const httpServer = http.createServer((request, response) => {
     response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
 });

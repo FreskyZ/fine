@@ -1,16 +1,18 @@
 import net from 'node:net';
 import type { ForwardContext } from '../adk/api-server.js';
+import type { AdminForwardCommand } from '../shared/admin.js';
 import { MyError } from './error.js';
 import { log } from './logger.js';
-import { AuthContext, WebappConfig } from './auth.js';
+import type { MyContext, WebappConfig } from './access.js';
+import { webapps } from './access.js';
 
 // forward api invocations to services, with pooled connections
 
-type PoolItem = {
+interface PoolItem {
     connection: net.Socket,
     state: 'uninit' | 'available' | 'acquired',
 }
-type Pool = {
+interface Pool {
     // initialized as POOLSIZE as uninit
     items: ReadonlyArray<PoolItem>,
     // wait queue for available item, FIFO
@@ -28,9 +30,14 @@ const IDLE_TIMEOUT = 600_000;
 const REQUEST_TIMEOUT = 60_000;
 
 // property key is app name (ctx.state.app)
-const pools = Object.fromEntries<Pool>(appsetting.map(a => [a.name, { waits: [],
-    // need to fill air into the array or else the items are vaccum, then the map call maps nothing
-    items: new Array<void>(POOL_SIZE).fill().map<PoolItem>(() => ({ state: 'uninit', connection: null })) }]));
+let socketPools: Record<string, Pool>;
+export function setupForwarding(config: WebappConfig) {
+    socketPools = Object.fromEntries<Pool>(Object.entries(config).filter(a => a[1].socket).map(a => [a[0], {
+        waits: [] as Pool['waits'],
+        // need to fill air into the array or else the items are vaccum, then the map call maps nothing
+        items: new Array<void>(POOL_SIZE).fill().map<PoolItem>(() => ({ state: 'uninit', connection: null })),
+    }]));
+}
 
 async function acquire(app: string, pool: Pool, requestDisplay: string): Promise<net.Socket> {
 
@@ -68,7 +75,7 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
             item.connection.once('connect', () => {
                 resolve();
                 item.connection.on('error', error => {
-                    logError(`${requestDisplay}: ` + error.message);
+                    log.error(`${requestDisplay}: ` + error.message);
                     cleanupItem(item);
                 });
             });
@@ -76,7 +83,7 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
             // this once error is initial connection error
             // normally caused by service not start: ENOENT (file not exist)
             item.connection.once('error', error => {
-                logError(`${requestDisplay}: ` + error.message);
+                log.error(`${requestDisplay}: ` + error.message);
                 cleanupItem(item);
                 reject(new MyError('service-not-available'));
             });
@@ -93,7 +100,7 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
             });
             // the .find will not fail because app is
             // already checked by allowedOrigins (auth.ts) and they come from the same APPSETTING
-            item.connection.connect(appsetting.find(a => a.name == app).socket);
+            item.connection.connect(webapps.find(a => a.name == app).socket);
         })
     }
 }
@@ -110,23 +117,36 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-export async function handleRequestForward(ctx: AuthContext): Promise<void> {
-    // handleRequestAccessControl already checked origin is allowed and assigned known state.app
-    if (!ctx.state.app) { throw new MyError('unreachable'); }
-    // an known origin can only call its own '/:app/...'
-    if (!ctx.path.startsWith('/' + ctx.state.app)) { throw new MyError('not-found', 'invalid-invocation'); }
+export async function handleRequestForward(ctx: MyContext): Promise<void> {
+    // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
+    if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
+    // 8: /appname/public/xxx => /xxx, 1: /appname/xxx => /xxx
+    const pathname = ctx.path.substring(ctx.state.app.length + (ctx.state.public ? 8 : 1));
     // log header
     const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
 
+    const appconfig = webapps.find(a => a.name == ctx.state.app);
+    if (appconfig.small) {
+        const response = await (await import(`${appconfig.module}?version=${appconfig.version}`)).dispatch({
+            method: ctx.method,
+            path: pathname,
+            body: ctx.request.body,
+            state: ctx.state,
+        });
+        ctx.status = response?.status || 200;
+        ctx.body = response?.body;
+        return;
+    }
+
     // pools and allowedOrigins initialized from same data source so must exist
-    const pool = pools[ctx.state.app];
+    const pool = socketPools[ctx.state.app];
     const connection = await acquire(ctx.state.app, pool, requestDisplay);
 
     return new Promise((resolve, reject) => {
 
         // timeout 1 min for normal request
         const timeout = setTimeout(() => {
-            logError(`${requestDisplay} timeout`);
+            log.error(`${requestDisplay} timeout`);
             reject(new MyError('gateway-timeout', 'service timeout'));
             connection.removeAllListeners('data');
             release(pool, connection);
@@ -139,7 +159,7 @@ export async function handleRequestForward(ctx: AuthContext): Promise<void> {
             try {
                 response = JSON.parse(data.toString());
             } catch (error) {
-                logError(`failed to parse response: ${error}: ${dataString}`);
+                log.error(`failed to parse response: ${error}: ${dataString}`);
                 reject(new MyError('bad-gateway', 'failed to parse response'));
                 return;
             }
@@ -157,9 +177,22 @@ export async function handleRequestForward(ctx: AuthContext): Promise<void> {
 
         connection.write(JSON.stringify({
             method: ctx.method,
-            path: ctx.path.substring(ctx.state.app.length + 1),
+            path: pathname,
             body: ctx.request.body,
             state: ctx.state,
         }));
     });
+}
+
+export async function handleForwardCommand(command: AdminForwardCommand): Promise<void> {
+    log.info({ type: 'admin command forward', data: command });
+
+    // ATTENTION TODO reload-config does not work here
+    
+    if (command.type == 'reload-app') {
+        const app = webapps.find(a => a.name == command.name);
+        if (app) {
+            app.version += 1;
+        }
+    }
 }

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { css } from '@emotion/react';
-import type { UserCredential, UserSession } from '../shared/auth.js';
+import type { UserCredential, UserSession } from '../shared/access.js';
 
 // // this was only for last access time display, add back if have more usage
 // import dayjs from 'dayjs';
@@ -543,12 +543,14 @@ async function returnToApplicationIfRequired() {
     if (returnAddress) {
         const authorizationCodeResponse = await fetch(`https://api.example.com/generate-authorization-code`, {
             method: 'POST',
-            headers: getAuthorizationHeader(),
+            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', },
             body: JSON.stringify({ return: returnAddress }),
         });
         if (authorizationCodeResponse.status == 200) {
+            const returnURL = new URL(returnAddress);
+            returnURL.searchParams.append('code', (await authorizationCodeResponse.json()).code);
             // replace: do not go back to here
-            window.location.replace(returnAddress);
+            window.location.replace(returnURL.toString());
         } else {
             notification('Something went wrong. (11)');
         }

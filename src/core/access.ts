@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import koa from 'koa';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
-import type { UserSession, UserCredential } from '../shared/auth.js';
+import type { UserSession, UserCredential } from '../shared/access.js';
 import type { AdminAccessCommand } from '../shared/admin.js';
 import type { QueryResult, ManipulateResult } from '../adk/database.js';
 import { pool, QueryDateTimeFormat } from '../adk/database.js';
@@ -24,18 +24,21 @@ export type MyContext = koa.ParameterizedContext<{
 }>;
 
 export type WebappConfig = Record<string, {
-    // small app use app.example.com/appname/, and is loaded in same process
-    // major app use appname.example.com, and is communicated with domain socket
-    small: boolean,
+    // small app use app.example.com/appname/, `.module` is a nodejs module loaded in the same process
+    module?: string,
+    // major app use appname.example.com, and is communicated with domain socket, absolute path from `.socket`
+    socket?: string,
 }>;
 interface WebappRuntimeConfig {
     name: string,
     small: boolean,
+    module: string,
     version: number, // appended to dynamic import url to hot reload
+    socket: string,
 }
 export let webapps: WebappRuntimeConfig[];
 export function setupAccessControl(config: WebappConfig) {
-    webapps = Object.entries(config).map(c => ({ name: c[0], small: c[1].small, version: 0 }));
+    webapps = Object.entries(config).map(c => ({ name: c[0], small: !!c[1].module, socket: c[1].socket, module: c[1].module, version: 0 }));
     ratelimits.apps = Object.fromEntries(webapps.map(a => [a.name, new RateLimit(10, 1)]));
 }
 
@@ -588,8 +591,8 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
     }
 }
 
-export async function handleAuthCommand(command: AdminAccessCommand): Promise<void> {
-    log.info({ type: 'admin command auth', data: command });
+export async function handleAccessCommand(command: AdminAccessCommand): Promise<void> {
+    log.info({ type: 'admin command access', data: command });
 
     // activate/inactivate user
     if (command.type == 'activate-user') {

@@ -22,6 +22,11 @@ const workflows = {
     tsadmin: [
         ['script/admin.js', 'admin.js'],
     ],
+    // chat
+    chat: [
+        ['../small/theai/chat-server.js', 'servers/chat.js'],
+        ['../small/theai/chat.html', 'static/chat.html'],
+    ],
 }
 
 const workflowName = process.argv[2];

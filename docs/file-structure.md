@@ -28,6 +28,7 @@
   because watch file is proved to be unstable, not compatible and affect performance, they are hot reloaded by admin command
   - the home page `static/index.html` and authentication related pages like `static/user.html` are directly in `static` directory
   - other apps use their own `static/<app>` folder
+- `servers`: in process servers' entries location
 - (not in same directory) app's server is deployed and run separately
 
 ### `public` or (or and) `static`

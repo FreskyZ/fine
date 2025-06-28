@@ -1,10 +1,10 @@
 // server side web interface common
 
-import * as fs from 'fs';
-import * as net from 'net';
-import * as dayjs from 'dayjs';
-import { FineError } from './error';
-import { UserCredential } from '../shared/auth';
+import syncfs from 'node:fs';
+import net from 'node:net';
+import dayjs from 'dayjs';
+import { FineError } from './error.js';
+import { UserCredential } from '../shared/access.js';
 
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';
@@ -113,8 +113,8 @@ export function setupAPIServer(
             }
         });
     });
-    if (fs.existsSync(path)) {
-        fs.unlinkSync(path);
+    if (syncfs.existsSync(path)) {
+        syncfs.unlinkSync(path);
     }
     server.listen(path);
 }

@@ -37,11 +37,13 @@
       "404": "404.html",
       "418": "418.html"
     },
+    "app.example.com": {
+      ".": "home.html",
+      "chat": "chat.html"
+    },
     "app1.example.com": {
-      ".": "app2/index.html",
-      "user": "user.html",
-      "user.js": "user.js",
-      "user.css": "user.css"
+      ".": "app/index.html",
+      "index.js": "app1/index.css"
     },
     "app2.example.com": {
       ".": "app2/index.html",
@@ -53,10 +55,10 @@
   },
   "webapps": {
     "note": {
-      "subdomain": false
+      "module": "./servers/note.js"
     },
     "chat": {
-      "subdomain": false
+      "module": "./servers/chat.js"
     }
   }
 }
