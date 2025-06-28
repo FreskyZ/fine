@@ -18,7 +18,11 @@ export type FineErrorKind =
 // error.name not FineError's owned property and will not be JSON stringified
 export class FineError {
     public readonly name: string;
-    public constructor(public readonly kind: FineErrorKind, public readonly message?: string) {
+    public constructor(
+        public readonly kind: FineErrorKind,
+        public readonly message?: string,
+        public readonly additionalInternalMessage?: string,
+    ) {
         this.name = 'FineError';
     }
 }

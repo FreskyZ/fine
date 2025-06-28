@@ -42,8 +42,8 @@ export class RateLimit {
         lastAccessTime: dayjs.Dayjs, // see usage
     }> = {};
     public constructor(
-        public readonly maxCount: number, // max tokens
-        public readonly refillRate: number // refill count per second
+        private readonly maxCount: number, // max tokens
+        private readonly refillRate: number // refill count per second
     ) {
         // clear filled buckets regularly
         setInterval(() => Object.entries(this.buckets)
@@ -57,8 +57,8 @@ export class RateLimit {
             bucket = { count: 10, lastAccessTime: dayjs.utc() };
             this.buckets[key] = bucket;
         } else {
-            const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'minute');
-            bucket.count = Math.min(10, bucket.count + elapsed);
+            const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'second');
+            bucket.count = Math.min(10, bucket.count + elapsed * this.refillRate);
             bucket.lastAccessTime = dayjs.utc();
         }
         bucket.count -= 1;
@@ -235,7 +235,7 @@ async function handleRequestShortLink(ctx: koa.Context) {
     }
 
     // rate limit before invoking db
-    shortlinkratelimit.request(ctx.socket.remoteAddress || 'unknown');
+    shortlinkratelimit.request(ctx.ip || 'unknown');
 
     const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
     if (!Array.isArray(records) || records.length == 0) {

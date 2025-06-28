@@ -13,6 +13,8 @@ if (commandName == 'reload-static') {
     command = { type: 'content', sub: { type: 'reload-static', key } };
 } else if (commandName == 'reload-config') {
     command = { type: 'content', sub: { type: 'reload-config' } };
+} else if (commandName == 'enable-signup') {
+    command = { type: 'access', sub: { type: 'enable-signup' } };
 } else {
     console.error('unknown command');
     process.exit(1);

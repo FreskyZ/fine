@@ -2,34 +2,37 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { css } from '@emotion/react';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc.js';
-import timezone from 'dayjs/plugin/timezone.js';
 import type { UserCredential, UserSession } from '../shared/auth.js';
 
-dayjs.extend(utc);
-dayjs.extend(timezone);
+// // this was only for last access time display, add back if have more usage
+// import dayjs from 'dayjs';
+// import utc from 'dayjs/plugin/utc.js';
+// import timezone from 'dayjs/plugin/timezone.js';
+// dayjs.extend(utc);
+// dayjs.extend(timezone);
 
-// this object will not be null when rendering any react components, if not logged in, user.id is 0
-let currentuser: UserCredential;
 // not in react root elements
-const subtitle2 = document.querySelector<HTMLSpanElement>('span#subtitle2');
-const thenotification = document.querySelector<HTMLSpanElement>('span#the-notification');
+const titleElement = document.querySelector<HTMLSpanElement>('span#subtitle2');
+const notificationElement = document.querySelector<HTMLSpanElement>('span#the-notification');
 
-let lastCloseNotificationTimer: any;
+let notificationTimer: any;
 function notification(message: string) {
-    if (lastCloseNotificationTimer) {
-        clearTimeout(lastCloseNotificationTimer);
+    if (notificationTimer) {
+        clearTimeout(notificationTimer);
     }
-    thenotification.style.display = 'inline';
-    thenotification.innerText = message;
-    lastCloseNotificationTimer = setTimeout(() => {
-        thenotification.style.display = 'none';
+    notificationElement.style.display = 'inline';
+    notificationElement.innerText = message;
+    notificationTimer = setTimeout(() => {
+        notificationElement.style.display = 'none';
     }, 5000);
 }
 
+function getAuthorizationHeader() {
+    return { 'authorization': 'Bearer ' + localStorage['access-token'] };
+}
+
 function SignInTab({ handleSignUp, handleComplete }: {
-    handleComplete: () => void,
+    handleComplete: (user: UserCredential) => void,
     handleSignUp: () => void,
 }) {
     const styles = useMemo(createSignInTabStyles, []);
@@ -48,43 +51,47 @@ function SignInTab({ handleSignUp, handleComplete }: {
 
     const handleSignIn = async () => {
         if (!username || !password) {
-            return notification('x 用户名或密码不能是空的');
+            return notification('User name or password cannot be empty.');
         }
 
         setLoading(true);
         const response = await fetch(`https://api.example.com/signin`, {
             method: 'POST',
-            headers: {
-                'authorization': 'Basic ' + btoa(`${username}:${password}`),
-            },
+            headers: { 'authorization': 'Basic ' + btoa(`${username}:${password}`) },
         });
-        if (response.status == 400) {
-            setLoading(false);
-            return notification('x ' + (await response.json()).message);
-        } else if (response.status == 200) {
+        if (response.status == 200) {
             localStorage['access-token'] = (await response.json()).accessToken;
-            notification('y 登录成功');
-            handleComplete();
+            notification('Sign in successfully.');
+            await returnToApplicationIfRequired();
+            const userCredentialResponse = await fetch(`https://api.example.com/user-credential`, { headers: getAuthorizationHeader() });
+            if (userCredentialResponse.status == 200) {
+                handleComplete(await userCredentialResponse.json());
+            } else {
+                return notification('Something went wrong. (1)');
+            }
+        } else if (response.status == 400) {
+            setLoading(false);
+            return notification((await response.json()).message);
         } else {
-            return notification('x 看起来坏掉了(9)');
+            return notification('Something went wrong. (2)');
         }
     };
 
     const handleTrySignUp = async () => {
         if (!allowSignUp) {
-            return notification('x 根据相关法律法规，今天不能注册，明天大概也不能');
+            return notification('Sign up not allowed for now, I guess.');
         }
         handleSignUp();
     }
 
-    return <div>
-        <input type="text" css={styles.input} required={true} placeholder="用户名" disabled={loading} value={username} 
+    return <>
+        <input type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username} 
             onChange={e => setUserName(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignIn()} />
-        <input type="password" css={styles.input} required={true} placeholder="密码" disabled={loading} value={password} 
+        <input type="password" css={styles.input} required={true} placeholder="Password" disabled={loading} value={password} 
             onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignIn()} />
-        <button css={styles.button} disabled={loading} onClick={handleSignIn}>登录</button>
-        <button css={styles.button} disabled={loading} onClick={handleTrySignUp}>注册</button>
-    </div>;
+        <button css={styles.button} disabled={loading} onClick={handleSignIn}>SIGN IN</button>
+        <button css={styles.button} disabled={loading} onClick={handleTrySignUp}>SIGN UP</button>
+    </>;
 }
 const createSignInTabStyles = () => ({
     input: css({
@@ -96,6 +103,7 @@ const createSignInTabStyles = () => ({
         borderColor: '#afafaf',
         borderTopLeftRadius: '4px',
         borderTopRightRadius: '4px',
+        background: 'transparent',
         '&:focus': {
             outlineWidth: 0,
             borderColor: '#3f3f3f',
@@ -111,13 +119,14 @@ const createSignInTabStyles = () => ({
         height: '28px',
         borderRadius: '4px',
         borderWidth: 0,
-        outline: 'none', 
+        outline: 'none',
+        cursor: 'pointer',
     }),
 });
 
 function SignUpTab({ handleSignIn, handleComplete }: {
     handleSignIn: () => void,
-    handleComplete: () => void,
+    handleComplete: (user: UserCredential) => void,
 }) {
     const styles = useMemo(createSignUpTabStyles, []);
     
@@ -127,56 +136,59 @@ function SignUpTab({ handleSignIn, handleComplete }: {
     const [secret, setSecret] = useState<{ secret: string, dataurl: string }>(null);
 
     const handleGetSecret = async () => {
-        if (!username) { return notification('x 用户名不能是空的'); }
+        if (!username) { return notification('User name cannot be empty.'); }
 
         setLoading(true);
         const response = await fetch(
             `https://api.example.com/signup/${username}`);
-        if (response.status == 400) {
+        if (response.status == 200) {
             setLoading(false);
-            return notification('x ' + (await response.json()).message);
+            setSecret(await response.json());
+        } else if (response.status == 400) {
+            setLoading(false);
+            return notification((await response.json()).message);
         } else if (response.status != 200) {
-            return notification('x 看起来坏掉了(1)');
+            return notification('Something went wrong. (3)');
         }
-        setSecret(await response.json());
-        setLoading(false);
     };
 
     const handleSignUp = async () => {
-        if (!username || !password) { return notification('x 用户名或密码不能是空的'); }
+        if (!username || !password) { return notification('User name or password cannot be empty.'); }
 
         setLoading(true);
         const response = await fetch(`https://api.example.com/signup`, {
             method: 'POST',
-            headers: {
-                'authorization': 'Basic ' + btoa(`${username}:${secret.secret}:${password}`),
-            },
+            headers: { 'authorization': 'Basic ' + btoa(`${username}:${secret.secret}:${password}`) },
         });
-        if (response.status == 400) {
-            setLoading(false);
-            return notification('x ' + (await response.json()).message);
-        } else if (response.status == 201) {
+        if (response.status == 201) {
             localStorage['access-token'] = (await response.json()).accessToken;
-            notification('注册成功');
-            handleComplete();
-        } else {
+            notification('Sign up successfully.');
+            const userCredentialResponse = await fetch(`https://api.example.com/user-credential`, { headers: getAuthorizationHeader() });
+            if (userCredentialResponse.status == 200) {
+                handleComplete(await userCredentialResponse.json());
+            } else {
+                return notification('Something went wrong. (1)');
+            }
+        } else if (response.status == 400) {
             setLoading(false);
-            return notification('x 看起来坏掉了(2)');
+            return notification((await response.json()).message);
+        } else {
+            return notification('Something went wrong. (4)');
         }
-    
-        setLoading(false);
     };
 
-    return <div>
-        <input type="text" css={styles.input} required={true} placeholder="用户名" disabled={loading} value={username} 
+    return <>
+        <input type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username}
             onChange={e => setUserName(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleGetSecret()} />
-        {username && <button css={[styles.button, styles.getSecret]} disabled={loading} onClick={handleGetSecret}>{secret ? '刷新' : '获取'}二维码</button>}
+        {username && <button css={[styles.button, styles.getSecret]}
+            disabled={loading} onClick={handleGetSecret}>{secret ? 'Refresh ' : 'Load '}QR Code</button>}
         {secret && <img css={styles.image} src={secret.dataurl} />}
-        {secret && <input type="password" css={styles.input} required={true} placeholder="验证器密码" disabled={loading} value={password} 
+        {secret && <input type="password" css={styles.input} required={true}
+            placeholder="Password" disabled={loading} value={password}
             onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignUp()}/>}
-        <button css={[styles.button, styles.signIn]} disabled={loading || !!secret} onClick={handleSignIn}>登录</button>
-        <button css={[styles.button, styles.signIn]} disabled={loading} onClick={handleSignUp}>注册</button>
-    </div>;
+        <button css={[styles.button, styles.signIn]} disabled={loading || !!secret} onClick={handleSignIn}>BACK TO SIGN IN</button>
+        <button css={[styles.button, styles.signUp]} disabled={loading} onClick={handleSignUp}>SIGN UP</button>
+    </>;
 }
 const createSignUpTabStyles = () => ({
     input: css({
@@ -188,6 +200,7 @@ const createSignUpTabStyles = () => ({
         borderColor: '#afafaf',
         borderTopLeftRadius: '4px',
         borderTopRightRadius: '4px',
+        background: 'transparent',
         '&:focus': {
             outlineWidth: 0,
             borderColor: '#3f3f3f',
@@ -200,13 +213,23 @@ const createSignUpTabStyles = () => ({
         marginLeft: '52px',
     }),
     button: css({
-        width: '120px',
+        width: '144px',
         height: '28px',
         borderRadius: '4px',
         borderWidth: 0,
         outline: 'none',
+        cursor: 'pointer',
+        '&:disabled': {
+            cursor: 'not-allowed',
+        },
     }),
     signIn: css({
+        marginTop: '20px',
+        marginLeft: '20px',
+        width: '144px',
+    }),
+    signUp: css({
+        width: '100px',
         marginTop: '20px',
         marginLeft: '20px',
     }),
@@ -214,9 +237,6 @@ const createSignUpTabStyles = () => ({
         margin: '10px 90px 6px 90px',
     }),
 });
-
-type UserSessionF = UserSession & { lastTimeF: dayjs.Dayjs };
-function getAuthorizationHeader() { return { 'authorization': 'Bearer ' + localStorage['access-token'] }; }
 
 function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOutComplete }: { 
     user: UserCredential,
@@ -226,131 +246,150 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
 }) {
     const styles = useMemo(createManageTabStyles, []);
 
-    const [username, setUserName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.name, editing: false, loading: false });
-    const [sessionName, setSessionName] = useState<{ value: string, editing: boolean, loading: boolean }>({ value: user.sessionName, editing: false, loading: false });
-    const [sessions, setSessions] = useState<UserSessionF[]>([]);
-    const [removingSession, setRemovingSession] = useState(false);
+    const [userName, setUserName] = useState<string>(user.name);
+    const [userNameEditing, setUserNameEditing] = useState(false);
+    const [userNameLoading, setUserNameLoading] = useState(false);
+    const [sessionName, setSessionName] = useState<string>(user.sessionName);
+    const [sessionNameEditing, setSessionNameEditing] = useState(false);
+    const [sessionNameLoading, setSessionNameLoading] = useState(false);
+
+    const [sessions, setSessions] = useState<UserSession[]>([]);
+    const [sessionRemoving, setSessionRemoving] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => { (async() => {
-        const response = await fetch('https://api.example.com/user-sessions', { headers: { ...getAuthorizationHeader() } });
+        const response = await fetch('https://api.example.com/user-sessions', { headers: getAuthorizationHeader() });
         if (response.status != 200) {
-            return notification('x 看起来坏掉了(3)');
+            return notification('Something went wrong. (5)');
         }
-        const sessions: UserSession[] = (await response.json());
-        const sessionsf = sessions.map<UserSessionF>(d => ({ ...d, lastTimeF: dayjs.utc(d.lastAccessAddress) }));
-        setSessions([sessionsf.find(d => d.id == user.sessionId)].concat(sessionsf.filter(d => d.id != user.sessionId))); // put this session on top
+        const sessions: UserSession[] = await response.json();
+        setSessions([sessions.find(d => d.id == user.sessionId)].concat(sessions.filter(d => d.id != user.sessionId))); // put this session on top
     })(); }, []);
 
     const handleUpdateUserName = async() => {
-        if (!username.value) { return notification('x 用户名不能为空'); }
+        if (!userName) { return notification('User name cannot be empty.'); }
 
-        setUserName({ ...username, loading: true });
-        const response = await fetch(
-            `https://api.example.com/user-credential`,
-            { method: 'PATCH', headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', }, body: JSON.stringify({ name: username.value }) });
-        if (response.status == 400) {
-            setUserName({ ...username, loading: false });
-            return notification('x ' + (await response.json()).message);
-        } if (response.status != 201) {
-            setUserName({ ...username, loading: false });
-            return notification('x 看起来坏掉了(4)');
+        setUserNameLoading(true);
+        const response = await fetch(`https://api.example.com/user-credential`, {
+            method: 'PATCH',
+            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', },
+            body: JSON.stringify({ name: userName }),
+        });
+        if (response.status == 201) {
+            setUserNameLoading(false);
+            setUserNameEditing(false);
+            handleSetUserName(userName);
         }
-
-        handleSetUserName(username.value);
-        setUserName({ ...username, editing: false, loading: false });
+        if (response.status == 400) {
+            setUserNameLoading(false);
+            return notification((await response.json()).message);
+        } if (response.status != 201) {
+            return notification('Something went wrong. (6)');
+        }
     };
     const handleUpdateSessionName = async () => {
-        if (!sessionName.value) { return notification('x 对话名不能为空'); }
+        if (!sessionName) { return notification('Session name cannot be empty.'); }
 
-        setSessionName({ ...sessionName, loading: true });
-        const response = await fetch(
-            `https://api.example.com/user-sessions/${user.sessionId}`, 
-            { method: 'PATCH', headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: sessionName.value }) });
-        if (response.status != 201) {
-            setSessionName({ ...sessionName, loading: false });
-            return notification('x 看起来坏掉了(5)');
+        setSessionNameLoading(false);
+        const response = await fetch(`https://api.example.com/user-sessions/${user.sessionId}`, {
+            method: 'PATCH',
+            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: sessionName }),
+        });
+        if (response.status == 201) {
+            setSessionNameLoading(false);
+            setSessionNameEditing(false);
+            setSessions(sessions.map(d => d.id == user.sessionId ? { ...d, name: sessionName } : d));
+            handleSetSessionName(sessionName);
+        } else {
+            return notification('Something went wrong. (7)');
         }
-
-        handleSetSessionName(sessionName.value);
-        setSessionName({ ...sessionName, editing: false, loading: false });
-        setSessions(sessions.map<UserSessionF>(d => d.id == user.sessionId ? { ...d, name: sessionName.value } : d));
     }
+
     const handleRemoveSession = async (sessionId: number) => {
-        if (!confirm(`你确定要删除“${sessions.find(d => d.id == sessionId).name}”吗？`)) { return; }
 
-        setRemovingSession(true);
-        const response = await fetch(
-            `https://api.example.com/user-sessions/${sessionId}`,
-            { method: 'DELETE', headers: { ...getAuthorizationHeader() } });
-        if (response.status != 204) {
-            return notification('x 看起来坏掉了(6)');
+        if (!confirm(`Are you sure to remove session '${sessions.find(d => d.id == sessionId).name}'?`)) {
+            return;
         }
-        setSessions(sessions.filter(d => d.id != sessionId));
-        setRemovingSession(false);
+        setSessionRemoving(true);
+        const response = await fetch(`https://api.example.com/user-sessions/${sessionId}`, {
+            method: 'DELETE',
+            headers: getAuthorizationHeader(),
+        });
+        if (response.status == 204) {
+            setSessionRemoving(false);
+            setSessions(sessions.filter(d => d.id != sessionId));
+        } else {
+            return notification('Something went wrong. (8)');
+        }
     }
-    const handleLogOut = async () => {
-        if (!confirm(`你确定要退出登录吗？`)) { return; }
+    const handleSignOut = async () => {
+        if (!confirm(`Are you sure to sign out?`)) {
+            return;
+        }
 
         setSigningOut(true);
-        const response = await fetch(
-            `https://api.example.com/user-sessions/${user.sessionId}`,
-            { method: 'DELETE', headers: { ...getAuthorizationHeader() } });
-        if (response.status != 204) {
-            setSigningOut(false);
-            return notification('x 看起来坏掉了(7)');
+        const response = await fetch(`https://api.example.com/user-sessions/${user.sessionId}`, {
+            method: 'DELETE',
+            headers: getAuthorizationHeader(),
+        });
+        if (response.status == 204) {
+            localStorage.removeItem('access-token');
+            handleSignOutComplete();
+        } else {
+            return notification('Something went wrong. (9)');
         }
-        localStorage.removeItem('access-token');
-        handleSignOutComplete();
     }
 
     return <div css={styles.tab}>
-        <div css={styles.formItem}>
-            <label>用户名</label>
-            {username.editing ? <>
-                <input css={styles.formInput} value={username.value} disabled={username.loading} 
-                    onChange={e => setUserName({ ...username, value: e.target.value })}
+        <div css={styles.nameContainer}>
+            {userNameEditing ? <>
+                <label css={styles.nameLabel}>User</label>
+                <input css={styles.formInput} value={userName} disabled={userNameLoading} 
+                    onChange={e => setUserName(e.target.value)}
                     onKeyDown={e => e.key == 'Enter' && handleUpdateUserName()}></input>
-                <button css={styles.editButton} disabled={username.loading} onClick={handleUpdateUserName}>确认</button>
-                <button css={styles.editButton} disabled={username.loading} onClick={() => setUserName({ ...username, value: user.name, editing: false })}>取消</button>
+                <button css={styles.editButton} disabled={userNameLoading} onClick={handleUpdateUserName}>OK</button>
+                <button css={styles.editButton} disabled={userNameLoading} onClick={() => { setUserName(user.name); setUserNameEditing(false); }}>CANCEL</button>
             </> : <>
-                <span css={styles.formDisplay}>{username.value}</span>
-                <button css={styles.editButton} disabled={signingOut} onClick={() => setUserName({ ...username, editing: true })}>编辑</button>
+                <label css={styles.nameLabel}>User Name</label>
+                <span css={styles.nameDisplay}>{userName}</span>
+                <button css={styles.editButton} disabled={signingOut} onClick={() => setUserNameEditing(true)}>EDIT</button>
             </>}
         </div>
-        <div css={styles.formItem}>
-            <label>对话名</label>
-            {sessionName.editing ? <>
-                <input css={styles.formInput} value={sessionName.value} disabled={sessionName.loading} 
-                    onChange={e => setSessionName({ ...sessionName, value: e.target.value })} 
+        <div css={styles.nameContainer}>
+            {sessionNameEditing ? <>
+                <label css={styles.nameLabel}>Session</label>
+                <input css={styles.formInput} value={sessionName} disabled={sessionNameLoading} 
+                    onChange={e => setSessionName(e.target.value)} 
                     onKeyDown={e => e.key == 'Enter' && handleUpdateSessionName()}></input>
-                <button css={styles.editButton} disabled={sessionName.loading} onClick={handleUpdateSessionName}>确认</button>
-                <button css={styles.editButton} disabled={sessionName.loading} onClick={() => setSessionName({ ...sessionName, value: user.sessionName, editing: false })}>取消</button>
+                <button css={styles.editButton} disabled={sessionNameLoading} onClick={handleUpdateSessionName}>OK</button>
+                <button css={styles.editButton} disabled={sessionNameLoading} onClick={() => { setSessionName(user.sessionName); setSessionNameEditing(false); }}>CANCEL</button>
             </> : <>
-                <span css={styles.formDisplay}>{sessionName.value}</span>
-                <button css={styles.editButton} disabled={signingOut} onClick={() => setSessionName({ ...sessionName, editing: true })}>编辑</button>
+                <label css={styles.nameLabel}>Session Name</label>
+                <span css={styles.nameDisplay}>{sessionName}</span>
+                <button css={styles.editButton} disabled={signingOut} onClick={() => setSessionNameEditing(true)}>EDIT</button>
             </>}
         </div>
-        <div css={styles.tableHeader}>已登录对话</div>
+        <div css={styles.tableHeader}>Active Sessions</div>
         <table css={styles.table}>
             <thead><tr>
-                <th>名字/应用</th>
-                <th css={styles.lastAccess}>上次访问</th>
+                <th>Name/App</th>
+                <th css={styles.lastAccess}>Last Access</th>
                 <th></th>
             </tr></thead>
             <tbody>{sessions.map(d => <tr>
                 <td>{d.name || d.app}</td>
                 <td css={styles.lastAccess}>
-                    <span>{d.lastTimeF.tz().format('YYYY-MM-DD HH:mm:ss')}</span>
+                    <span>{d.lastAccessTime}</span>
                     <span>{d.lastAccessAddress}</span>
                 </td>
                 <td>{d.id == user.sessionId
-                    ? <span>当前对话</span>
-                    : <button css={styles.tableButton} disabled={removingSession || signingOut} onClick={() => handleRemoveSession(d.id)}>删除</button>}</td>
+                    ? <span css={styles.currentMark}>Current</span>
+                    : <button css={styles.deleteButton} disabled={sessionRemoving || signingOut} onClick={() => handleRemoveSession(d.id)}>DELETE</button>}</td>
             </tr>)}</tbody>
         </table>
         <div css={styles.signOutContainer}>
-            <button css={styles.signOutButton} disabled={signingOut} onClick={handleLogOut}>退出登录</button>
+            <button css={styles.signOutButton} disabled={signingOut} onClick={handleSignOut}>SIGN OUT</button>
         </div>
     </div>;
 }
@@ -358,21 +397,29 @@ const createManageTabStyles = () => ({
     tab: css({
         paddingTop: '8px'
     }),
-    formItem: css({
+    nameContainer: css({
         display: 'flex',
         height: '32px',
-        paddingTop: '4px',
         borderTop: '1px solid lightgray',
+        padding: '6px 0',
+        boxSizing: 'border-box',
     }),
-    formDisplay: css({
+    nameLabel: css({
+        fontSize: '14px',
+        color: '#333',
+        lineHeight: '20px',
+    }),
+    nameDisplay: css({
         marginLeft: '8px',
+        lineHeight: '20px',
     }),
     formInput: css({
-        width: '160px',
-        height: '22px',
+        width: '144px',
+        height: '20px',
         marginLeft: '8px',
         borderWidth: '0 0 1px 0',
         borderColor: '#afafaf',
+        background: 'transparent',
         borderTopLeftRadius: '4px',
         borderTopRightRadius: '4px',
         '&:focus': {
@@ -384,11 +431,18 @@ const createManageTabStyles = () => ({
         },
     }),
     editButton: css({
-        height: '24px',
+        height: '20px',
         marginLeft: '8px',
         border: 'none',
         background: 'none',
         outline: 'none',
+        cursor: 'pointer',
+        '&:hover': {
+            backgroundColor: '#eee',
+        },
+        '&:disabled': {
+            cursor: 'not-allowed',
+        },
     }),
     tableHeader: css({
         paddingTop: '4px',
@@ -413,12 +467,22 @@ const createManageTabStyles = () => ({
             display: 'block',
         },
     }),
-    tableButton: css({
+    currentMark: css({
+        marginLeft: '12px',
+    }),
+    deleteButton: css({
         height: '24px',
         padding: '0 12px',
         border: 'none',
         background: 'none',
         outline: 'none',
+        cursor: 'pointer',
+        '&:hover': {
+            backgroundColor: '#eee',
+        },
+        '&:disabled': {
+            cursor: 'not-allowed',
+        },
     }),
     signOutContainer: css({
         paddingTop: '4px',
@@ -432,6 +496,7 @@ const createManageTabStyles = () => ({
         background: '#c73b3d',
         outline: 'none',
         color: 'white',
+        cursor: 'pointer',
         '&:hover': {
             background: '#db6765',
         },
@@ -439,39 +504,37 @@ const createManageTabStyles = () => ({
 });
 
 // normally root component is App, but this is not an app, so Page
-function Page() {
-    const [tab, setTab] = useState<'signin' | 'signup' | 'manage'>(() => currentuser.id ? 'manage' : 'signin');
-    const [user, setUser] = useState<UserCredential | null>(null);
+function Page(props: { user: UserCredential }) {
+    const [user, setUser] = useState<UserCredential>(props.user);
+    const [signIn, setSignIn] = useState(true);
 
     // header subtitle is not in react root, control by side effect
     useEffect(() => {
-        subtitle2.innerText = tab == 'signin' ? '登录' : tab == 'signup' ? '注册' : '用户设置';
-    }, [tab]);
+        titleElement.innerText = user ? 'User Info' : signIn ? 'Sign In' : 'Sign Up';
+    }, [user, signIn]);
 
-    switch (tab) {
-        case 'signin': return <SignInTab 
-            handleComplete={getUserCredential} 
-            handleSignUp={() => setTab('signup')}/>;
-        case 'signup': return <SignUpTab 
-            handleComplete={getUserCredential} 
-            handleSignIn={() => setTab('signin')} />
-        case 'manage': return <ManageTab 
+    if (user) {
+        return <ManageTab 
             user={user}
             handleSetUserName={newUserName => setUser({ ...user, name: newUserName })}
             handleSetSessionName={newSessionName => setUser({ ...user, sessionName: newSessionName })} 
-            handleSignOutComplete={() => setTab('signin')} />;
+            handleSignOutComplete={() => setUser(null)} />;
+    } else {
+        return signIn
+            ? <SignInTab handleComplete={setUser} handleSignUp={() => setSignIn(false)}/>
+            : <SignUpTab handleComplete={setUser} handleSignIn={() => setSignIn(true)} />
     }
 }
 
-currentuser = null;
+let currentuser: UserCredential;
 const userCredentialResponse = await fetch(`https://api.example.com/user-credential`, { headers: getAuthorizationHeader() });
 if (userCredentialResponse.status == 200) {
     currentuser = await userCredentialResponse.json();
 } else if (userCredentialResponse.status == 401) {
     localStorage.removeItem('access-token');
-    currentuser = { id: 0, name: '' };
+    currentuser = null;
 } else {
-    notification('x 不知道什么东西坏掉了(8)');
+    notification('Something went wrong. (10)');
 }
 
 // also called in sign in page
@@ -487,14 +550,12 @@ async function returnToApplicationIfRequired() {
             // replace: do not go back to here
             window.location.replace(returnAddress);
         } else {
-            notification('x 不知道什么东西坏掉了(9)');
+            notification('Something went wrong. (11)');
         }
     }
 }
-if (currentuser.id) {
+if (currentuser?.id) {
     await returnToApplicationIfRequired();
 }
 
-
-
-createRoot(document.querySelector('main')).render(<Page />);
+createRoot(document.querySelector('main')).render(<Page user={currentuser} />);

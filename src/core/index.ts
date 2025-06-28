@@ -14,13 +14,13 @@ import { handleRequestError, handleProcessException, handleProcessRejection } fr
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
 import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
 import type { WebappConfig } from './auth.js';
-import { setupAccessControl, handleRequestAccessControl, handleRequestAuthentication, handleAuthCommand } from './auth.js';
+import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAuthCommand } from './auth.js';
 
 const app = new koa();
 
 app.use(handleRequestError);
 app.use(handleRequestContent);
-app.use(handleRequestAccessControl);
+app.use(handleRequestCrossOrigin);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
