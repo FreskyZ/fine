@@ -15,7 +15,7 @@ export type AdminContentCommand =
     | { type: 'disable-source-map' };
 
 export type AdminForwardCommand =
-    | { type: 'reload-app', name: string }
+    | { type: 'reload-server', name: string }
 
 export type AdminCoreCommand =
     | { type: 'ping' }

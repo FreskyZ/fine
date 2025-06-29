@@ -12,7 +12,7 @@ import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
-import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
+import { setupStaticContent, setupShortLinkService, handleRequestContent, handleResponseCompression, handleContentCommand } from './content.js';
 import type { WebappConfig } from './access.js';
 import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
 import { setupForwarding, handleRequestForward, handleForwardCommand } from './forward.js';
@@ -24,6 +24,7 @@ app.use(handleRequestContent);
 app.use(handleRequestCrossOrigin);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
+app.use(handleResponseCompression);
 app.use(handleRequestForward);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 

@@ -204,7 +204,7 @@ export async function handleForwardCommand(command: AdminForwardCommand): Promis
 
     // ATTENTION TODO reload-config does not work here
     
-    if (command.type == 'reload-app') {
+    if (command.type == 'reload-server') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {
             app.version += 1;

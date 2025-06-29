@@ -4,6 +4,7 @@ import { log } from './logger.js';
 
 // contains request and process unexpected error handlers
 
+// TODO review use of constructor parameter and distinguish between user message and internal log message
 export class MyError extends Error {
     constructor(public readonly kind: FineErrorKind, message?: string) {
         super(message);

@@ -24,9 +24,9 @@ $ (REMOTE) node admin.js reload-static user
 
 ### chat
 ```
-$ (LOCAL) node script/upload.js chat
-$ (REMOTE) node admin.js reload-static chat # client side
-ATTENTION not support reload webapp config in access.js and forward.js
+$ (LOCAL:small/theai) node build.js
+$ (REMOTE) node admin.js reload-static chat
+$ (REMOTE) node admin.js reload-server chat
 ```
 
 ?

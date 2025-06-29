@@ -64,7 +64,7 @@ if (hasError) {
 
 console.log('postprocessing');
 let resultJs = emittedFiles['/vbuild/user.js'];
-resultJs = resultJs.replaceAll('example.com', 'freskyz.com');
+resultJs = resultJs.replaceAll('example.com', config['main-domain']);
 const dependencies = {
     'react': 'https://esm.sh/react@19.1.0',
     'react-dom': 'https://esm.sh/react-dom@19.1.0',

@@ -21,7 +21,7 @@ if (commandName == 'reload-static') {
         console.error('missing app name for reload-server');
         process.exit(1);
     }
-    command = { type: 'forward', sub: { type: 'reload-app', name } };
+    command = { type: 'forward', sub: { type: 'reload-server', name } };
 } else {
     console.error('unknown command');
     process.exit(1);

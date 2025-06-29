@@ -1,6 +1,7 @@
 import syncfs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
@@ -32,8 +33,13 @@ function getnow(): string { return process.hrtime.bigint().toString(16); }
 // file extension to content type (as require('mime').lookup)
 const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json' };
 // compress encodings
-type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Buffer }
-const encodingToEncoder: EncodingToEncoder = { 'gzip': zlib.gzipSync, 'deflate': zlib.deflateSync, 'br': zlib.brotliCompressSync };
+type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Promise<Buffer> }
+const encodingToEncoder: EncodingToEncoder = {
+    'gzip': promisify(zlib.gzip),
+    'deflate': promisify(zlib.deflate),
+    'br': promisify(zlib.brotliCompress),
+    // 'zstd': promisify(zlib.zstdCompress), // this is experimental, use this when complete experiment
+};
 
 // no common module in this library, put it here for now
 export class RateLimit {
@@ -284,7 +290,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         ctx.etag = item.cacheKey;
         // vary response encoding by request encoding
         // or else another different accept encoding request will get incorrect encoding
-        // // this is actually not the issue for must-revlidate 
+        // // this is actually not the issue for must-revlidate
         ctx.vary('Accept-Encoding');
 
         // the conditional request contains 5 header fields and many logics
@@ -318,7 +324,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             if (ctx.acceptsEncodings(encoding)) {
                 ctx.set('Content-Encoding', encoding);
                 if (!(encoding in item.encodedContent)) {
-                    item.encodedContent[encoding] = encodingToEncoder[encoding](item.content);
+                    item.encodedContent[encoding] = await encodingToEncoder[encoding](item.content);
                 }
                 ctx.body = item.encodedContent[encoding];
                 ctx.set('Content-Length', item.encodedContent[encoding].length.toString());
@@ -347,6 +353,35 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         // use default cache control
         // image/video themselves are already compressed, while other not important text files are always small
     }
+}
+
+// this is actually invoked before handlerequestforward, which only compress result from actual servers
+// but there is existing encoding logic here, and this is not very proper to put in access.js and forward.js, so put it here
+export async function handleResponseCompression(ctx: koa.Context, next: koa.Next) {
+    await next();
+
+    if (ctx.method == 'HEAD') { return; } // skip HEAD, will this method come here?
+    if (ctx.status < 200 || ctx.status >= 300) { return; } // skip non 2xx
+    if (!ctx.body) { return; } // skip no body (not skip nobody?)
+    if (ctx.response.get('Content-Encoding')) { return; } // skip already compressed, when will this happen?
+    if (typeof ctx.body != 'string' && typeof ctx.body != 'object') { return; } // skip unknown body type, when will this happen?
+
+    const encoding = ['br', 'deflate', 'gzip'].find(e => ctx.acceptsEncodings(e));
+    if (!encoding) { return; } // skip no accept encoding or no matching accepted encoding
+
+    const buffer = typeof ctx.body == 'string' ? Buffer.from(ctx.body)
+        : Buffer.isBuffer(ctx.body) ? ctx.body : Buffer.from(JSON.stringify(ctx.body)); // handle ctx.body is already buffer
+    if (buffer.length < 1024) { return; } // skip small body
+
+    // finally start encoding
+    ctx.vary('Accept-Encoding');
+    ctx.set('Content-Encoding', encoding);
+    ctx.set('Content-Type', typeof ctx.body == 'string' ? 'text/plain; charset=utf-8'
+        : Buffer.isBuffer(ctx.body) ? 'application/octet-stream' : 'application/json; charset=utf-8');
+
+    const encoded = await encodingToEncoder[encoding](buffer);
+    ctx.body = encoded;
+    ctx.set('Content-Length', encoded.length.toString());
 }
 
 function handleReloadStatic(key: string) {
