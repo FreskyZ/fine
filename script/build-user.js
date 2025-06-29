@@ -67,6 +67,7 @@ let resultJs = emittedFiles['/vbuild/user.js'];
 resultJs = resultJs.replaceAll('example.com', 'freskyz.com');
 const dependencies = {
     'react': 'https://esm.sh/react@19.1.0',
+    'react-dom': 'https://esm.sh/react-dom@19.1.0',
     'react-dom/client': 'https://esm.sh/react-dom@19.1.0/client',
     'dayjs': 'https://esm.sh/dayjs@1.11.13',
     'dayjs/plugin/utc.js': 'https://esm.sh/dayjs@1.11.13/plugin/utc.js',

@@ -32,20 +32,20 @@ const REQUEST_TIMEOUT = 60_000;
 // property key is app name (ctx.state.app)
 let socketPools: Record<string, Pool>;
 export function setupForwarding(config: WebappConfig) {
-    socketPools = Object.fromEntries<Pool>(Object.entries(config).filter(a => a[1].socket).map(a => [a[0], {
+    socketPools = Object.fromEntries<Pool>(Object.entries(config).filter(a => a[1].server.startsWith('socket:')).map(a => [a[0], {
         waits: [] as Pool['waits'],
         // need to fill air into the array or else the items are vaccum, then the map call maps nothing
         items: new Array<void>(POOL_SIZE).fill().map<PoolItem>(() => ({ state: 'uninit', connection: null })),
     }]));
 }
 
-async function acquire(app: string, pool: Pool, requestDisplay: string): Promise<net.Socket> {
+async function acquire(socketPath: string, pool: Pool, requestDisplay: string): Promise<net.Socket> {
 
     for (const item of pool.items) {
         if (item.state == 'uninit') {
             // immediatetely set state, this should be atomic enough
             item.state = 'acquired';
-            await initializePoolItem(app, item);
+            await initializePoolItem(socketPath, item);
             return item.connection;
         } else if (item.state == 'available') {
             item.state = 'acquired';
@@ -53,7 +53,7 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
         }
     }
 
-    // too more
+    // too much
     if (pool.waits.length > WAIT_SIZE) {
         throw new MyError('internal', 'pool wait overflow');
     }
@@ -69,7 +69,7 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
         // set state after set connection, in case it is acquired between the 2 statements
         item.state = 'uninit';
     }
-    async function initializePoolItem(app: string, item: PoolItem) {
+    async function initializePoolItem(socketPath: string, item: PoolItem) {
         return new Promise<void>((resolve, reject) => {
             item.connection = new net.Socket();
             item.connection.once('connect', () => {
@@ -98,52 +98,27 @@ async function acquire(app: string, pool: Pool, requestDisplay: string): Promise
             item.connection.on('close', () => {
                 cleanupItem(item);
             });
-            // the .find will not fail because app is
-            // already checked by allowedOrigins (auth.ts) and they come from the same APPSETTING
-            item.connection.connect(webapps.find(a => a.name == app).socket);
+            item.connection.connect(socketPath);
         })
     }
 }
-
 function release(pool: Pool, connection: net.Socket) {
-
     if (pool.waits.length) {
         // // this is unexpectedly simply, too
         queueMicrotask(() => pool.waits.shift()(connection));
         return;
     }
-
     const item = pool.items.find(i => i.connection === connection);
     item.state = 'available';
 }
 
-export async function handleRequestForward(ctx: MyContext): Promise<void> {
-    // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
-    if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
-    // 8: /appname/public/xxx => /xxx, 1: /appname/xxx => /xxx
-    const pathname = ctx.path.substring(ctx.state.app.length + (ctx.state.public ? 8 : 1));
-    // log header
-    const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
-
-    const appconfig = webapps.find(a => a.name == ctx.state.app);
-    if (appconfig.small) {
-        const response = await (await import(`${appconfig.module}?version=${appconfig.version}`)).dispatch({
-            method: ctx.method,
-            path: pathname,
-            body: ctx.request.body,
-            state: ctx.state,
-        });
-        ctx.status = response?.status || 200;
-        ctx.body = response?.body;
-        return;
-    }
+async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPath: string, requestDisplay: string) {
 
     // pools and allowedOrigins initialized from same data source so must exist
     const pool = socketPools[ctx.state.app];
-    const connection = await acquire(ctx.state.app, pool, requestDisplay);
+    const connection = await acquire(app.server.substring(7), pool, requestDisplay);
 
-    return new Promise((resolve, reject) => {
-
+    return new Promise<void>((resolve, reject) => {
         // timeout 1 min for normal request
         const timeout = setTimeout(() => {
             log.error(`${requestDisplay} timeout`);
@@ -168,20 +143,60 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
                 return;
             }
             ctx.status = response.status || 200;
-            if (response.body) {
-                ctx.body = response.body;
-            }
+            if (response.body) { ctx.body = response.body; }
             resolve();
             release(pool, connection);
         });
 
-        connection.write(JSON.stringify({
-            method: ctx.method,
-            path: pathname,
-            body: ctx.request.body,
-            state: ctx.state,
-        }));
+        connection.write(JSON.stringify({ method: ctx.method, path: requestPath, body: ctx.request.body, state: ctx.state }));
     });
+}
+async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPath: string, requestDisplay: string) {
+
+    let module: any;
+    try {
+        module = await import(`${app.server.substring(7)}?version=${app.version}`);
+    } catch (error) {
+        log.error({ message: 'failed to load module', request: requestDisplay, server: app.server, version: app.version, error: error });
+        throw new MyError('service-not-available'); // cannot connect to service is 503
+    }
+
+    if (!module.dispatch || typeof module.dispatch != 'function') {
+        // 502 bad gateway is invalid response,
+        // so this invalid shape is considered as 'correct service not available'
+        throw new MyError('service-not-available', 'invalid server');
+    }
+
+    let response: ForwardContext;
+    try {
+        response = await module.dispatch({ method: ctx.method, path: requestPath, body: ctx.request.body, state: ctx.state });
+    } catch (error) {
+        log.error({ message: 'error raised', request: requestDisplay, error: error });
+        throw new MyError('bad-gateway', 'error raised');
+    }
+    // this reject 0 or false, but should be ok
+    if (!response || typeof response != 'object') {
+        log.error({ message: 'no response', request: requestDisplay });
+        throw new MyError('bad-gateway', 'no response');
+    } else if (response.error) {
+        log.error({ message: 'error returned', request: requestDisplay, error: response.error });
+        throw response.error;
+    }
+
+    ctx.status = response.status || 200;
+    if (response.body) { ctx.body = response.body; }
+}
+
+export async function handleRequestForward(ctx: MyContext): Promise<void> {
+    // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
+    if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
+    // 8: /appname/public/xxx => /xxx, 1: /appname/xxx => /xxx
+    const pathname = ctx.path.substring(ctx.state.app.length + (ctx.state.public ? 8 : 1));
+    // log header
+    const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
+
+    const app = webapps.find(a => a.name == ctx.state.app);
+    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathname, requestDisplay);
 }
 
 export async function handleForwardCommand(command: AdminForwardCommand): Promise<void> {

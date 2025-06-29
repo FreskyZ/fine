@@ -21,7 +21,6 @@ export class FineError {
     public constructor(
         public readonly kind: FineErrorKind,
         public readonly message?: string,
-        public readonly additionalInternalMessage?: string,
     ) {
         this.name = 'FineError';
     }

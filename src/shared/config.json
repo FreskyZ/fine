@@ -55,10 +55,12 @@
   },
   "webapps": {
     "note": {
-      "module": "./servers/note.js"
+      "host": "app.example.com",
+      "server": "socket:/tmp/note.socket"
     },
     "chat": {
-      "module": "./servers/chat.js"
+      "host": "chat.example.com",
+      "server": "nodejs:./servers/chat.js"
     }
   }
 }

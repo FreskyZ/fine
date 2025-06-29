@@ -15,6 +15,13 @@ if (commandName == 'reload-static') {
     command = { type: 'content', sub: { type: 'reload-config' } };
 } else if (commandName == 'enable-signup') {
     command = { type: 'access', sub: { type: 'enable-signup' } };
+} else if (commandName == 'reload-server') {
+    const name = process.argv[3];
+    if (!name) {
+        console.error('missing app name for reload-server');
+        process.exit(1);
+    }
+    command = { type: 'forward', sub: { type: 'reload-app', name } };
 } else {
     console.error('unknown command');
     process.exit(1);

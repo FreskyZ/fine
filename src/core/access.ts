@@ -24,22 +24,29 @@ export type MyContext = koa.ParameterizedContext<{
 }>;
 
 export type WebappConfig = Record<string, {
-    // small app use app.example.com/appname/, `.module` is a nodejs module loaded in the same process
-    module?: string,
-    // major app use appname.example.com, and is communicated with domain socket, absolute path from `.socket`
-    socket?: string,
+    // in format `appname.example.com` or `app.example.com`,
+    // no 'https://' prefix, no '/' postfix,
+    // `app.example.com` means this is on `https://app.example.com/appname`
+    host: string,
+    // in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
+    server: string,
 }>;
 interface WebappRuntimeConfig {
     name: string,
-    small: boolean,
-    module: string,
+    shared: boolean, // shared host, true for app.example.com, false for appname.example.com
+    server: string,
     version: number, // appended to dynamic import url to hot reload
-    socket: string,
 }
 export let webapps: WebappRuntimeConfig[];
 export function setupAccessControl(config: WebappConfig) {
-    webapps = Object.entries(config).map(c => ({ name: c[0], small: !!c[1].module, socket: c[1].socket, module: c[1].module, version: 0 }));
+    webapps = Object.entries(config).map(c => ({
+        name: c[0],
+        shared: c[1].host == 'app.example.com',
+        server: c[1].server,
+        version: 0,
+    }));
     ratelimits.apps = Object.fromEntries(webapps.map(a => [a.name, new RateLimit(10, 1)]));
+    ratelimits.appSignIn = Object.fromEntries(webapps.map(a => [a.name, new RateLimit(1, 1)]));
 }
 
 // rate limit various aspects
@@ -47,8 +54,13 @@ const ratelimits = {
     // this limits all (over all ip and app),
     // when requesting a token, key is empty string
     all: new RateLimit(100, 1),
-    // per app then per ip
+    // api invocation per app then per ip, this use (10, 1)
     apps: {} as Record<string, RateLimit>,
+    // specifically limit sign in operation, per ip
+    idSignIn: new RateLimit(1, 1),
+    // per app per ip, this use (1, 1)
+    // generate authorization code and application sign in use the same limit
+    appSignIn: {} as Record<string, RateLimit>,
 };
 
 // all request here is cross origin because api.example.com does not have ui
@@ -62,9 +74,9 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
     } else if (ctx.origin == 'https://app.example.com') {
         ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
         // direct return and do not set access-control-* and let browser reject it
-        if (!webapps.some(a => a.name == ctx.state.app && a.small)) { return; }
+        if (!webapps.some(a => a.name == ctx.state.app && a.shared)) { return; }
     } else {
-        ctx.state.app = webapps.find(a => !a.small && ctx.origin == `https://${a.name}.example.com`)?.name;
+        ctx.state.app = webapps.find(a => !a.shared && ctx.origin == `https://${a.name}.example.com`)?.name;
         // direct return and do not set access-control-* and let browser reject it
         if (!ctx.state.app) { return; }
     }
@@ -106,6 +118,7 @@ interface UserData {
     Name: string,
     Active: boolean,
     Secret: string,
+    Apps: string,
 }
 interface UserSessionData {
     Id: number,
@@ -136,6 +149,14 @@ interface ApplicationSessionData {
 }
 const authorizationCodeStorage: AuthorizationCodeData[] = [];
 const applicationSessionStorage: ApplicationSessionData[] = [];
+setInterval(() => {
+    const validAuthorizationCodes = authorizationCodeStorage.filter(c => dayjs.utc().isBefore(c.expireTime));
+    authorizationCodeStorage.splice(0, authorizationCodeStorage.length);
+    validAuthorizationCodes.forEach(c => authorizationCodeStorage.push(c));
+    const validApplicationAccessTokens = applicationSessionStorage.filter(c => dayjs.utc().isAfter(c.lastAccessTime.add(1, 'hour')));
+    applicationSessionStorage.splice(0, applicationSessionStorage.length);
+    validApplicationAccessTokens.forEach(c => applicationSessionStorage.push(c));
+}, 3600_000).unref();
 
 // ignore case comparator
 const collator = Intl.Collator('en', { sensitivity: 'base' });
@@ -175,7 +196,7 @@ async function getUserById(userId: number) {
     let user = userStorage.find(u => u.Id == userId);
     if (!user) {
         const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret` FROM `User` WHERE `Id` = ?', [userId]);
+            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Id` = ?', [userId]);
         user = rows[0];
         // check again, because task schedule may happen cross await point
         if (!userStorage.some(u => u.Id == userId)) {
@@ -219,6 +240,7 @@ const specialActions: SpecialAction[] = [
 
 [{ kind: 'id-before', method: 'POST', path: /^\/signin$/ },
 async function handleSignIn(ctx) {
+    ratelimits.idSignIn.request(ctx.ip);
 
     const [username, password] = getBasicAuthorization(ctx);
     if (!username || !password) {
@@ -228,7 +250,7 @@ async function handleSignIn(ctx) {
     let user = userStorage.find(u => !collator.compare(u.Name, username));
     if (!user) {
         const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret` FROM `User` WHERE `Name` = ?', [username]);
+            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
         if (!Array.isArray(rows) || rows.length == 0) {
             throw new MyError('common', 'invalid user name or password');
         }
@@ -268,7 +290,7 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
         throw new MyError('common', 'user name already exists');
     } else {
         const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret` FROM `User` WHERE `Name` = ?', [username]);
+            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
         if (Array.isArray(rows) && rows.length != 0) {
             userStorage.push(rows[0]);
             throw new MyError('common', 'user name already exists');
@@ -297,7 +319,7 @@ async function handleSignUp(ctx) {
         throw new MyError('common', 'user name already exists');
     } else {
         const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret` FROM `User` WHERE `Name` = ?', [username]);
+            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
         if (Array.isArray(rows) && rows.length != 0) {
             userStorage.push(rows[0]);
             throw new MyError('common', 'user name already exists');
@@ -312,8 +334,8 @@ async function handleSignUp(ctx) {
     }
 
     const [result] = await pool.execute<ManipulateResult>(
-        'INSERT INTO `User` (`Name`, `Active`, `Secret`) VALUES (?, 1, ?)', [username, secret]);
-    const user: UserData = { Id: result.insertId, Name: username, Active: true, Secret: secret };
+        "INSERT INTO `User` (`Name`, `Active`, `Secret`, `Apps`) VALUES (?, 1, ?, '')", [username, secret]);
+    const user: UserData = { Id: result.insertId, Name: username, Active: true, Secret: secret, Apps: '' };
     userStorage.push(user);
 
     ctx.status = 201;
@@ -334,8 +356,18 @@ async function handleGenerateAuthorizationCode(ctx) {
     if (!returnAddress) { throw new MyError('common', 'invalid return address'); }
 
     const app = webapps.find(a =>
-        returnAddress.startsWith(a.small ? `https://app.example.com/${a.name}` : `https://${a.name}.example.com`))?.name;
+        returnAddress.startsWith(a.shared ? `https://app.example.com/${a.name}` : `https://${a.name}.example.com`))?.name;
     if (!app) { throw new MyError('common', 'invalid return address'); }
+
+    ratelimits.appSignIn[app].request(ctx.ip);
+
+    const user = await getUserById(ctx.state.user.id);
+    if (!user.Active) {
+        throw new MyError('common', 'inactive user');
+    }
+    if (user.Id != 1 && !user.Apps.split(',').includes(app)) {
+        throw new MyError('common', 'app not allowed');
+    }
 
     const code = generateRandomText(64);
     authorizationCodeStorage.push({ userId: ctx.state.user.id, app, value: code, expireTime: ctx.state.now.add(1, 'minute') });
@@ -358,7 +390,7 @@ async function handleUpdateUserName(ctx) {
         throw new MyError('common', 'user name already exists');
     } else {
         const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret` FROM `User` WHERE `Id` <> ? AND `Name` = ?', [user.Id, newUserName]);
+            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Id` <> ? AND `Name` = ?', [user.Id, newUserName]);
         if (Array.isArray(rows) && rows.length != 0) {
             userStorage.push(rows[0]);
             throw new MyError('common', 'user name already exists');
@@ -451,10 +483,15 @@ async function handleApplicationSignIn(ctx) {
     if (ctx.state.app != data.app || ctx.state.now.isAfter(data.expireTime)) {
         throw new MyError('auth', 'invalid authorization code');
     }
-    
+
+    ratelimits.appSignIn[data.app].request(ctx.ip);
+
     const user = await getUserById(data.userId);
     if (!user.Active) {
         throw new MyError('auth', 'user is not active');
+    }
+    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
+        throw new MyError('auth', 'app not allowed');
     }
 
     const accessToken = generateRandomText(42);
@@ -538,6 +575,9 @@ async function authenticateApplication(ctx: MyContext) {
     if (!user.Active) {
         throw new MyError('auth', 'authorization inactive');
     }
+    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
+        throw new MyError('auth', 'unauthorized');
+    }
 
     session.lastAccessTime = ctx.state.now;
     ctx.state.user = { id: user.Id, name: user.Name };
@@ -578,7 +618,7 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
         }
 
         // NOTE need the trailing /, if you want to call any path, the trailing / is always needed
-        if (ctx.path.startsWith(`/${ctx.state.app}/`)) {
+        if (!ctx.path.startsWith(`/${ctx.state.app}/`)) {
             throw new MyError('not-found', 'invalid-invocation');
         }
         // also need the trailing /

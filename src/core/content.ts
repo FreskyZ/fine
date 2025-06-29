@@ -48,7 +48,7 @@ export class RateLimit {
         // clear filled buckets regularly
         setInterval(() => Object.entries(this.buckets)
             .filter(e => e[1].count == this.maxCount && dayjs.utc().diff(e[1].lastAccessTime, 'hour') > 1)
-            .forEach(([key]) => delete this.buckets[key]), 3600_000);
+            .forEach(([key]) => delete this.buckets[key]), 3600_000).unref();
     }
 
     public request(key: string) {

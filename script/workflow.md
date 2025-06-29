@@ -28,3 +28,8 @@ $ (LOCAL) node script/upload.js chat
 $ (REMOTE) node admin.js reload-static chat # client side
 ATTENTION not support reload webapp config in access.js and forward.js
 ```
+
+?
+certbot -d example.com
+sudo chown -R fine:fine /etc/letsencrypt/live/example.com
+sudo chown -R fine:fine /etc/letsencrypt/archive/example.com
