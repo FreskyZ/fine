@@ -48,9 +48,9 @@ const transpileErrors = ts.getPreEmitDiagnostics(program).concat(emitResult.diag
     if (diagnostic.file) {
         const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
         const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-        return chalk`{red error}: ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
+        return chalk`{red error} ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
     } else {
-        return chalk`{red error}: ` + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+        return chalk`{red error} ` + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
     }
 });
 for (const message of transpileErrors.filter((v, i, a) => a.indexOf(v) == i)) {

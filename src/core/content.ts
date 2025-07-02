@@ -126,6 +126,7 @@ interface StaticContentCache {
     // ${host}/${path} to cache item, for html5 browser history web apps,
     // e.g. a1.example.com/* => static/a1/index.html store as ['a1.example.com', 'a1/index.html']
     // e.g. app.example.com/a1/* => static/a1/index.html store as ['app.example.com/a1', 'a1/index.html']
+    // also, this allows 'chat.example.com': { 'share/*': 'chat/share.html', '*': 'chat/index.html' }
     readonly wildcardToNonWildcardMap: { virtual: string, item: Item }[],
 }
 let contentcache: StaticContentCache;

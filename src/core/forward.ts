@@ -112,7 +112,7 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPath: string, requestDisplay: string) {
+async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string, requestDisplay: string) {
 
     // pools and allowedOrigins initialized from same data source so must exist
     const pool = socketPools[ctx.state.app];
@@ -148,10 +148,10 @@ async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPath:
             release(pool, connection);
         });
 
-        connection.write(JSON.stringify({ method: ctx.method, path: requestPath, body: ctx.request.body, state: ctx.state }));
+        connection.write(JSON.stringify({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state }));
     });
 }
-async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPath: string, requestDisplay: string) {
+async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string, requestDisplay: string) {
 
     let module: any;
     try {
@@ -169,9 +169,9 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPath:
 
     let response: ForwardContext;
     try {
-        response = await module.dispatch({ method: ctx.method, path: requestPath, body: ctx.request.body, state: ctx.state });
+        response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
-        log.error({ message: 'error raised', request: requestDisplay, error: error });
+        log.error({ message: 'error ' + error.toString(), request: requestDisplay, error: error });
         throw new MyError('bad-gateway', 'error raised');
     }
     // this reject 0 or false, but should be ok
@@ -190,13 +190,12 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPath:
 export async function handleRequestForward(ctx: MyContext): Promise<void> {
     // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
     if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
-    // 8: /appname/public/xxx => /xxx, 1: /appname/xxx => /xxx
-    const pathname = ctx.path.substring(ctx.state.app.length + (ctx.state.public ? 8 : 1));
-    // log header
+
+    const pathAndQuery = ctx.url.substring(ctx.state.app.length + 1);
     const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
 
     const app = webapps.find(a => a.name == ctx.state.app);
-    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathname, requestDisplay);
+    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery, requestDisplay);
 }
 
 export async function handleForwardCommand(command: AdminForwardCommand): Promise<void> {

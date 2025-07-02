@@ -278,7 +278,7 @@ async function handleGetAllowSignUp(ctx) {
     ctx.body = { a: AllowSignUp };
 }],
 
-[{ kind: 'id-before', method: 'GET', path: /^\/signup\/(?<username>\w+)$/ },
+[{ kind: 'id-before', method: 'GET', path: /^\/signup\?name=(?<username>\w+)$/ },
 async function handleGetAuthenticatorSecret(ctx, parameters) {
     if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
 
@@ -429,7 +429,7 @@ async function handleGetUserSessions(ctx) {
     })));
 }],
 
-[{ kind: 'id-after', method: 'PATCH', path: /^\/user-sessions\/(?<session_id>\d+)$/ },
+[{ kind: 'id-after', method: 'PATCH', path: /^\/user-sessions\?id=(?<session_id>\d+)$/ },
 async function handleUpdateSessionName(ctx, parameters) {
 
     const sessionId = parseInt(parameters['session_id']);
@@ -449,7 +449,7 @@ async function handleUpdateSessionName(ctx, parameters) {
     ctx.status = 201;
 }],
 
-[{ kind: 'id-after', method: 'DELETE', path: /^\/user-sessions\/(?<session_id>\d+)$/ },
+[{ kind: 'id-after', method: 'DELETE', path: /^\/user-sessions\?id=(?<session_id>\d+)$/ },
 async function handleRemoveSession(ctx, parameters) {
 
     const sessionId = parseInt(parameters['session_id']);

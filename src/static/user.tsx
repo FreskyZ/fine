@@ -157,7 +157,7 @@ function SignUpTab({ handleSignIn, handleComplete }: {
 
         setLoading(true);
         const response = await fetch(
-            `https://api.example.com/signup/${username}`);
+            `https://api.example.com/signup?name=${username}`);
         if (response.status == 200) {
             setLoading(false);
             setSecret(await response.json());
@@ -296,7 +296,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         if (!sessionName) { return notification('Session name cannot be empty.'); }
 
         setSessionNameLoading(false);
-        const response = await fetch(`https://api.example.com/user-sessions/${user.sessionId}`, {
+        const response = await fetch(`https://api.example.com/user-sessions?id=${user.sessionId}`, {
             method: 'PATCH',
             headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: sessionName }),
@@ -316,7 +316,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
             return;
         }
         setSessionRemoving(true);
-        const response = await fetch(`https://api.example.com/user-sessions/${sessionId}`, {
+        const response = await fetch(`https://api.example.com/user-sessions?id=${sessionId}`, {
             method: 'DELETE',
             headers: getAuthorizationHeader(),
         });
