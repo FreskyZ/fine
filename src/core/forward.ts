@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import net from 'node:net';
 import type { ForwardContext } from '../adk/api-server.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
@@ -198,13 +199,23 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
     await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery, requestDisplay);
 }
 
+// do not reload server when file content is same
+// this was implemented in watch build in old build script, but that's kind of complex for now()
+// key is app name, the entries are lazy, it is loaded after first time reload command is executed
+const serverFileContents: Record<string, Buffer> = {};
 export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
     
     if (command.kind == 'app:reload-server') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {
-            app.version += 1;
-            return { ok: true, log: 'update version', app };
+            const newFileContent = await fs.readFile(app.server.substring(7));
+            if (app.name in serverFileContents && Buffer.compare(serverFileContents[app.name], newFileContent) == 0) {
+                return { ok: true, log: 'no update because content same' };
+            } else {
+                app.version += 1;
+                serverFileContents[app.name] = newFileContent;
+                return { ok: true, log: 'update version', app };
+            }
         } else {
             return { ok: false, log: 'name not found' };
         }

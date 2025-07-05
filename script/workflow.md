@@ -3,8 +3,9 @@ remember my workflow when designing the new script
 
 ### core
 ```
+$ (REMOTE) node cc.js
 $ (LOCAL) node script/build-core.js
-$ (REMOTE) node index.js
+$ (REMOTE) core
 to support node index.js on remote, need
 $ (REMOTE) sudo node portpipe.js
 ```
@@ -18,15 +19,16 @@ $ (REMOTE) node admin.js reload-static home
 
 ### user
 ```
+$ (REMOTE) node cc.js
 $ (LOCAL) node script/build-user.js
-$ (REMOTE) node admin.js reload-static user
+$ (REMOTE) user
 ```
 
 ### chat
 ```
+$ (REMOTE) node cc.js
 $ (LOCAL:small/theai) node build.js
-$ (REMOTE) node admin.js reload-static chat
-$ (REMOTE) node admin.js reload-server chat
+$ (REMOTE) chat
 ```
 
 ?

@@ -481,7 +481,6 @@ async function pack(sortedModules, externalReferences) {
     console.log(`minify`);
     try {
         const minifyResult = await minify(resultJs, {
-            sourceMap: false,
             module: true,
             compress: { ecma: 2022 },
             format: { max_line_len: 160 },
@@ -493,31 +492,11 @@ async function pack(sortedModules, externalReferences) {
     }
 }
 
-async function buildAndDeploy() {
-
-    const program = createTypescriptProgram();
-    const validateResult = validateTopLevelNames(program);
-    if (!validateResult) { console.log('there are error in collecting top level names'); return; }
-    const transpileResult = transpile(program);
-    if (!transpileResult) { console.log('there are error in transpiling'); return; }
-    const modules = resolveModuleDependencies(transpileResult);
-    if (!modules) { console.log('there are error in resolving module dependencies'); return; }
-    const sortedModules = validateRelativeImports(modules);
-    if (!sortedModules) { console.log('there are error in checking relative imports'); return; }
-    const externalReferences = validateExternalReferences(modules);
-    if (!externalReferences) { console.log('there are error in checking external references'); return; }
-    const resultJs = await pack(sortedModules, externalReferences);
-    if (!resultJs) { console.log('there are error in minify'); return; }
-    console.log(`complete build`);
-
-    console.log(`uploading`);
-    await sftpclient.put(Buffer.from(resultJs), path.join(config.webroot, 'index.js'));
-    console.log(`complete upload`);
-
+async function reportLocalBuildComplete(ok) {
     const response = await fetch(`https://${config['main-domain']}:8001/local-build-complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: '1',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ok }),
     });
     if (response.ok) {
         console.log('POST /local-build-complete ok');
@@ -526,21 +505,45 @@ async function buildAndDeploy() {
     }
 }
 
+async function buildAndDeploy() {
+
+    const program = createTypescriptProgram();
+    const validateResult = validateTopLevelNames(program);
+    if (!validateResult) { console.log('there are error in collecting top level names'); return await reportLocalBuildComplete(false); }
+    const transpileResult = transpile(program);
+    if (!transpileResult) { console.log('there are error in transpiling'); return await reportLocalBuildComplete(false); }
+    const modules = resolveModuleDependencies(transpileResult);
+    if (!modules) { console.log('there are error in resolving module dependencies'); return await reportLocalBuildComplete(false); }
+    const sortedModules = validateRelativeImports(modules);
+    if (!sortedModules) { console.log('there are error in checking relative imports'); return await reportLocalBuildComplete(false); }
+    const externalReferences = validateExternalReferences(modules);
+    if (!externalReferences) { console.log('there are error in checking external references'); return await reportLocalBuildComplete(false); }
+    const resultJs = await pack(sortedModules, externalReferences);
+    if (!resultJs) { console.log('there are error in minify'); return await reportLocalBuildComplete(false); }
+    console.log(`complete build`);
+
+    console.log(`uploading`);
+    await sftpclient.put(Buffer.from(resultJs), path.join(config.webroot, 'index.js'));
+    console.log(`complete upload`);
+
+    await reportLocalBuildComplete(true);
+}
+
 const readlineInterface = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
 });
-function connectWebsocket() {
+function connectRemoteCommandCenter() {
     const websocket = new WebSocket(`wss://${config['main-domain']}:8001/for-build`);
     websocket.addEventListener('close', async () => {
         console.log(`websocket: disconnected`);
         await readlineInterface.question('input anything to reconnect: ');
-        connectWebsocket();
+        connectRemoteCommandCenter();
     });
     websocket.addEventListener('error', async error => {
         console.log(`websocket: error:`, error);
         await readlineInterface.question('input anything to reconnect: ');
-        connectWebsocket();
+        connectRemoteCommandCenter();
     });
     websocket.addEventListener('open', async () => {
         console.log(`websocket: connected, you'd better complete authentication quickly`);
@@ -553,4 +556,4 @@ function connectWebsocket() {
         buildAndDeploy();
     });
 }
-connectWebsocket();
+connectRemoteCommandCenter();

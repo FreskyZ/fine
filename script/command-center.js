@@ -67,7 +67,14 @@ httpServer.on('request', (request, response) => {
         request.on('end', () => {
             const body = Buffer.concat(chunks).toString();
             logInfo('http/local-build-complete: request body received', body);
-            buildScriptHttpConnectionInputPromiseResolve?.(body);
+            let data;
+            try {
+                data = JSON.parse(body);
+            } catch {
+                logInfo('http/local-build-complete: but failed to parse json');
+                buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
+            }
+            buildScriptHttpConnectionInputPromiseResolve?.(data);
             response.writeHead(200, 'OK');
             response.end();
         });
@@ -104,6 +111,7 @@ httpServer.on('upgrade', (request, socket, header) => {
                         websocket.on('close', () => {
                             logInfo(`websocket${url.pathname}: disconnected`);
                             buildScriptWebsocketConnection = null;
+                            buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                         });
                     } else {
                         logInfo(`websocket${url.pathname}: received unexpected message`, buffer);
@@ -165,7 +173,7 @@ async function sendCommandToCore(command) {
 }
 
 let /** @type {() => void} */ userInputPromiseResolve;
-let /** @type {() => void} */ buildScriptHttpConnectionInputPromiseResolve;
+let /** @type {(data: { ok: boolean }) => void} */ buildScriptHttpConnectionInputPromiseResolve;
 let /** @type {Promise} */ readlineResumePromise;
 async function runWorkflow() {
     while (true) {
@@ -191,17 +199,20 @@ async function runWorkflow() {
                 readlineResumePromiseResolve();
             });
         } else if (rawCommand == 'core') {
+            // TODO handle websocket disconnect in the process
             // expect the other side is build-core.js
             if (!buildScriptWebsocketConnection) {
                 logInfo('workflow: not connected to local build script, nothing to do');
             } else {
                 buildScriptWebsocketConnection.send('1');
-                setTimeout(() => {
+                const timeout = setTimeout(() => {
                     logInfo('workflow: build script timeout, what happened?');
-                    buildScriptHttpConnectionInputPromiseResolve?.();
+                    buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
+                if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
                 logInfo('workflow: build core complete, for now you need to manually restart that');
                 readlineResumePromiseResolve();
             }
@@ -211,12 +222,14 @@ async function runWorkflow() {
                 logInfo('workflow: not connected to local build script, nothing to do');
             } else {
                 buildScriptWebsocketConnection.send('1');
-                setTimeout(() => {
+                const timeout = setTimeout(() => {
                     logInfo('workflow: build script timeout, what happened?');
-                    buildScriptHttpConnectionInputPromiseResolve?.();
+                    buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
+                if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
                 logInfo('workflow: received local build complete');
                 await sendCommandToCore({ kind: 'static-content:reload', key: 'user' });
                 readlineResumePromiseResolve();
@@ -227,25 +240,30 @@ async function runWorkflow() {
                 logInfo('workflow: not connected to local build script, nothing to do');
             } else {
                 buildScriptWebsocketConnection.send('1');
-                setTimeout(() => {
+                const timeout = setTimeout(() => {
                     logInfo('workflow: build script timeout, what happened?');
-                    buildScriptHttpConnectionInputPromiseResolve?.();
+                    buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
+                if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
                 logInfo('workflow: received local build complete');
                 if (rawCommand.endsWith('client')) {
                     await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
                 } else if (rawCommand.endsWith('server')) {
                     await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
                 } else {
-                    await Promise.all([
-                        sendCommandToCore({ kind: 'app:reload-client', name: 'chat' }),
-                        sendCommandToCore({ kind: 'app:reload-server', name: 'chat' }),
-                    ]);
+                    // ATTENTION not promise.all, or else the 2 packets
+                    // appear in same data event and you need additional mechanism to split them
+                    await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
+                    await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
                 }
                 readlineResumePromiseResolve();
             }
+        } else if (rawCommand == 'reload config') {
+            await sendCommandToCore({ kind: 'static-content:reload-config' });
+            readlineResumePromiseResolve();
         } else {
             logInfo(`workflow: unknown command ${rawCommand}`);
             readlineResumePromiseResolve();
