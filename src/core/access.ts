@@ -1,14 +1,14 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
 import type { UserSession, UserCredential } from '../shared/access.js';
-import type { AdminAccessCommand } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import type { QueryResult, ManipulateResult } from '../adk/database.js';
 import { pool, QueryDateTimeFormat } from '../adk/database.js';
 import { MyError } from './error.js';
-import { log } from './logger.js';
 import { RateLimit } from './content.js';
 
 // see docs/authentication.md
@@ -136,14 +136,16 @@ const userSessionStorage: UserSessionData[] = [];
 // in memory application authorization code and access token storage
 // they have very short lifetime and no need to save to database and consider server restart
 interface AuthorizationCodeData {
-    userId: number,
-    app: string,
+    userId: number,    // check user inactive when sign in
+    sessionId: number, // check session revoke when sign in
+    app: string,       // check app match when sign in
     value: string,
     expireTime: dayjs.Dayjs,
 }
 interface ApplicationSessionData {
-    userId: number,
-    app: string,
+    userId: number,    // check user inactive when authenticate
+    sessionId: number, // this is UserSession.Id database column value, not id of this data, check session revoke when authenticate
+    app: string,       // check app match when authenticate
     accessToken: string,
     lastAccessTime: dayjs.Dayjs,
 }
@@ -370,7 +372,13 @@ async function handleGenerateAuthorizationCode(ctx) {
     }
 
     const code = generateRandomText(64);
-    authorizationCodeStorage.push({ userId: ctx.state.user.id, app, value: code, expireTime: ctx.state.now.add(1, 'minute') });
+    authorizationCodeStorage.push({
+        userId: ctx.state.user.id,
+        sessionId: ctx.state.user.sessionId,
+        app,
+        value: code,
+        expireTime: ctx.state.now.add(1, 'minute'),
+    });
 
     ctx.status = 200;
     ctx.body = { code };
@@ -493,9 +501,18 @@ async function handleApplicationSignIn(ctx) {
     if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
         throw new MyError('auth', 'app not allowed');
     }
+    if (!userSessionStorage.some(s => s.Id == data.sessionId)) {
+        throw new MyError('auth', 'invalid session id');
+    }
 
     const accessToken = generateRandomText(42);
-    applicationSessionStorage.push({ userId: data.userId, app: data.app, accessToken, lastAccessTime: ctx.state.now });
+    applicationSessionStorage.push({
+        userId: data.userId,
+        sessionId: data.sessionId,
+        app: data.app,
+        accessToken,
+        lastAccessTime: ctx.state.now,
+    });
     
     ctx.status = 200;
     ctx.body = { accessToken };
@@ -578,6 +595,9 @@ async function authenticateApplication(ctx: MyContext) {
     if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
         throw new MyError('auth', 'unauthorized');
     }
+    if (!userSessionStorage.some(s => s.Id == session.sessionId)) {
+        throw new MyError('auth', 'unauthorized');
+    }
 
     session.lastAccessTime = ctx.state.now;
     ctx.state.user = { id: user.Id, name: user.Name };
@@ -631,37 +651,102 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
     }
 }
 
-export async function handleAccessCommand(command: AdminAccessCommand): Promise<void> {
-    log.info({ type: 'admin command access', data: command });
+async function handleRevoke(sessionId: number): Promise<AdminInterfaceResponse> {
+    let manipulateResult: ManipulateResult;
+    try {
+        const [deleteResult] = await pool
+            .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `Id` = ?', [sessionId]);
+        manipulateResult = deleteResult;
+    } catch (error) {
+        manipulateResult = error; // ?
+    }
+
+    const index = userSessionStorage.findIndex(d => d.Id == sessionId);
+    const cacheRecord = index >= 0 ? userSessionStorage.splice(index, 1) : null;
+    return { ok: true, log: `delete from database, remove from cache`, manipulateResult, cacheRecord };
+}
+async function handleActivateUser(userId: number, newActive: boolean): Promise<AdminInterfaceResponse> {
+    let manipulateResults: ManipulateResult[] = [];
+    if (newActive) {
+        try {
+            const [updateResult] = await pool
+                .execute<ManipulateResult>('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', userId);
+            manipulateResults.push(updateResult);
+        } catch (error) {
+            manipulateResults.push(error); // ?
+        }
+        const cacheRecord = userStorage.find(u => u.Id == userId);
+        if (cacheRecord) { cacheRecord.Active = true; }
+        return { ok: true, log: `update database, update cache`, manipulateResults, cacheRecord };
+
+    } else {
+        try {
+            const [updateResult] = await pool
+                .execute<ManipulateResult>('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', userId);
+            manipulateResults.push(updateResult);
+        } catch (error) {
+            manipulateResults.push(error); // ?
+        }
+        // also remove all sessions
+        try {
+            const [deleteResult] = await pool
+                .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `UserId` = ?', userId);
+            manipulateResults.push(deleteResult);
+        } catch (error) {
+            manipulateResults.push(error); // ?
+        }
+        const userCacheRecord = userStorage.find(u => u.Id == userId);
+        if (userCacheRecord) { userCacheRecord.Active = false; }
+        
+        const removedSessionCacheRecords = userSessionStorage.filter(s => s.UserId == userId);
+        userSessionStorage.splice(0, userSessionStorage.length, ...userSessionStorage.filter(s => s.UserId != userId));
+
+        return {
+            ok: true,
+            log: 'update and delete from database, update and remove from cache',
+            manipulateResults,
+            userCacheRecord,
+            removedSessionCacheRecords,
+        };
+    }
+}
+
+export async function handleAccessCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+
+    // revoke session (id.example.com user session)
+    if (command.kind == 'access-control:revoke') {
+        return await handleRevoke(command.sessionId);
+
+    // change domain of app (from app.example.com to appname.example.com)
+    // this does not add or remove app
+    } else if (command.kind == 'app:reload-domain') {
+        let operationLog = '';
+        const config = await fs.readFile('config', 'utf-8');
+        Object.entries(JSON.parse(config)).map(c => {
+            const app = webapps.find(a => a.name == c[0]);
+            if (app.shared != ((c[1] as any).host == 'app.example.com')) {
+                app.shared = ((c[1] as any).host == 'app.example.com');
+                operationLog += `${app.name} changed domain to ${(c[1] as any).host};`;
+            }
+        });
+        return { ok: true, log: operationLog, webapps };
 
     // activate/inactivate user
-    if (command.type == 'activate-user') {
-        await pool.execute('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', command.userId);
-        const maybeCache = userStorage.find(u => u.Id == command.userId);
-        if (maybeCache) { maybeCache.Active = true; }
-    } else if (command.type == 'inactivate-user') {
-        await pool.execute('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', command.userId);
-        const maybeCache = userStorage.find(u => u.Id == command.userId);
-        if (maybeCache) { maybeCache.Active = false; }
-        // remove all user devices because front end when get unauthorized will discard access token
-        await pool.execute('DELETE FROM `UserSession` WHERE `UserId` = ?', command.userId);
-        while (userSessionStorage.some(d => d.UserId == command.userId)) {
-            userSessionStorage.splice(userSessionStorage.findIndex(d => d.UserId == command.userId), 1);
-        }
-
-    // revoke access token
-    } else if (command.type == 'revoke-session') {
-        await pool.execute('DELETE FROM `UserDevice` WHERE `Id` = ?', command.sessionId);
-        const maybeIndex = userSessionStorage.findIndex(d => d.Id == command.sessionId);
-        if (maybeIndex >= 0) { userSessionStorage.splice(maybeIndex, 1); }
+    } else if (command.kind == 'access-control:user:enable') {
+        return await handleActivateUser(command.userId, true);
+    } else if (command.kind == 'access-control:user:disable') {
+        return await handleActivateUser(command.userId, false);
 
     // enable/disable signup
-    } else if (command.type == 'enable-signup') {
+    } else if (command.kind == 'access-control:signup:enable') {
         AllowSignUp = true;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
         AllowSignUpTimer = setTimeout(() => AllowSignUp = false, 43200_000);
-    } else if (command.type == 'disable-signup') {
+        return { ok: true, log: 'complete enable signup' };
+    } else if (command.kind == 'access-control:signup:disable') {
         AllowSignUp = false;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
+        return { ok: true, log: 'complete disable signup' };
     }
+    return null;
 }

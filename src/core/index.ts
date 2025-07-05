@@ -7,12 +7,13 @@ import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import type { PoolOptions } from 'mysql2';
-import type { AdminCoreCommand } from '../shared/admin.js';
+import type { AdminInterfaceCommand } from '../shared/admin.js';
 import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
-import { setupStaticContent, setupShortLinkService, handleRequestContent, handleResponseCompression, handleContentCommand } from './content.js';
+import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
+import { handleResponseCompression } from './content.js';
 import type { WebappConfig } from './access.js';
 import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
 import { setupForwarding, handleRequestForward, handleForwardCommand } from './forward.js';
@@ -55,6 +56,11 @@ const handleSocketServerError = (error: Error) => {
     console.log(`admin server error: ${error.message}`);
 };
 
+const adminInterfaceHandlers = [
+    handleContentCommand,
+    handleAccessCommand,
+    handleForwardCommand,
+];
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
     adminInterfaceConnections.push(connection);
@@ -65,27 +71,38 @@ adminServer.on('connection', connection => {
     connection.on('error', error => {
         console.log(`admin connection error: ${error.message}`);
     });
-    connection.on('data', data => {
+    connection.on('data', async data => {
         const payload = data.toString('utf-8');
-        let message = { type: 'ping' } as AdminCoreCommand;
+        log.info({ type: 'admin interface received data', payload });
+        let command: AdminInterfaceCommand;
         try {
-            message = JSON.parse(payload);
+            command = JSON.parse(payload);
         } catch {
-            log.error({ type: 'parse admin payload', payload });
+            log.error({ type: 'admin interface payload parse failed', payload });
+            connection.write(JSON.stringify({ ok: false, log: 'failed to parse payload ' + payload }));
+            return;
         }
-        // ACK after data decoded or else data seems to be discarded after that end closed
-        connection.write('ACK');
-        // do nothing for ping, ACK is enough for stating 'I'm alive'
 
-        if (message.type == 'shutdown') {
+        if (command.kind == 'ping') {
+            connection.write(JSON.stringify({ ok: true, log: 'pong' }));
+            return;
+        } else if (command.kind == 'shutdown') {
+            log.info({ type: 'received shutdown request from admin interface' });
+            connection.write(JSON.stringify({ ok: true, log: 'scheduling shutdown' }));
             shutdown();
-        } else if (message.type == 'access') {
-            handleAccessCommand(message.sub);
-        } else if (message.type == 'content') {
-            handleContentCommand(message.sub);
-        } else if (message.type == 'forward') {
-            handleForwardCommand(message.sub);
+            return;
+        } else {
+            for (const handler of adminInterfaceHandlers) {
+                const response = await handler(command);
+                if (response) {
+                    log.info({ type: 'admin interface response', response });
+                    connection.write(JSON.stringify(response));
+                    return;
+                }
+            }
         }
+        log.info({ type: 'admin interface unhandled command', payload });
+        connection.write(JSON.stringify({ ok: false, log: 'unhandled command ' + payload }));
     });
 });
 

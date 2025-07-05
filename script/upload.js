@@ -1,13 +1,14 @@
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import Client from 'ssh2-sftp-client';
 
+const config = JSON.parse(await fs.readFile('akaric', 'utf-8'));
 const client = new Client();
 await client.connect({
-    host,
-    username,
-    privateKey,
-    passphrase,
+    host: config['main-domain'],
+    username: config.ssh.user,
+    privateKey: await fs.readFile(config.ssh.identity),
+    passphrase: config.ssh.passphrase,
 });
 
 const workflows = {
@@ -18,9 +19,9 @@ const workflows = {
         ['src/static/404.html', 'static/404.html'],
         ['src/static/418.html', 'static/418.html'],
     ],
-    // temp standalone admin
-    tsadmin: [
-        ['script/admin.js', 'admin.js'],
+    // remote command center
+    cc: [
+        ['script/command-center.js', 'cc.js'],
     ],
 }
 

@@ -329,6 +329,32 @@ try {
 }
 ```
 
+### WSL Setup
+
+connect to HTTPS on my local WSL dev environment fails on ssl ???
+curl: (60) SSL certificate problem: unable to get local issuer certificate ???
+
+export the full chain cert in browser (select full chain in the Windows save as modal) as example.com.crt
+put it in /usr/local/share/ca-certificates/ (need sudo, may be need apt install ca-certificates)
+run sudo update-ca-certificates
+
+now curl works, to make node work, run node --use-system-ca, or use this
+
+```js
+// ???
+const mycert = await fs.readFile('my.crt', 'utf-8');
+const originalCreateSecureContext = tls.createSecureContext;
+tls.createSecureContext = options => {
+    const originalResult = originalCreateSecureContext(options);
+    if (!options.ca) { originalResult.context.addCACert(mycert); }
+    return originalResult;
+};
+```
+
+don't forget append multiple question marks
+
+this seems is not public api, this is learned from https://github.com/fujifish/syswide-cas/blob/master/index.js
+
 ### Story
 
 At first, I bought a domain on GoDaddy because it didn't require beian. As part of reviving this project,

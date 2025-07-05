@@ -1,6 +1,6 @@
 import net from 'node:net';
 import type { ForwardContext } from '../adk/api-server.js';
-import type { AdminForwardCommand } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { MyError } from './error.js';
 import { log } from './logger.js';
 import type { MyContext, WebappConfig } from './access.js';
@@ -198,15 +198,16 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
     await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery, requestDisplay);
 }
 
-export async function handleForwardCommand(command: AdminForwardCommand): Promise<void> {
-    log.info({ type: 'admin command forward', data: command });
-
-    // ATTENTION TODO reload-config does not work here
+export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
     
-    if (command.type == 'reload-server') {
+    if (command.kind == 'app:reload-server') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {
             app.version += 1;
+            return { ok: true, log: 'update version', app };
+        } else {
+            return { ok: false, log: 'name not found' };
         }
     }
+    return null;
 }

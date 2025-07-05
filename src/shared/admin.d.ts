@@ -1,46 +1,24 @@
 // admin interface types
 
-export type AdminAccessCommand =
-    | { type: 'enable-signup' }
-    | { type: 'disable-signup' }
-    | { type: 'activate-user', userId: number }
-    | { type: 'inactivate-user', userId: number }
-    | { type: 'revoke-session', sessionId: number };
+export type AdminInterfaceCommand =
+    | { kind: 'ping' }
+    | { kind: 'shutdown' }
+    | { kind: 'static-content:reload', key: string }
+    | { kind: 'static-content:reload-config' }
+    | { kind: 'short-link:reload' }
+    | { kind: 'access-control:revoke', sessionId: number }
+    | { kind: 'static-content:source-map:enable' }
+    | { kind: 'static-content:source-map:disable' }
+    | { kind: 'access-control:user:enable', userId: number }
+    | { kind: 'access-control:user:disable', userId: number }
+    | { kind: 'access-control:signup:enable' }
+    | { kind: 'access-control:signup:disable' }
+    | { kind: 'app:reload-domain' }
+    | { kind: 'app:reload-server', name: string }
+    | { kind: 'app:reload-client', name: string };
 
-export type AdminContentCommand =
-    | { type: 'reload-static', key: string }
-    | { type: 'reload-config' }
-    | { type: 'reset-short-link' }
-    | { type: 'enable-source-map' }
-    | { type: 'disable-source-map' };
-
-export type AdminForwardCommand =
-    | { type: 'reload-server', name: string }
-
-export type AdminCoreCommand =
-    | { type: 'ping' }
-    | { type: 'shutdown' }
-    | { type: 'access', sub: AdminAccessCommand }
-    | { type: 'content', sub: AdminContentCommand }
-    | { type: 'forward', sub: AdminForwardCommand };
-
-export type AdminDevPageCommand =
-    | 'reload-all'
-    | 'reload-css';
-
-export type AdminServiceCommand =
-    | 'start'
-    | 'stop'
-    | 'restart'
-    | 'is-active'
-    | 'status';
-
-export type AdminSelfHostCommand =
-    | 'start'
-    | 'stop';
-
-export type AdminCommand =
-    | { target: 'core', data: AdminCoreCommand }
-    | { target: 'dev-page', data: AdminDevPageCommand }
-    | { target: 'service', data: AdminServiceCommand }
-    | { target: 'self-host', data: AdminSelfHostCommand };
+export interface AdminInterfaceResponse {
+    ok: boolean,
+    log: string,
+    [p: string]: any,
+}

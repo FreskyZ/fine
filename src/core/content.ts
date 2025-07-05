@@ -7,7 +7,7 @@ import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
 import type { RowDataPacket } from 'mysql2';
 import zlib from 'zlib';
-import type { AdminContentCommand } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { pool } from '../adk/database.js';
 import { MyError } from './error.js';
 import { log } from './logger.js';
@@ -385,23 +385,31 @@ export async function handleResponseCompression(ctx: koa.Context, next: koa.Next
     ctx.set('Content-Length', encoded.length.toString());
 }
 
-function handleReloadStatic(key: string) {
+async function handleReload(key: string): Promise<AdminInterfaceResponse> {
+    let operationLog = `request reload-static ${key}\n`;
 
     for (const item of contentcache.items.filter(i => i.realpath.startsWith(key))) {
+        operationLog += `  for item ${item.realpath}: `;
         if (!syncfs.existsSync(item.absolutePath)) {
+            operationLog += `realpath not exist, remove`;
             contentcache.items.splice(contentcache.items.findIndex(i => i.realpath == item.realpath), 1);
         } else if (item.content === null) {
+            operationLog += `content not loaded, do nothing`;
             // nothing happen when item never requested,
             // when actually requested, the handler will load newest content
         } else {
-            const newContent = syncfs.readFileSync(item.absolutePath);
+            const newContent = await fs.readFile(item.absolutePath);
             if (Buffer.compare(item.content, newContent)) {
+                operationLog += `content not same, update`;
                 item.cacheKey = getnow();
                 item.lastModified = new Date(),
                 item.content = newContent;
                 item.encodedContent = {};
+            } else {
+                operationLog += `content same, not update`;
             }
         }
+        operationLog += '\n';
     }
 
     for (const { host, realdir } of contentcache.wildcardToWildcard.filter(w => w.realdir.startsWith(key))) {
@@ -419,24 +427,42 @@ function handleReloadStatic(key: string) {
             }
         }
     }
+    return { ok: true, log: operationLog };
 }
-export function handleContentCommand(data: AdminContentCommand): void {
-    log.info({ type: 'admin command content', data });
+export async function handleContentCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
 
-    if (data.type == 'reload-static') {
-        handleReloadStatic(data.key);
-    } else if (data.type == 'reload-config') {
+    // reload static content
+    if (command.kind == 'static-content:reload') {
+        return await handleReload(command.key);
+    } else if (command.kind == 'app:reload-client') {
+        return await handleReload(command.name);
+
+    // reload static content config
+    } else if (command.kind == 'static-content:reload-config') {
         // throw away all old cache
         setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
-    } else if (data.type == 'reset-short-link') {
-        shortlinkcache.items.splice(0, shortlinkcache.items.length);
-    } else if (data.type == 'enable-source-map') {
+        return { ok: true, log: 'complete reload static config' };
+
+    // enable/disable source map
+    } else if (command.kind == 'static-content:source-map:enable') {
         AllowSourceMap = true;
         if (DisableSourceMapTimer) {
             clearTimeout(DisableSourceMapTimer);
         }
         DisableSourceMapTimer = setTimeout(() => AllowSourceMap = false, 7200_000);
-    } else if (data.type == 'disable-source-map') {
+        return { ok: true, log: 'complete enable source map' };
+    } else if (command.kind == 'static-content:source-map:disable') {
         AllowSourceMap = false;
+        if (DisableSourceMapTimer) {
+            clearTimeout(DisableSourceMapTimer);
+            DisableSourceMapTimer = null;
+        }
+        return { ok: true, log: 'complete disable source map' };
+
+    // reload short link cache
+    } else if (command.kind == 'short-link:reload') {
+        shortlinkcache.items.splice(0, shortlinkcache.items.length);
+        return { ok: true, log: 'complete reload short link cache' };
     }
+    return null;
 }
