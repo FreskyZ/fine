@@ -173,7 +173,12 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
         log.error({ message: 'error ' + error.toString(), request: requestDisplay, error: error });
-        throw new MyError('bad-gateway', 'error raised');
+        if (error.name != 'FineError') {
+            throw new MyError('bad-gateway', 'error raised');
+        } else {
+            // seems no rethrow in javascript
+            throw error;
+        }
     }
     // this reject 0 or false, but should be ok
     if (!response || typeof response != 'object') {

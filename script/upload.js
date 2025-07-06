@@ -21,7 +21,7 @@ const workflows = {
     ],
     // remote command center
     cc: [
-        ['script/command-center.js', 'cc.js'],
+        ['script/command-center.js', 'akari.js'],
     ],
 }
 

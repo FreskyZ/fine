@@ -59,7 +59,7 @@ class RateLimit {
 const ratelimit = new RateLimit(10, 1);
 httpServer.on('request', (request, response) => {
     if (!ratelimit.request(request, response)) { return; }
-    const url = new URL(request.url, 'http://example.com');
+    const url = new URL(request.url, 'https://example.com');
     if (request.method == 'POST' && url.pathname == '/local-build-complete') {
         logInfo('http/local-build-complete: request received');
         const chunks = [];
@@ -78,7 +78,9 @@ httpServer.on('request', (request, response) => {
             response.writeHead(200, 'OK');
             response.end();
         });
-    // TODO GET /dev-page.js
+    } else if (request.method == 'GET' && url.pathname == '/client-dev.js') {
+        response.writeHead(200, 'OK');
+        response.end(`const w=new WebSocket(\`wss://${Object.keys(config.certificates)[0]}:8001/for-client\`);w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
     } else {
         response.writeHead(400, 'Bad Request');
         response.end();
@@ -88,13 +90,13 @@ httpServer.on('request', (request, response) => {
 let /** @type {WebSocket[]} */ clientWebsocketConnections = [];
 let /** @type {WebSocket} */ buildScriptWebsocketConnection;
 httpServer.on('upgrade', (request, socket, header) => {
-    const url = new URL(request.url, 'http://example.com');
+    const url = new URL(request.url, 'https://example.com');
     if (url.pathname != '/for-build' && url.pathname != '/for-client') {
         logInfo('websocket: upgrade request rejected because invalid path, when will this happen?');
         socket.write('HTTP 1.1 400 Bad Request\r\n\r\n');
         socket.destroy();
     } else {
-        logInfo(`websocket: upgrading ${url.pathname}`);
+        // logInfo(`websocket: upgrading ${url.pathname}`);
         websocketServer.handleUpgrade(request, socket, header, websocket => {
             if (url.pathname == '/for-build') {
                 const token = generateRandomText(6);
@@ -122,7 +124,7 @@ httpServer.on('upgrade', (request, socket, header) => {
                 logInfo(`websocket${url.pathname}: connected`);
                 websocket.on('close', () => {
                     logInfo(`websocket${url.pathname}: disconnected`);
-                    const index = clientWebsocketConnections.findIndex(websocket);
+                    const index = clientWebsocketConnections.indexOf(websocket);
                     if (index) { clientWebsocketConnections.splice(index, 1); }
                 });
                 clientWebsocketConnections.push(websocket);
@@ -152,6 +154,7 @@ async function sendCommandToCore(command) {
             coreAdminInterfaceConnection = net.connect('/tmp/fine.socket');
             logInfo(`core socket: connected`);
         }
+        coreAdminInterfaceConnection.removeAllListeners();
         const serializedCommand = JSON.stringify(command);
         coreAdminInterfaceConnection.on('error', error => {
             coreAdminInterfaceConnection = null;
@@ -249,15 +252,20 @@ async function runWorkflow() {
                 buildScriptHttpConnectionInputPromiseResolve = null;
                 if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
                 logInfo('workflow: received local build complete');
-                if (rawCommand.endsWith('client')) {
+                if (rawCommand.includes('client')) {
                     await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
-                } else if (rawCommand.endsWith('server')) {
+                } else if (rawCommand.includes('server')) {
                     await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
                 } else {
                     // ATTENTION not promise.all, or else the 2 packets
                     // appear in same data event and you need additional mechanism to split them
                     await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
                     await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
+                }
+                // disable if includes no reload page, or only include server
+                if (!rawCommand.includes('no reload page') && (rawCommand.includes('client') || !rawCommand.includes('server'))) {
+                    clientWebsocketConnections.forEach(c => c.send('reload'));
+                    logInfo(`workflow: reload request send to client side`);
                 }
                 readlineResumePromiseResolve();
             }
