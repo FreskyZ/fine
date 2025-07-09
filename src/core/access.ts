@@ -176,10 +176,10 @@ function generateRandomText(length: number) {
 // return empty array for invalid value, which should be convenient to directly deconstruct into array elements
 function getBasicAuthorization(ctx: MyContext) {
     const raw = ctx.get('authorization');
-    if (!raw) { return null; }
-    if (!raw.startsWith('Basic ')) { return null; }
+    if (!raw) { return []; }
+    if (!raw.startsWith('Basic ')) { return []; }
     // this will be very high if you don't inline everything
-    let decoded: string; try { decoded = atob(raw.substring(6)); } catch { return null; }
+    let decoded: string; try { decoded = atob(raw.substring(6)); } catch { return []; }
     return decoded.split(':').map(v => v.trim()).filter(v => v);
 }
 // get normal bearer access token from request header
@@ -609,14 +609,14 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
     
     if (ctx.origin == 'https://id.example.com') {
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'id-before')) {
-            const match = path.exec(ctx.path);
+            const match = path.exec(ctx.url);
             if (method == ctx.method && match) { await handler(ctx, match.groups); return; }
         }
 
         await authenticateIdentityProvider(ctx);
 
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'id-after')) {
-            const match = path.exec(ctx.path);
+            const match = path.exec(ctx.url);
             if (method == ctx.method && match) { await handler(ctx, match.groups); return; }
         }
         throw new MyError('not-found', 'invalid invocation'); // id.example.com api invocation should end here
@@ -625,11 +625,11 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
 
         // special actions are all private
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'app-before')) {
-            const match = path.exec(ctx.path);
+            const match = path.exec(ctx.url);
             if (method == ctx.method && match) { await handler(ctx, match.groups); return; }
         }
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'app-after')) {
-            const match = path.exec(ctx.path);
+            const match = path.exec(ctx.url);
             if (method == ctx.method && match) { 
                 await authenticateApplication(ctx);
                 await handler(ctx, match.groups);
