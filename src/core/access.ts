@@ -45,23 +45,30 @@ export function setupAccessControl(config: WebappConfig) {
         server: c[1].server,
         version: 0,
     }));
-    ratelimits.apps = Object.fromEntries(webapps.map(a => [a.name, new RateLimit(10, 1)]));
-    ratelimits.appSignIn = Object.fromEntries(webapps.map(a => [a.name, new RateLimit(1, 1)]));
+    ratelimits.apps = Object.fromEntries(webapps.map(a => [a.name, new RateLimit('access-control:apps', 10, 1)]));
+    // fullamount=2: generate-authorization-code and application's signin are both using this, if 1 then /signin will fail
+    ratelimits.appSignIn = Object.fromEntries(webapps.map(a => [a.name, new RateLimit('access-control:app-signin', 2, 1)]));
 }
 
 // rate limit various aspects
 const ratelimits = {
     // this limits all (over all ip and app),
     // when requesting a token, key is empty string
-    all: new RateLimit(100, 1),
+    all: new RateLimit('access-control:all', 100, 1),
     // api invocation per app then per ip, this use (10, 1)
     apps: {} as Record<string, RateLimit>,
     // specifically limit sign in operation, per ip
-    idSignIn: new RateLimit(1, 1),
+    idSignIn: new RateLimit('access-control:id-signin', 1, 1),
     // per app per ip, this use (1, 1)
     // generate authorization code and application sign in use the same limit
     appSignIn: {} as Record<string, RateLimit>,
 };
+setInterval(() => {
+    // ratelimits.all.cleanup(); // all does not use key
+    Object.values(ratelimits.apps).map(r => r.cleanup());
+    ratelimits.idSignIn.cleanup();
+    Object.values(ratelimits.appSignIn).map(r => r.cleanup());
+}, 3600_000);
 
 // all request here is cross origin because api.example.com does not have ui
 // this is before authentication and don't know the user, although app is known here, cannot authorize user to access app
@@ -716,6 +723,13 @@ export async function handleAccessCommand(command: AdminInterfaceCommand): Promi
     // revoke session (id.example.com user session)
     if (command.kind == 'access-control:revoke') {
         return await handleRevoke(command.sessionId);
+    } else if (command.kind == 'access-control:display-application-sessions') {
+        return { ok: true, log: 'get', applicationSessionStorage };
+    } else if (command.kind == 'access-control:display-rate-limits') {
+        return { ok: true, log: 'get', ratelimits: {
+            all: ratelimits.all.buckets,
+            apps: Object.fromEntries(Object.entries(ratelimits.apps).map(([k, v]) => [k, v.buckets])),
+        } };
 
     // change domain of app (from app.example.com to appname.example.com)
     // this does not add or remove app

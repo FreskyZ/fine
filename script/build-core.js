@@ -21,15 +21,6 @@ tls.createSecureContext = options => {
     return originalResult;
 };
 
-const sftpclient = new SFTPClient();
-await sftpclient.connect({
-    host: config['main-domain'],
-    username: config.ssh.user,
-    privateKey: await fs.readFile(config.ssh.identity),
-    passphrase: config.ssh.passphrase,
-});
-console.log('sftp connected');
-
 // seems cannot reuse program object after file changed, so need to create new object every time
 function createTypescriptProgram() {
     return ts.createProgram([path.resolve('src/core/index.ts')], {
@@ -523,6 +514,14 @@ async function buildAndDeploy() {
     console.log(`complete build`);
 
     console.log(`uploading`);
+    // the ssh connection periodically lose connection after some time of no activity
+    const sftpclient = new SFTPClient();
+    await sftpclient.connect({
+        host: config['main-domain'],
+        username: config.ssh.user,
+        privateKey: await fs.readFile(config.ssh.identity),
+        passphrase: config.ssh.passphrase,
+    });
     await sftpclient.put(Buffer.from(resultJs), path.join(config.webroot, 'index.js'));
     console.log(`complete upload`);
 

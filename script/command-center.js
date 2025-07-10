@@ -40,11 +40,11 @@ class RateLimit {
     request(request, response) {
         let bucket = this.buckets[request.socket.remoteAddress];
         if (!bucket) {
-            bucket = { count: 10, lastAccessTime: dayjs.utc() };
+            bucket = { count: this.maxCount, lastAccessTime: dayjs.utc() };
             this.buckets[request.socket.remoteAddress] = bucket;
         } else {
             const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'second');
-            bucket.count = Math.min(10, bucket.count + elapsed * this.refillRate);
+            bucket.count = Math.min(this.maxCount, bucket.count + elapsed * this.refillRate);
             bucket.lastAccessTime = dayjs.utc();
         }
         bucket.count -= 1;
@@ -271,6 +271,12 @@ async function runWorkflow() {
             }
         } else if (rawCommand == 'reload config') {
             await sendCommandToCore({ kind: 'static-content:reload-config' });
+            readlineResumePromiseResolve();
+        } else if (rawCommand == 'get application sessions') {
+            await sendCommandToCore({ kind: 'access-control:display-application-sessions' });
+            readlineResumePromiseResolve();
+        } else if (rawCommand == 'rate limit') {
+            await sendCommandToCore({ kind: 'access-control:display-rate-limits' });
             readlineResumePromiseResolve();
         } else {
             logInfo(`workflow: unknown command ${rawCommand}`);

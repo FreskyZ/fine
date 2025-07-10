@@ -43,33 +43,43 @@ const encodingToEncoder: EncodingToEncoder = {
 
 // no common module in this library, put it here for now
 export class RateLimit {
-    private readonly buckets: Record<string, {
-        count: number, // remining token count
-        lastAccessTime: dayjs.Dayjs, // see usage
+    public readonly buckets: Record<string, {
+        amount: number, // remining token amount
+        updateTime: dayjs.Dayjs, // amount change time, refill based on this
     }> = {};
     public constructor(
-        private readonly maxCount: number, // max tokens
-        private readonly refillRate: number // refill count per second
-    ) {
-        // clear filled buckets regularly
-        setInterval(() => Object.entries(this.buckets)
-            .filter(e => e[1].count == this.maxCount && dayjs.utc().diff(e[1].lastAccessTime, 'hour') > 1)
-            .forEach(([key]) => delete this.buckets[key]), 3600_000).unref();
+        private readonly name: string,
+        private readonly fullAmount: number, // max tokens
+        private readonly refillRate: number, // refill count per second
+    ) {}
+
+    public cleanup() {
+        for (const [key, bucket] of Object.entries(this.buckets)) {
+            const elapsed = dayjs.utc().diff(bucket.updateTime, 'second');
+            bucket.amount = Math.min(this.fullAmount, bucket.amount + elapsed * this.refillRate);
+            if (bucket.amount == this.fullAmount && bucket.updateTime.add(1, 'hour').isBefore(dayjs.utc())) {
+                delete this.buckets[key];
+            } else {
+                bucket.updateTime = dayjs.utc();
+            }
+        }
     }
 
     public request(key: string) {
         let bucket = this.buckets[key];
         if (!bucket) {
-            bucket = { count: 10, lastAccessTime: dayjs.utc() };
+            bucket = { amount: this.fullAmount, updateTime: dayjs.utc() };
             this.buckets[key] = bucket;
         } else {
-            const elapsed = dayjs.utc().diff(bucket.lastAccessTime, 'second');
-            bucket.count = Math.min(10, bucket.count + elapsed * this.refillRate);
-            bucket.lastAccessTime = dayjs.utc();
+            const elapsed = dayjs.utc().diff(bucket.updateTime, 'second');
+            bucket.amount = Math.min(this.fullAmount, bucket.amount + elapsed * this.refillRate);
+            bucket.updateTime = dayjs.utc();
         }
-        bucket.count -= 1;
-        if (bucket.count <= 0) {
-            throw new MyError('rate-limit');
+        // interestingly, if you send too many (like Promise.all() with length 500),
+        // this will become very negative and need long time to recover, and furthur request still increase the negativity
+        bucket.amount -= 1;
+        if (bucket.amount < 0) {
+            throw new MyError('rate-limit', undefined, this.name);
         }
     }
 }
@@ -211,7 +221,8 @@ interface ShortLinkCache {
 }
 const shortlinkcache: ShortLinkCache = { items: [] };
 // rate limit the db operation
-const shortlinkratelimit = new RateLimit(10, 1);
+const shortlinkratelimit = new RateLimit('shortlink', 10, 1);
+setInterval(() => shortlinkratelimit.cleanup(), 3600_000);
 
 async function handleRequestShortLink(ctx: koa.Context) {
     const redirect = (location: string) => {

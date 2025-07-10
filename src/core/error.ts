@@ -6,7 +6,7 @@ import { log } from './logger.js';
 
 // TODO review use of constructor parameter and distinguish between user message and internal log message
 export class MyError extends Error {
-    constructor(public readonly kind: FineErrorKind, message?: string) {
+    constructor(public readonly kind: FineErrorKind, message?: string, public readonly additionalInfo?: string) {
         super(message);
         this.name = 'MyError';
     }
@@ -40,7 +40,8 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
                 : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
-            log.error({ type: myerror.kind, request, state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message });
+            log.error({ type: myerror.kind, request,
+                state: ctx.state ? JSON.stringify(ctx.state) : undefined, error: message, additional: error.additionalInfo });
         } else {
             ctx.status = 500;
             const message = error instanceof Error ? error.message : Symbol.toStringTag in error ? error.toString() : 'error';
