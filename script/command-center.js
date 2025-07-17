@@ -100,6 +100,11 @@ httpServer.on('upgrade', (request, socket, header) => {
         websocketServer.handleUpgrade(request, socket, header, websocket => {
             if (url.pathname == '/for-build') {
                 const token = generateRandomText(6);
+                if (buildScriptWebsocketConnection) {
+                    logInfo(`websocket${url.pathname}: received another connection, reject`);
+                    websocket.close();
+                    return;
+                }
                 logInfo(`websocket${url.pathname}: authenticating, send ${token} at other side`);
                 const timeout = setTimeout(() => {
                     logInfo(`websocket${url.pathname}: authentication timeout`);
@@ -183,6 +188,7 @@ async function runWorkflow() {
         let readlineResumePromiseResolve;
         readlineResumePromise = new Promise(resolve => readlineResumePromiseResolve = resolve);
         const rawCommand = await new Promise(resolve => userInputPromiseResolve = resolve);
+        userInputPromiseResolve = null;
 
         if (rawCommand.length == 0) {
             readlineResumePromiseResolve();
@@ -237,7 +243,7 @@ async function runWorkflow() {
                 await sendCommandToCore({ kind: 'static-content:reload', key: 'user' });
                 readlineResumePromiseResolve();
             }
-        } else if (rawCommand.startsWith('chat')) {
+        } else if (rawCommand.startsWith('yala')) {
             // expect the other side is theai/build.js
             if (!buildScriptWebsocketConnection) {
                 logInfo('workflow: not connected to local build script, nothing to do');
@@ -253,14 +259,14 @@ async function runWorkflow() {
                 if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
                 logInfo('workflow: received local build complete');
                 if (rawCommand.includes('client')) {
-                    await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
+                    await sendCommandToCore({ kind: 'app:reload-client', name: 'yala' });
                 } else if (rawCommand.includes('server')) {
-                    await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
+                    await sendCommandToCore({ kind: 'app:reload-server', name: 'yala' });
                 } else {
                     // ATTENTION not promise.all, or else the 2 packets
                     // appear in same data event and you need additional mechanism to split them
-                    await sendCommandToCore({ kind: 'app:reload-client', name: 'chat' });
-                    await sendCommandToCore({ kind: 'app:reload-server', name: 'chat' });
+                    await sendCommandToCore({ kind: 'app:reload-client', name: 'yala' });
+                    await sendCommandToCore({ kind: 'app:reload-server', name: 'yala' });
                 }
                 // disable if includes no reload page, or only include server
                 if (!rawCommand.includes('no reload page') && (rawCommand.includes('client') || !rawCommand.includes('server'))) {
@@ -272,10 +278,10 @@ async function runWorkflow() {
         } else if (rawCommand == 'reload config') {
             await sendCommandToCore({ kind: 'static-content:reload-config' });
             readlineResumePromiseResolve();
-        } else if (rawCommand == 'get application sessions') {
+        } else if (rawCommand == 'display application sessions') {
             await sendCommandToCore({ kind: 'access-control:display-application-sessions' });
             readlineResumePromiseResolve();
-        } else if (rawCommand == 'rate limit') {
+        } else if (rawCommand == 'display rate limits') {
             await sendCommandToCore({ kind: 'access-control:display-rate-limits' });
             readlineResumePromiseResolve();
         } else {
@@ -291,7 +297,12 @@ readlineInterface.on('SIGINT', () => {
 /* ATTENTION no await */ runWorkflow();
 readlineInterface.prompt();
 for await (const raw of readlineInterface) {
-    userInputPromiseResolve?.(raw.trim());
-    await readlineResumePromise;
-    readlineInterface.prompt();
+    if (!userInputPromiseResolve) {
+        console.log('nothing listening command line input, try again');
+        readlineInterface.prompt();
+    } else {
+        userInputPromiseResolve(raw.trim());
+        await readlineResumePromise;
+        readlineInterface.prompt();
+    }
 }

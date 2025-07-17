@@ -33,7 +33,7 @@ export type WebappConfig = Record<string, {
 }>;
 interface WebappRuntimeConfig {
     name: string,
-    shared: boolean, // shared host, true for app.example.com, false for appname.example.com
+    host: string,
     server: string,
     version: number, // appended to dynamic import url to hot reload
 }
@@ -41,7 +41,7 @@ export let webapps: WebappRuntimeConfig[];
 export function setupAccessControl(config: WebappConfig) {
     webapps = Object.entries(config).map(c => ({
         name: c[0],
-        shared: c[1].host == 'app.example.com',
+        host: c[1].host,
         server: c[1].server,
         version: 0,
     }));
@@ -81,9 +81,9 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
     } else if (ctx.origin == 'https://app.example.com') {
         ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
         // direct return and do not set access-control-* and let browser reject it
-        if (!webapps.some(a => a.name == ctx.state.app && a.shared)) { return; }
+        if (!webapps.some(a => a.name == ctx.state.app && a.host == 'app.example.com')) { return; }
     } else {
-        ctx.state.app = webapps.find(a => !a.shared && ctx.origin == `https://${a.name}.example.com`)?.name;
+        ctx.state.app = webapps.find(a => ctx.origin == `https://${a.host}`)?.name;
         // direct return and do not set access-control-* and let browser reject it
         if (!ctx.state.app) { return; }
     }
@@ -162,7 +162,7 @@ setInterval(() => {
     const validAuthorizationCodes = authorizationCodeStorage.filter(c => dayjs.utc().isBefore(c.expireTime));
     authorizationCodeStorage.splice(0, authorizationCodeStorage.length);
     validAuthorizationCodes.forEach(c => authorizationCodeStorage.push(c));
-    const validApplicationAccessTokens = applicationSessionStorage.filter(c => dayjs.utc().isAfter(c.lastAccessTime.add(1, 'hour')));
+    const validApplicationAccessTokens = applicationSessionStorage.filter(c => dayjs.utc().isBefore(c.lastAccessTime.add(1, 'hour')));
     applicationSessionStorage.splice(0, applicationSessionStorage.length);
     validApplicationAccessTokens.forEach(c => applicationSessionStorage.push(c));
 }, 3600_000).unref();
@@ -365,7 +365,7 @@ async function handleGenerateAuthorizationCode(ctx) {
     if (!returnAddress) { throw new MyError('common', 'invalid return address'); }
 
     const app = webapps.find(a =>
-        returnAddress.startsWith(a.shared ? `https://app.example.com/${a.name}` : `https://${a.name}.example.com`))?.name;
+        returnAddress.startsWith(a.host == 'app.example.com' ? `https://${a.host}/${a.name}` : `https://${a.host}`))?.name;
     if (!app) { throw new MyError('common', 'invalid return address'); }
 
     ratelimits.appSignIn[app].request(ctx.ip);
@@ -738,8 +738,8 @@ export async function handleAccessCommand(command: AdminInterfaceCommand): Promi
         const config = await fs.readFile('config', 'utf-8');
         Object.entries(JSON.parse(config)).map(c => {
             const app = webapps.find(a => a.name == c[0]);
-            if (app.shared != ((c[1] as any).host == 'app.example.com')) {
-                app.shared = ((c[1] as any).host == 'app.example.com');
+            if (app.host != (c[1] as any).host) {
+                app.host = (c[1] as any).host;
                 operationLog += `${app.name} changed domain to ${(c[1] as any).host};`;
             }
         });
