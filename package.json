@@ -36,6 +36,7 @@
     "@types/ssh2-sftp-client": "^9.0.4",
     "@types/ws": "^8.18.1",
     "eslint": "^9.29.0",
+    "fast-xml-parser": "^5.2.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "ssh2-sftp-client": "^12.0.1",

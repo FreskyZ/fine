@@ -30,10 +30,6 @@ function createTypescriptProgram() {
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         skipLibCheck: true,
         noEmitOnError: true,
-        // NOTE for strict
-        // I spent some time to fix non strict warnings and a lot of tsc-is-not-clever-enough / their-document-says-this-ask-them exclamation marks
-        // (one of the reasons is that my (FreskyZ@outlook.com) code is very strongly typed and well considered safe)
-        // so I decided to continue this pattern, every some time use this environment variable to check for non strict warnings and possible errors, but most of the time this switch is not on
         strict: 'AKARIN_STRICT' in process.env,
         noImplicitAny: true,
         noFallthroughCaseInSwitch: true,
@@ -335,15 +331,15 @@ function validateExternalReferences(modules) {
                         hasError = true;
                         console.error(chalk`{red error} ${module.path}: namespace import ${declaration.namespaceName} from '${declaration.moduleName}' has appeared previous named imports from this module, when will this happen?`);
                     } else if (!declaration.namespaceName) {
-                        resultDeclaration.defaultName = declaration.defaultName;
+                        resultDeclaration.namespaceName = declaration.namespaceName;
                     }
                 }
                 for (const namedName of declaration.names) {
                     if (result.some(er =>
                         er.moduleName != declaration.moduleName
-                        && (er.defaultName == namedName
-                        || er.namespaceName == namedName
-                        || er.names.some(n => n[1] == namedName))
+                        && (er.defaultName == namedName[1]
+                        || er.namespaceName == namedName[1]
+                        || er.names.some(n => n[1] == namedName[1]))
                     )) {
                         hasError = true;
                         console.error(chalk`{red error} ${module.path}: import ${namedName} from '${declaration.moduleName}' has appeared in other import declarations from other modules`);

@@ -73,6 +73,13 @@ To display certificate details similar to a browser's certificate information pa
 openssl crl2pkcs7 -nocrl -certfile cert.pem | openssl pkcs7 -print_certs -text -noout
 ```
 
+If the directory to store certificate file is owned by root and normal priviledge server cannot open the file
+
+```sh
+sudo chown -R fine:fine /etc/letsencrypt/live/example.com
+sudo chown -R fine:fine /etc/letsencrypt/archive/example.com
+```
+
 ## Server Side Setup
 
 - The certificate files should be located in `/etc/letsencrypt/live/example.com/` file name `privkey.pem` and `cert.pem`.
