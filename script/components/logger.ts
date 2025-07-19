@@ -1,6 +1,13 @@
 import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 
+export interface BuildScriptConfig {
+    domain: string,
+    certificate: string,
+    webroot: string,
+    ssh: { user: string, identity: string, passphrase: string },
+}
+
 // TODO check whether this pattern is useful
 // current color schema
 // error: red

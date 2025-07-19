@@ -168,6 +168,7 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
         throw new MyError('service-not-available', 'invalid server');
     }
 
+    // TODO can this follow JSONRPC? https://www.jsonrpc.org/specification
     let response: ForwardContext;
     try {
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });

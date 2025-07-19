@@ -132,75 +132,9 @@ user page now uses react for ui, while react 17.0.1 introduces the
 which is great readability improvement because no bundler is involved and browser
 and devtools gets typescript transpile result
 
-it generates import from 'react/jsx-runtime' module instead of original React.createElement, 
-but this module seems not available on myy current using cdn, while the production version
-is actually very small and simple (slightly pretty printed):
-
-```js
-// node_modules/react/cjs/react-jsx-runtime.production.min.js
-var f=require("react"),
-   g=60103;
-exports.Fragment=60107;
-if("function"===typeof Symbol&&Symbol.for){ // my environment must have Symbol.for, so omitted
-   var h=Symbol.for;
-   g=h("react.element");
-   exports.Fragment=h("react.fragment")
-}
-var m=f.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner,
-   n=Object.prototype.hasOwnProperty, // I assume typescript always generates plain props parameter and I'm not using spread props feature, so omitted
-   p={
-      key: !0,
-      ref: !0,
-      __self:!0,
-      __source:!0
-   }; // I'm using ['key', 'ref', ...].includes because that's simple and I do not expect performance loss because web-pages are always small
-function q(c,a,k){
-   var b,
-      d={},
-      e=null,
-      l=null;
-   void 0!==k&&(e=""+k);
-   void 0!==a.key&&(e=""+a.key);
-   void 0!==a.ref&&(l=a.ref);
-   for(b in a)n.call(a,b)&&!p.hasOwnProperty(b)&&(d[b]=a[b]);
-   if(c&&c.defaultProps)for(b in a=c.defaultProps,a)void 0===d[b]&&(d[b]=a[b]); // I'm not using any defaultProps
-   return{$$typeof:g,type:c,key:e,ref:l,props:d,_owner:m.current}
-}
-exports.jsx=q;
-exports.jsxs=q;
-```
-
-so my jsx runtime looks like
-
-```js
-function myjsx(type,rawprops,maybekey){
-   const props={};
-   for(const n in rawprops){
-      if(!['key','ref','__self','__source'].includes(n)){
-            props[n]=rawprops[n]
-      }
-   }
-   return{
-      $$typeof:Symbol.for('react.element'),
-      type,
-      key:rawprops.key!==void 0?''+rawprops.key:maybekey!==void 0?''+maybekey:null,
-      ref:rawprops.ref!== void 0?rawprops.ref:null,
-      props,
-      _owner:React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner.current // then fire me
-   }
-}
-function myjsxf(p,k){
-   return myjsx(Symbol.for('react.fragment'),p,k);
-}
-```
-
-this is put directly at beginning of generated file, then replace
-- `_jsx` => `myjsx`
-- `_jsxs` => `myjsx`
-- `_jsx(_Fragment` => `myjsxf(`
-- `_jsxs(_Fragment` => `myjsxf(`
-
 ### app
+
+// TODO use make.ts to assmeble other repository's akari.ts
 
 app ui and backend target is not available in this project, they need to
 access script/tools and src/adk and some other files or directories to work
@@ -232,6 +166,8 @@ mapped directories and files include
 the deploy script is in `script/makelink`, which is a bash script and not need transpile
 
 ## Administration Interface
+
+// TODO this is now remote command center architecture
 
 I have no traditional administration page (mainly for security reasons),
 but admin operations is actually needed so they are implemented in a very starge way.
@@ -279,7 +215,7 @@ it is actually not hard to add to app's build process
 
 there is no cli interface for this reload command because it is integrited in building process
 
-## RPC Framework
+## RPC API Framework
 
 it is common for app to have backend and provide web api
 
@@ -312,6 +248,10 @@ for a file request, a slot (not the cache) is permanent for path (url path) in s
 use slot id not path (include file name) will make the request look good (content.domain.com/{guid}) also prevent
 malisious (maybe not, just curious) try file path attempt, limiting content request to my own website only
 
+### TODO Streaming Response
+
+although streaming response is not powerful as websocket, but LLM AI streaming completion need this
+
 ### Alive Connection
 
 I mean websocket, websocket will be implemented as 2 separate domain socket connection for different direction, the
@@ -328,6 +268,10 @@ not only be applied on public api because a native http client is very capable o
 like adding some strange requirement to request to prevent easy frequent access from browser or simple script code,
 like strange header, or even token for public
 
+### Rate Limit
+
+TODO update according to current implementation
+
 rate limit: see https://www.nginx.com/blog/rate-limiting-nginx/, I'd prefer burst=20+nodelay, which limits like 
 1 request per second, but permits 20 requests burst, that is 21 request come at one time (in one second), they
 are allowed to forward, but additional requests will allocate slot in bucket, and they deallocate after rate
@@ -337,6 +281,8 @@ more request (bucket overflow) will simple throw 503 service unavailable with me
 the leaky bucket's leaky part is actually discard access record in previous duration when previous duration expires,
 which implements constant leak rate, CLR(?), this rate limit is applied in forward.ts, and underlying algorithm
 is abstracted and put in adk
+
+TODO update to current implementation
 
 first, `api.xml`
 ```xml

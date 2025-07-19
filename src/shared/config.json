@@ -39,11 +39,17 @@
     },
     "app1.example.com": {
       ".": "app/index.html",
-      "index.js": "app1/index.css"
+      "index.js": "app1/index.css",
+      "*": "404.html"
     },
     "app2.example.com": {
       ".": "app2/index.html",
       "*": "app2/*"
+    },
+    "app3.example.com": {
+      "*": "app3/index.html",
+      "shared/*": "app3/shared.html",
+      "index.js": "app3/index.js"
     },
     "anotherexample.com": {
       ".": "anotherexample/index.html"
