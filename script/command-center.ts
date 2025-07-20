@@ -1,17 +1,20 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import readline from 'node:readline/promises';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 
 dayjs.extend(utc);
-const config = JSON.parse(await fs.readFile('config', 'utf-8'));
+const config = JSON.parse(await fs.readFile('config', 'utf-8')) as {
+    certificates: Record<string, { key: string, cert: string }>,
+};
 
-function generateRandomText(length) {
+function generateRandomText(length: number) {
     return crypto.randomBytes(Math.ceil(length * 3 / 4)).toString('base64').slice(0, length);
 }
 const websocketServer = new WebSocketServer({ noServer: true });
@@ -25,19 +28,17 @@ const readlineInterface = readline.createInterface({
     output: process.stdout,
 });
 // does all console.log need to be transformed into this?
-function logInfo(...parameters) { console.log(...parameters); readlineInterface.prompt(); }
+function logInfo(...parameters: any[]) { console.log(...parameters); readlineInterface.prompt(); }
 // copied from content.ts
 class RateLimit {
-    buckets = {};
-    constructor(maxCount, refillRate) {
+    public readonly maxCount: number;
+    public readonly refillRate: number;
+    private readonly buckets: Record<string, { count: number, lastAccessTime: dayjs.Dayjs }> = {};
+    public constructor(maxCount: number, refillRate: number) {
         this.maxCount = maxCount;
         this.refillRate = refillRate;
     }
-    /**
-     * @param {import('http').IncomingMessage} request
-     * @param {import('http').ServerResponse} response
-    */
-    request(request, response) {
+    public request(request: http.IncomingMessage, response: http.ServerResponse) {
         let bucket = this.buckets[request.socket.remoteAddress];
         if (!bucket) {
             bucket = { count: this.maxCount, lastAccessTime: dayjs.utc() };
@@ -62,12 +63,12 @@ httpServer.on('request', (request, response) => {
     const url = new URL(request.url, 'https://example.com');
     if (request.method == 'POST' && url.pathname == '/local-build-complete') {
         logInfo('http/local-build-complete: request received');
-        const chunks = [];
+        const chunks: any[] = [];
         request.on('data', chunk => chunks.push(chunk));
         request.on('end', () => {
             const body = Buffer.concat(chunks).toString();
             logInfo('http/local-build-complete: request body received', body);
-            let data;
+            let data: any;
             try {
                 data = JSON.parse(body);
             } catch {
@@ -87,8 +88,8 @@ httpServer.on('request', (request, response) => {
     }
 });
 
-let /** @type {WebSocket[]} */ clientWebsocketConnections = [];
-let /** @type {WebSocket} */ buildScriptWebsocketConnection;
+let clientWebsocketConnections: WebSocket[] = [];
+let buildScriptWebsocketConnection: WebSocket;
 httpServer.on('upgrade', (request, socket, header) => {
     const url = new URL(request.url, 'https://example.com');
     if (url.pathname != '/for-build' && url.pathname != '/for-client') {
@@ -146,14 +147,14 @@ async function shutdown() {
     clientWebsocketConnections.forEach(c => c.close());
     // timeout close
     setTimeout(() => { logInfo('close timeout, abort'); process.exit(); }, 10_000);
-    await new Promise(resolve => httpServer.close(() => resolve()));
+    await new Promise<void>(resolve => httpServer.close(() => resolve()));
     process.exit(0);
 }
 
 let coreAdminInterfaceConnection = net.connect('/tmp/fine.socket');
 logInfo(`core socket: connected`);
-async function sendCommandToCore(command) {
-    return new Promise(resolve => {
+async function sendCommandToCore(command: any) {
+    return new Promise<void>(resolve => {
         if (!coreAdminInterfaceConnection || coreAdminInterfaceConnection.destroyed) {
             logInfo(`core socket: reconnecting`);
             coreAdminInterfaceConnection = net.connect('/tmp/fine.socket');
@@ -180,14 +181,14 @@ async function sendCommandToCore(command) {
     });
 }
 
-let /** @type {() => void} */ userInputPromiseResolve;
-let /** @type {(data: { ok: boolean }) => void} */ buildScriptHttpConnectionInputPromiseResolve;
-let /** @type {Promise} */ readlineResumePromise;
+let userInputPromiseResolve: (value: string) => void;
+let buildScriptHttpConnectionInputPromiseResolve: (data: { ok: boolean }) => void;
+let readlineResumePromise: Promise<void>;
 async function runWorkflow() {
     while (true) {
-        let readlineResumePromiseResolve;
+        let readlineResumePromiseResolve: () => void;
         readlineResumePromise = new Promise(resolve => readlineResumePromiseResolve = resolve);
-        const rawCommand = await new Promise(resolve => userInputPromiseResolve = resolve);
+        const rawCommand = await new Promise<string>(resolve => userInputPromiseResolve = resolve);
         userInputPromiseResolve = null;
 
         if (rawCommand.length == 0) {
@@ -218,7 +219,7 @@ async function runWorkflow() {
                     logInfo('workflow: build script timeout, what happened?');
                     buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise<{ ok: boolean }>(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
                 clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
                 if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
@@ -235,7 +236,7 @@ async function runWorkflow() {
                     logInfo('workflow: build script timeout, what happened?');
                     buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise<{ ok: boolean }>(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
                 clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
                 if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }
@@ -253,7 +254,7 @@ async function runWorkflow() {
                     logInfo('workflow: build script timeout, what happened?');
                     buildScriptHttpConnectionInputPromiseResolve?.({ ok: false });
                 }, 60_000);
-                const localBuildResult = await new Promise(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
+                const localBuildResult = await new Promise<{ ok: boolean }>(resolve => buildScriptHttpConnectionInputPromiseResolve = resolve);
                 clearTimeout(timeout);
                 buildScriptHttpConnectionInputPromiseResolve = null;
                 if (!localBuildResult.ok) { logInfo('workflow: local build result seems not ok, abort'); readlineResumePromiseResolve(); continue; }

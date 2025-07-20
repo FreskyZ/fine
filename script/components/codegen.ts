@@ -202,7 +202,7 @@ function generateDatabaseSchema(config: CodeGenerationConfig): string {
             const foreignTable = config.tables.find(t => t.name == fk.table);
             if (foreignTable.primaryKey.length > 1) {
                 hasError = true;
-                logError('fcg', `table ${table.name} foreign key ${fk.field} cannot reference table ${fk.table} with composite primary key`);
+                logError('codegen', `table ${table.name} foreign key ${fk.field} cannot reference table ${fk.table} with composite primary key`);
             }
             const foreignTablePrimaryKey = foreignTable.primaryKey[0];
             sb += `    CONSTRAINT \`FK_${table.name}_${fk.table}\``;
@@ -393,7 +393,7 @@ export async function generateDatabaseModelAndWebInterface(config: CodeGeneratio
     );
     // console.log('scheduled tasks', tasks);
     await Promise.all(tasks.map(t => t.run()));
-    logInfo('codegen', chalk`code generation completed for {yellow ${tasks.map(t => t.name).join(',')}}`);
+    logInfo('codegen', 'code generation completed');
 
     return !hasError;
 }

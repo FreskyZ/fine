@@ -21,7 +21,9 @@ export async function upload(config: BuildScriptConfig, assets: UploadAsset[]): 
             passphrase: config.ssh.passphrase,
         });
         for (const asset of assets) {
-            await client.put(asset.data, path.join(config.webroot, asset.remote));
+            const fullpath = path.join(config.webroot, asset.remote);
+            await client.mkdir(path.dirname(fullpath), true);
+            await client.put(asset.data, fullpath);
         }
         logInfo('ssh', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
         return true;

@@ -1,10 +1,244 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import chalk from 'chalk-template';
-import ts from 'typescript';
-import { logInfo, logError } from './logger.ts';
-import { tryminify } from './minify.ts';
+// END IMPORT
+// components: arch, logger, minify, mypack, sftp, typescript
+// BEGIN LIBRARY
+import chalk from 'chalk-template'
+import dayjs from 'dayjs'
+import fs from 'node:fs/promises'
+import { XMLParser } from 'fast-xml-parser'
+import ts from 'typescript'
+import chalkNotTemplate from 'chalk'
+import { minify } from 'terser'
+import { createHash } from 'node:crypto'
+import path from 'node:path'
+import SFTPClient from 'ssh2-sftp-client'
+import readline from 'node:readline/promises'
+import tls from 'node:tls'
+
+// -----------------------------------------
+// ------ script/components/logger.ts ------ 
+// ------- ATTENTION AUTO GENERATED --------
+// -----------------------------------------
+
+interface BuildScriptConfig {
+    domain: string,
+    certificate: string,
+    webroot: string,
+    ssh: { user: string, identity: string, passphrase: string },
+}
+
+// TODO check whether this pattern is useful
+// current color schema
+// error: red
+// target name: cyan
+// watching (the long displayed long message): blue
+
+function logInfo(header: string, message: string, error?: any): void {
+    if (error) {
+        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
+    } else {
+        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
+    }
+}
+function logError(header: string, message: string, error?: any): void {
+    if (error) {
+        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
+    } else {
+        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+    }
+}
+function logCritical(header: string, message: string): never {
+    console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+    return process.exit(1);
+}
+
+// ---------------------------------------------
+// ------ script/components/typescript.ts ------ 
+// --------- ATTENTION AUTO GENERATED ----------
+// ---------------------------------------------
+
+interface MyTypescriptOptions {
+    entry: string | string[],
+    // not confused with ts.ScriptTarget
+    // for now this add lib.dom.d.ts to lib, add jsx: ReactJSX
+    target: 'browser' | 'node',
+    // the /vbuild, or /vbuild1 if you'd like, default to /vbuild
+    outputDirectory?: string,
+    // should come from process.env.AKARIN_STRICT
+    // in old days I enabled this and meet huge amount of false positives,
+    // so instead of always on/off, occassionally use this to check for potential issues
+    strict?: boolean,
+    additionalOptions?: ts.CompilerOptions,
+}
+
+function createTypescriptProgram(options: MyTypescriptOptions): ts.Program {
+    // design considerations
+    // - the original tool distinguishes ecma module and commonjs, now everything is esm!
+    //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage
+    // - no source map
+    //   the original core module include source map and do complex error logs,
+    //   but that work really should not be put in core module and that's now removed
+    //   currently the minify option to split result in 160 char wide lines is very enough
+    //   the result backend bundle file and front end js files is currently actually very human readable
+    // - jsx, I was providing my own jsx implementation,
+    //   but that's now handled by /** @jsxImportSource @emotion/react */, so no work for me
+    // - watch is not used in current remote command center architecture
+
+    // NOTE check https://www.typescriptlang.org/tsconfig/ for new features and options
+    return ts.createProgram(Array.isArray(options.entry) ? options.entry : [options.entry], {
+        lib: ['lib.esnext.d.ts'].concat(options.target == 'browser' ? ['lib.dom.d.ts'] : []),
+        jsx: options.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        skipLibCheck: true,
+        noEmitOnError: true,
+        strict: options.strict,
+        allowUnreachableCode: false,
+        allowUnusedLabels: false,
+        alwaysStrict: true, // TODO is this important?
+        exactOptionalPropertyTypes: options.strict,
+        noFallthroughCaseInSwitch: true,
+        noImplicitAny: true,
+        noImplicitReturns: true,
+        noImplicitThis: true,
+        noPropertyAccessFromIndexSignature: true, // TODO try this
+        noUnusedLocals: true,
+        noUnusedParameters: true,
+        strictNullChecks: options.strict,
+        strictFunctionTypes: true,
+        strictBindCallApply: true,
+        strictBuiltinIteratorReturn: true,
+        strictPropertyInitialization: options.strict,
+        removeComments: true,
+        outDir: options.outputDirectory ?? '/vbuild',
+        ...options.additionalOptions,
+    });
+}
+
+// return null for failure
+function transpile(program: ts.Program): Record<string, string> {
+    logInfo('tsc', 'transpiling');
+
+    const files: Record<string, string> = {};
+    const emitResult = program.emit(undefined, (fileName, data) => {
+        if (data) { files[fileName] = data; }
+    });
+
+    // TODO the typescript level top level item tree shaking is nearly implemented by the unusedimport and unused variable check
+    // the only gap is an item is declared as export but not used by other modules
+    // the complexity is reduced by named imports in ecma module compare to commonjs module, but default import and namespace import still exists
+    // you still need typescript type information to find top level item usages
+    // so the dream is still related to here
+
+    const diagnostics = program.getCompilerOptions().noEmit ? [
+        // why are there so many kinds of diagnostics? do I need all of them?
+        program.getGlobalDiagnostics(),
+        program.getOptionsDiagnostics(),
+        program.getSemanticDiagnostics(),
+        program.getSyntacticDiagnostics(),
+        program.getDeclarationDiagnostics(),
+        program.getConfigFileParsingDiagnostics(),
+    ].flat() : emitResult.diagnostics;
+
+    const errorCount = diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
+    const normalCount = diagnostics.length - errorCount;
+
+    let message: string;
+    if (normalCount == 0 && errorCount == 0) {
+        message = 'no diagnostic';
+    } else if (normalCount != 0 && errorCount == 0) {
+        message = chalk`{yellow ${normalCount}} infos`;
+    } else if (normalCount == 0 /* && errorCount != 0 */) {
+        message = chalk`{yellow ${errorCount}} errors`;
+    } else /* normalCount != 0 && errorCount != 0 */ {
+        message = chalk`{yellow ${errorCount}} errors and {yellow ${normalCount}} infos`;
+    }
+
+    (diagnostics.length ? logError : logInfo)('tsc', `completed with ${message}`);
+    for (const { category, code, messageText, file, start } of diagnostics) {
+        const displayColor = {
+            [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
+            [ts.DiagnosticCategory.Error]: chalkNotTemplate.red,
+            [ts.DiagnosticCategory.Suggestion]: chalkNotTemplate.green,
+            [ts.DiagnosticCategory.Message]: chalkNotTemplate.cyan,
+        }[category];
+        const displayCode = displayColor(`  TS${code} `);
+
+        let fileAndPosition = '';
+        if (file && start) {
+            const { line, character: column } = ts.getLineAndCharacterOfPosition(file, start);
+            fileAndPosition = chalk`{yellow ${file.fileName}:${line + 1}:${column + 1}} `;
+        }
+
+        let flattenedMessage = ts.flattenDiagnosticMessageText(messageText, '\n');
+        if (flattenedMessage.includes('\n')) {
+            flattenedMessage = '\n' + flattenedMessage;
+        }
+        console.log(displayCode + fileAndPosition + flattenedMessage);
+    }
+
+    return diagnostics.length ? null : files;
+}
+
+// -----------------------------------------
+// ------ script/components/minify.ts ------ 
+// ------- ATTENTION AUTO GENERATED --------
+// -----------------------------------------
+
+// the try catch structure of minify is hard to use, return null for not ok
+async function tryminify(input: string) {
+    try {
+        const minifyResult = await minify(input, {
+            module: true,
+            compress: { ecma: 2022 as any },
+            format: { max_line_len: 160 },
+        });
+        return minifyResult.code;
+    } catch (err) {
+        logError('terser', `minify error`, { err, input });
+        return null;
+    }
+}
+
+// ---------------------------------------
+// ------ script/components/sftp.ts ------ 
+// ------ ATTENTION AUTO GENERATED -------
+// ---------------------------------------
+
+interface UploadAsset {
+    data: Buffer,
+    remote: string, // relative path to webroot
+}
+
+// return false for not ok
+async function upload(config: BuildScriptConfig, assets: UploadAsset[]): Promise<boolean> {
+    const client = new SFTPClient();
+    try {
+        await client.connect({
+            host: config.domain,
+            username: config.ssh.user,
+            privateKey: await fs.readFile(config.ssh.identity),
+            passphrase: config.ssh.passphrase,
+        });
+        for (const asset of assets) {
+            const fullpath = path.join(config.webroot, asset.remote);
+            await client.mkdir(path.dirname(fullpath), true);
+            await client.put(asset.data, fullpath);
+        }
+        logInfo('ssh', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
+        return true;
+    } catch (error) {
+        logError('sftp', 'failed to upload', error);
+        return false;
+    } finally {
+        await client.end();
+    }
+}
+
+// -----------------------------------------
+// ------ script/components/mypack.ts ------ 
+// ------- ATTENTION AUTO GENERATED --------
+// -----------------------------------------
 
 // TODO it's inconvient to manually pass ts.Program, try add TypeScriptResult
 interface MyPackContext {
@@ -462,7 +696,7 @@ function combineModules(mcx: MyPackContext): boolean {
 }
 
 // return false for not ok
-export async function mypack(mcx: MyPackContext): Promise<boolean> {
+async function mypack(mcx: MyPackContext): Promise<boolean> {
     logInfo('pack', `pack ${mcx.entry}`);
 
     if (!validateTopLevelNames(mcx)) { return false; }
@@ -505,3 +739,186 @@ export async function mypack(mcx: MyPackContext): Promise<boolean> {
     }
     return true;
 }
+
+// ---------------------------------------
+// ------ script/components/arch.ts ------ 
+// ------ ATTENTION AUTO GENERATED -------
+// ---------------------------------------
+
+// command center client architecture
+
+const config: BuildScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
+
+async function startCommandCenterClient(
+    handleRemoteCommand: (command: any) => Promise<any>,
+    handleLocalCommand: (command: string) => Promise<void>,
+) {
+    // ???
+    const myCertificate = await fs.readFile(config.certificate, 'utf-8');
+    const originalCreateSecureContext = tls.createSecureContext;
+    tls.createSecureContext = options => {
+        const originalResult = originalCreateSecureContext(options);
+        if (!options.ca) {
+            originalResult.context.addCACert(myCertificate);
+        }
+        return originalResult;
+    };
+
+    let websocket: WebSocket;
+    const readlineInterface = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+    function connectRemoteCommandCenter() {
+        websocket = new WebSocket(`wss://${config.domain}:8001/for-build`);
+        websocket.addEventListener('close', async () => {
+            logInfo('ccc', `websocket disconnected`);
+            await readlineInterface.question('input anything to reconnect: ');
+            connectRemoteCommandCenter();
+        });
+        websocket.addEventListener('error', async error => {
+            logInfo('ccc', `websocket error:`, error);
+            await readlineInterface.question('input anything to reconnect: ');
+            connectRemoteCommandCenter();
+        });
+        websocket.addEventListener('open', async () => {
+            logInfo('ccc', `websocket connected, you'd better complete authentication quickly`);
+            const token = await readlineInterface.question('> ');
+            websocket.send(token);
+            logInfo('ccc', 'listening to remote request');
+        });
+        websocket.addEventListener('message', async event => {
+            logInfo('ccc', 'websocket received data', event.data);
+            const result = await handleRemoteCommand(event.data);
+            const response = await fetch(`https://${config.domain}:8001/local-build-complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(result),
+            });
+            if (response.ok) {
+                logInfo('ccc', 'POST /local-build-complete ok');
+            } else {
+                logError('ccc', 'POST /local-build-complete not ok', response);
+            }
+        });
+    }
+    connectRemoteCommandCenter();
+    readlineInterface.on('SIGINT', () => {
+        websocket?.close();
+        process.exit(0);
+    });
+    for await (const command of readlineInterface) {
+        if (command == 'exit') {
+            websocket?.close();
+            process.exit(0);
+        } else if (command.startsWith('upload ')) {
+            const [, local, remote] = command.split(' ');
+            if (!local || !remote) {
+                console.error('invalid upload command, expecting upload localpath remotepath');
+            } else {
+                await upload(config, [{ data: await fs.readFile(local), remote }]);
+            }
+        } else if (command.startsWith('build')) {
+            await handleRemoteCommand(command);
+        }
+        await handleLocalCommand(command);
+        readlineInterface.prompt();
+    }
+}
+// END LIBRARY
+
+// in old days you need to deploy public files, if you forget
+async function uploadPublicAssets() {
+    logInfo('akari', chalk`upload {cyan public}`);
+    const assets = await Promise.all((await fs
+        .readdir('src/public', { recursive: true, withFileTypes: true }))
+        .filter(entry => entry.isFile())
+        .map<Promise<UploadAsset>>(async entry => {
+            const filepath = path.join(entry.parentPath, entry.name);
+            return { data: await fs.readFile(filepath), remote: filepath.replace('src/', 'public2/') };
+        }));
+    await upload(config, assets);
+    logInfo('akari', chalk`upload {cyan public} complete`);
+}
+
+// static command was referring to home page and user page
+// but now it means the pure static pages home, short, 404, 418
+async function uploadStaticAssets() {
+    logInfo('akari', chalk`upload {cyan static}`);
+    const assets = await Promise.all([
+        ['src/static/home.html', 'static/home.html'],
+        ['src/static/short.html', 'static/short.html'],
+        ['src/static/404.html', 'static/404.html'],
+        ['src/static/418.html', 'static/418.html'],
+    ].map(async ([local, remote]) => ({ data: await fs.readFile(local), remote })));
+    await upload(config, assets);
+    logInfo('akari', chalk`upload {cyan static} complete`);
+}
+
+// deploy remote akari.ts
+async function deployCommandCenter() {
+    logInfo('akari', chalk`upload {cyan command center}`);
+    // type check command-center.ts
+    if (!transpile(createTypescriptProgram({
+        entry: 'script/command-center.ts',
+        target: 'node',
+        additionalOptions: { noEmit: true, erasableSyntaxOnly: true },
+    }))) {
+        logError('akari', chalk`{cyan command center} failed at type check`);
+        return;
+    }
+    await upload(config, [{
+        data: await fs.readFile('script/command-center.ts'),
+        remote: 'akari.ts',
+    }]);
+    logInfo('akari', chalk`upload {cyan command center} complete`);
+}
+
+// identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md 
+async function buildIdentityProvider(): Promise<boolean> {
+    logInfo('akari', chalk`build {cyan user page}`);
+
+    const program = createTypescriptProgram({ entry: 'src/static/user.tsx', target: 'browser' });
+    const transpileResult = transpile(program);
+    if (!transpileResult || !transpileResult['/vbuild/user.js']) {
+        logError('akari', chalk`{cyan user page} failed at transpile`);
+        return false;
+    }
+
+    const mcx: MyPackContext = { program, files: transpileResult, entry: '/vbuild/user.js', cdnfy: true };
+    if (!await mypack(mcx)) { logError('akari', chalk`{cyan user page} failed at pack`); return false; };
+
+    const files = [
+        [await fs.readFile('src/static/user.html', 'utf-8'), 'static/user.html'],
+        [mcx.resultJs, 'static/user.js'],
+    ];
+    // all files need replace example.com
+    if (!await upload(config, files.map(([content, remote]) => ({ data: Buffer.from(content.replaceAll('example.com', config.domain)), remote })))) {
+        logError('akari', chalk`{cyan user page} failed at upload`); return false;
+    }
+    logInfo('akari', chalk`build {cyan user page} complete`);
+    return true;
+}
+
+async function dispatch(command: string[]) {
+    if (command[0] == 'public') {
+        await uploadPublicAssets();
+    } else if (command[0] == "static") {
+        await uploadStaticAssets();
+    } else if (command[0] == 'rself') {
+        // the original command for bootstraping is 'self', and the original command
+        // for remote akari is self server, so keep part of the tradition to call this rself (remote self)
+        await deployCommandCenter();
+    } else if (command[0] == 'user') {
+        // user.html and user.tsx is currently the only ui page in this repository
+        // and should be no more similar pages in future in this repository, so a dedicated command
+        await buildIdentityProvider();
+    } else if (command[0] == 'user+reload') {
+        startCommandCenterClient(async () => ({ ok: await buildIdentityProvider() }), async () => {});
+    } else {
+        logError('akari', 'unknown command');
+    }
+}
+
+const command = process.argv.slice(2);
+dispatch(command);
