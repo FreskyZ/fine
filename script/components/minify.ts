@@ -1,5 +1,5 @@
 import { minify } from 'terser';
-import { logError } from './logger';
+import { logError } from './logger.ts';
 
 // the try catch structure of minify is hard to use, return null for not ok
 export async function tryminify(input: string) {

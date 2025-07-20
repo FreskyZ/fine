@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk-template';
-import chalkNoTemplate from 'chalk';
+import chalkNotTemplate from 'chalk';
 import SFTPClient from 'ssh2-sftp-client';
-import { type BuildScriptConfig, logError, logInfo } from './logger';
+import { type BuildScriptConfig, logError, logInfo } from './logger.ts';
 
 interface UploadAsset {
     data: Buffer,
@@ -23,7 +23,7 @@ export async function upload(config: BuildScriptConfig, assets: UploadAsset[]): 
         for (const asset of assets) {
             await client.put(asset.data, path.join(config.webroot, asset.remote));
         }
-        logInfo('ssh', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNoTemplate.yellow(path.basename(a.remote)))}`);
+        logInfo('ssh', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
         return true;
     } catch (error) {
         logError('sftp', 'failed to upload', error);

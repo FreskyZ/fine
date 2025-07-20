@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
+import chalk from 'chalk-template';
 import { XMLParser } from 'fast-xml-parser';
-import { logInfo, logError } from './logger';
+import { logInfo, logError } from './logger.ts';
 
 interface DatabaseModelField {
     name: string,
@@ -299,8 +300,8 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
 
-    // TODO this seems has to be hardcoded by make.ts
-    sb += `template-client.tsx`;
+    // TODO this is hardcode replaced in make.ts
+    sb += `template-client.tsx`.replaceAll('api.example.com/example', `api.example.com/${config.appname}`);
 
     sb += 'const api = {\n';
     // for now now action.key only used here
@@ -350,8 +351,8 @@ interface CodeGenerationOptions {
     emit?: boolean,
 }
 // return true for ok, false for not ok
-export async function generateForWebInterface(config: CodeGenerationConfig, options: CodeGenerationOptions): Promise<boolean> {
-    logInfo('fcg', 'code generation');
+export async function generateDatabaseModelAndWebInterface(config: CodeGenerationConfig, options: CodeGenerationOptions): Promise<boolean> {
+    logInfo('codegen', 'code generation');
     let hasError = false;
 
     const createTask = (path: string, generate: (config: CodeGenerationConfig) => string) => async () => {
@@ -361,7 +362,7 @@ export async function generateForWebInterface(config: CodeGenerationConfig, opti
         }
         if (options.emit && generatedContent) {
             // write file may throw error, but actually you don't need to care about that
-            console.log(`  write ${path}`);
+            logInfo('codegen', chalk`write {yellow ${path}}`);
             await fs.writeFile(path, generatedContent);
         }
     };
@@ -373,7 +374,7 @@ export async function generateForWebInterface(config: CodeGenerationConfig, opti
         }
         if (options.emit && generatedContent) {
             // write file may throw error, but actually you don't need to care about that
-            console.log(`  write ${path}`);
+            logInfo('codegen', chalk`write {yellow ${path}}`);
             await fs.writeFile(path, generatedContent);
         }
     };
@@ -391,7 +392,8 @@ export async function generateForWebInterface(config: CodeGenerationConfig, opti
         : true,
     );
     // console.log('scheduled tasks', tasks);
-    await Promise.all(tasks.map(t => t.run));
+    await Promise.all(tasks.map(t => t.run()));
+    logInfo('codegen', chalk`code generation completed for {yellow ${tasks.map(t => t.name).join(',')}}`);
 
     return !hasError;
 }

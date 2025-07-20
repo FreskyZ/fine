@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk-template';
 import ts from 'typescript';
-import { logInfo, logError } from './logger';
-import { tryminify } from './minify';
+import { logInfo, logError } from './logger.ts';
+import { tryminify } from './minify.ts';
 
 interface MyPackContext {
     program: ts.Program,
@@ -59,9 +59,9 @@ interface MyPackModule {
 function validateTopLevelNames(mcx: MyPackContext): boolean {
     let hasError = false;
     const allNames: Record<string, string[]> = {}; // module name (absolute path) => names
-    const sourceFiles = mcx.program.getSourceFiles().filter(sf => !sf.fileName.includes('node_modules') && sf.fileName.startsWith(process.cwd()));
+    const sourceFiles = mcx.program.getSourceFiles().filter(sf => !sf.fileName.includes('node_modules'));
     for (const sourceFile of sourceFiles) {
-        const names = [];
+        const names: string[] = [];
         ts.forEachChild(sourceFile, node => {
             if (ts.isVariableStatement(node)) {
                 if (node.declarationList.declarations.length > 1) {
@@ -158,7 +158,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
             line = line.substring(7).trimStart(); // consume 'import '
             let match = /^(?<name>\w+\s)/.exec(line);
             if (match) {
-                request.defaultName = match.groups.name.trim();
+                request.defaultName = match.groups['name'].trim();
                 line = line.substring(request.defaultName.length + 1).trimStart(); // consume default name
             }
             // consume comma if exist, it's ok to not handle trailing comma because tsc will syntax check that
@@ -178,7 +178,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                     logError('mypack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (2)`);
                     return;
                 }
-                request.namespaceName = match.groups.name.trim();
+                request.namespaceName = match.groups['name'].trim();
                 line = line.substring(request.namespaceName.length + 1).trimStart(); // consume namespace name
             }
 
@@ -195,7 +195,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                     //     logError('mypack', `${fileName}:${rowNumber}: ${raw}: not support import name alias for now`);
                     //     return;
                     // }
-                    request.namedNames.push({ name: match.groups.name, alias: match.groups.alias ?? match.groups.name });
+                    request.namedNames.push({ name: match.groups['name'], alias: match.groups['alias'] ?? match.groups['name'] });
                     line = line.substring(match[0].length).trimStart(); // consume name and alias
                     if (line.startsWith(',')) { line = line.substring(1).trimStart(); }// consume comma if exist
                 }
@@ -219,7 +219,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                 logError('mypack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (6)`);
                 return;
             }
-            request.moduleName = match.groups.name;
+            request.moduleName = match.groups['name'];
             
             if (request.moduleName.startsWith('.')) {
                 const name = request.namedNames.find(n => n.name != n.alias);
@@ -433,23 +433,16 @@ function combineModules(mcx: MyPackContext): boolean {
     let resultJs = '';
     for (const request of mcx.externalRequests) {
         resultJs += 'import ';
-        if (request.defaultName) {
-            resultJs += `${request.defaultName}, `;
-        }
-        if (request.namespaceName) {
-            resultJs += `* as ${request.namespaceName}, `;
-        }
+        if (request.defaultName) { resultJs += `${request.defaultName}, `; }
+        if (request.namespaceName) { resultJs += `* as ${request.namespaceName}, `; }
         if (request.namespaceName && request.namedNames.length) {
             resultJs = resultJs.slice(0, -2) + ` from \'${request.moduleName}\'\nimport `;
         }
         if (request.namedNames.length) {
             resultJs += `{ `;
             for (const { name, alias } of request.namedNames) {
-                if (name == alias) {
-                    resultJs += `${name}, `;
-                } else {
-                    resultJs += `${name} as ${alias}, `;
-                }
+                if (name == alias) { resultJs += `${name}, `; }
+                else { resultJs += `${name} as ${alias}, `; }
             }
             resultJs = resultJs.slice(0, -2) + ' }, ';
         }
@@ -483,10 +476,10 @@ export async function mypack(mcx: MyPackContext): Promise<boolean> {
 
     const newResultHash = createHash('sha256').update(mcx.resultJs).digest('hex');
     if (newResultHash == mcx.resultHash) {
-        logInfo('mypack', `completed with {gray no change}`);
+        logInfo('mypack', chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        logInfo('mypack', `completed with {yellow 1} asset {yellow ${mcx.resultJs.length / 1024}kb}`);
+        logInfo('mypack', chalk`completed with {yellow 1} asset {yellow ${mcx.resultJs.length / 1024}kb}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {

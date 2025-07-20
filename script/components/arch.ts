@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import readline from 'node:readline/promises';
 import tls from 'node:tls';
-import { type BuildScriptConfig, logInfo, logError } from './logger';
-import { upload } from './sftp';
+import { type BuildScriptConfig, logInfo, logError } from './logger.ts';
+import { upload } from './sftp.ts';
 
 // command center client architecture
 

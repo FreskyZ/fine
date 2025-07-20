@@ -1,15 +1,15 @@
 import ts from 'typescript';
-import { logInfo, logError } from './logger';
+import { logInfo, logError } from './logger.ts';
 import chalk from 'chalk-template';
 import chalkNotTemplate from 'chalk';
 
 interface MyTypescriptOptions {
-    entry: string,
+    entry: string | string[],
     // not confused with ts.ScriptTarget
     // for now this add lib.dom.d.ts to lib, add jsx: ReactJSX
     target: 'browser' | 'node',
-    // the /vbuild, or /vbuild1 if you'd like
-    outputDirectory: string,
+    // the /vbuild, or /vbuild1 if you'd like, default to /vbuild
+    outputDirectory?: string,
     // should come from process.env.AKARIN_STRICT
     // in old days I enabled this and meet huge amount of false positives,
     // so instead of always on/off, occassionally use this to check for potential issues
@@ -31,7 +31,7 @@ export function createTypescriptProgram(options: MyTypescriptOptions): ts.Progra
     // - watch is not used in current remote command center architecture
 
     // NOTE check https://www.typescriptlang.org/tsconfig/ for new features and options
-    return ts.createProgram([options.entry], {
+    return ts.createProgram(Array.isArray(options.entry) ? options.entry : [options.entry], {
         lib: ['lib.esnext.d.ts'].concat(options.target == 'browser' ? ['lib.dom.d.ts'] : []),
         jsx: options.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
         target: ts.ScriptTarget.ESNext,
@@ -55,12 +55,9 @@ export function createTypescriptProgram(options: MyTypescriptOptions): ts.Progra
         strictFunctionTypes: true,
         strictBindCallApply: true,
         strictBuiltinIteratorReturn: true,
-        strictPropertyInitialization: true,
+        strictPropertyInitialization: options.strict,
         removeComments: true,
-        // this is not needed in build scripts, because they are real transpiled
-        // TODO noemit check build scripts itself with this option
-        // erasableSyntaxOnly: true,
-        outDir: options.outputDirectory,
+        outDir: options.outputDirectory ?? '/vbuild',
         ...options.additionalOptions,
     });
 }
@@ -74,8 +71,24 @@ export function transpile(program: ts.Program): Record<string, string> {
         if (data) { files[fileName] = data; }
     });
 
-    const errorCount = emitResult.diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
-    const normalCount = emitResult.diagnostics.length - errorCount;
+    // TODO the typescript level top level item tree shaking is nearly implemented by the unusedimport and unused variable check
+    // the only gap is an item is declared as export but not used by other modules
+    // the complexity is reduced by named imports in ecma module compare to commonjs module, but default import and namespace import still exists
+    // you still need typescript type information to find top level item usages
+    // so the dream is still related to here
+
+    const diagnostics = program.getCompilerOptions().noEmit ? [
+        // why are there so many kinds of diagnostics? do I need all of them?
+        program.getGlobalDiagnostics(),
+        program.getOptionsDiagnostics(),
+        program.getSemanticDiagnostics(),
+        program.getSyntacticDiagnostics(),
+        program.getDeclarationDiagnostics(),
+        program.getConfigFileParsingDiagnostics(),
+    ].flat() : emitResult.diagnostics;
+
+    const errorCount = diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
+    const normalCount = diagnostics.length - errorCount;
 
     let message: string;
     if (normalCount == 0 && errorCount == 0) {
@@ -88,8 +101,8 @@ export function transpile(program: ts.Program): Record<string, string> {
         message = chalk`{yellow ${errorCount}} errors and {yellow ${normalCount}} infos`;
     }
 
-    (emitResult.emitSkipped ? logError : logInfo)('tsc', `completed with ${message}`);
-    for (const { category, code, messageText, file, start } of emitResult.diagnostics) {
+    (diagnostics.length ? logError : logInfo)('tsc', `completed with ${message}`);
+    for (const { category, code, messageText, file, start } of diagnostics) {
         const displayColor = {
             [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
             [ts.DiagnosticCategory.Error]: chalkNotTemplate.red,
@@ -111,5 +124,5 @@ export function transpile(program: ts.Program): Record<string, string> {
         console.log(displayCode + fileAndPosition + flattenedMessage);
     }
 
-    return emitResult.emitSkipped ? null : files;
+    return diagnostics.length ? null : files;
 }

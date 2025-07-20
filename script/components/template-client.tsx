@@ -50,7 +50,7 @@ function gotoIdentityProvider() {
         localStorage['return-pathname'] = window.location.pathname;
         localStorage['return-searchparams'] = window.location.search;
     }
-    window.location.assign('https://id.example.com?return=https://chat.example.com');
+    window.location.assign(`https://id.example.com?return=https://${window.location.host}`);
 }
 
 async function startup(render: () => void) {
@@ -126,7 +126,7 @@ function confirmGotoIdentityProvider() {
 }
 
 async function sendRequest(method: string, path: string, parameters?: any, data?: any): Promise<any> {
-    const url = new URL(`https://api.example.com/yala${path}`);
+    const url = new URL(`https://api.example.com/example${path}`);
     Object.entries(parameters || {}).forEach(p => url.searchParams.append(p[0], p[1].toString()));
     const response = await fetch(url.toString(), data ? {
         method,
