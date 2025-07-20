@@ -300,7 +300,7 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
 
-    // TODO this is hardcode replaced in make.ts
+    // NOTE this is hardcode replaced in make.ts
     sb += `template-client.tsx`.replaceAll('api.example.com/example', `api.example.com/${config.appname}`);
 
     sb += 'const api = {\n';
@@ -341,17 +341,12 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
 }
 
 interface CodeGenerationOptions {
-    // default to true, use false to disable client side generation targets
-    // note that api.d.ts is shared so is always included
-    client?: boolean,
-    // default to true, use false to disable server side generation targets
-    // note that api.d.ts is shared so is always included
-    server?: boolean,
-    // default to true, use false to disable write file
-    emit?: boolean,
+    emit: boolean, // actually write file
+    client: boolean, // include client side targets
+    server: boolean, // include server side targets
 }
 // return true for ok, false for not ok
-export async function generateDatabaseModelAndWebInterface(config: CodeGenerationConfig, options: CodeGenerationOptions): Promise<boolean> {
+export async function generateCode(config: CodeGenerationConfig, options: CodeGenerationOptions): Promise<boolean> {
     logInfo('codegen', 'code generation');
     let hasError = false;
 
@@ -385,15 +380,10 @@ export async function generateDatabaseModelAndWebInterface(config: CodeGeneratio
         { kind: 'client,server', name: 'api.d.ts', run: createTask('src/shared/api.d.ts', generateWebInterfaceTypes) },
         { kind: 'server', name: 'index.ts', run: createPartialTask('src/server/index.ts', generateWebInterfaceServer) },
         { kind: 'client', name: 'index.tsx', run: createPartialTask('src/client/index.tsx', generateWebInterfaceClient) },
-    ].filter(t =>
-        // the exact kind equals correctly skips client,server and let that pass
-        t.kind == 'client' ? typeof options.client == 'undefined' || options.client
-        : t.kind == 'server' ? typeof options.server == 'undefined' || options.server
-        : true,
-    );
+    ].filter(t => (options.client && t.kind.includes('client')) || (options.server && t.kind.includes('server')));
     // console.log('scheduled tasks', tasks);
     await Promise.all(tasks.map(t => t.run()));
-    logInfo('codegen', 'code generation completed');
 
+    hasError ? logError('codegen', 'code generation completed with error') : logInfo('codegen', 'code generation complete');
     return !hasError;
 }

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import readline from 'node:readline/promises';
 import tls from 'node:tls';
 import { type BuildScriptConfig, logInfo, logError } from './logger.ts';
-import { upload } from './sftp.ts';
+import { deploy } from './sftp.ts';
 
 // command center client architecture
 
@@ -75,7 +75,7 @@ export async function startCommandCenterClient(
             if (!local || !remote) {
                 console.error('invalid upload command, expecting upload localpath remotepath');
             } else {
-                await upload(config, [{ data: await fs.readFile(local), remote }]);
+                await deploy(config, [{ data: await fs.readFile(local), remote }]);
             }
         } else if (command.startsWith('build')) {
             await handleRemoteCommand(command);

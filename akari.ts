@@ -56,21 +56,28 @@ function logCritical(header: string, message: string): never {
 // --------- ATTENTION AUTO GENERATED ----------
 // ---------------------------------------------
 
-interface MyTypescriptOptions {
+interface TypeScriptContext {
     entry: string | string[],
     // not confused with ts.ScriptTarget
     // for now this add lib.dom.d.ts to lib, add jsx: ReactJSX
     target: 'browser' | 'node',
-    // the /vbuild, or /vbuild1 if you'd like, default to /vbuild
-    outputDirectory?: string,
     // should come from process.env.AKARIN_STRICT
     // in old days I enabled this and meet huge amount of false positives,
     // so instead of always on/off, occassionally use this to check for potential issues
     strict?: boolean,
     additionalOptions?: ts.CompilerOptions,
+    additionalLogHeader?: string,
+    program?: ts.Program,
+    // transpile success
+    success?: boolean,
+    // transpile result files
+    files?: Record<string, string>,
 }
 
-function createTypescriptProgram(options: MyTypescriptOptions): ts.Program {
+function transpile(tcx: TypeScriptContext): TypeScriptContext {
+    const logheader = `tsc${tcx.additionalLogHeader ?? ''}`;
+    logInfo(logheader, 'transpiling');
+    
     // design considerations
     // - the original tool distinguishes ecma module and commonjs, now everything is esm!
     //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage
@@ -82,62 +89,57 @@ function createTypescriptProgram(options: MyTypescriptOptions): ts.Program {
     // - jsx, I was providing my own jsx implementation,
     //   but that's now handled by /** @jsxImportSource @emotion/react */, so no work for me
     // - watch is not used in current remote command center architecture
-
+    //
     // NOTE check https://www.typescriptlang.org/tsconfig/ for new features and options
-    return ts.createProgram(Array.isArray(options.entry) ? options.entry : [options.entry], {
-        lib: ['lib.esnext.d.ts'].concat(options.target == 'browser' ? ['lib.dom.d.ts'] : []),
-        jsx: options.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
+    tcx.program = ts.createProgram(Array.isArray(tcx.entry) ? tcx.entry : [tcx.entry], {
+        lib: ['lib.esnext.d.ts'].concat(tcx.target == 'browser' ? ['lib.dom.d.ts'] : []),
+        jsx: tcx.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
         target: ts.ScriptTarget.ESNext,
         module: ts.ModuleKind.NodeNext,
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         skipLibCheck: true,
         noEmitOnError: true,
-        strict: options.strict,
+        strict: tcx.strict,
         allowUnreachableCode: false,
         allowUnusedLabels: false,
-        alwaysStrict: true, // TODO is this important?
-        exactOptionalPropertyTypes: options.strict,
+        alwaysStrict: true,
+        exactOptionalPropertyTypes: tcx.strict,
         noFallthroughCaseInSwitch: true,
         noImplicitAny: true,
         noImplicitReturns: true,
         noImplicitThis: true,
-        noPropertyAccessFromIndexSignature: true, // TODO try this
+        noPropertyAccessFromIndexSignature: true,
         noUnusedLocals: true,
         noUnusedParameters: true,
-        strictNullChecks: options.strict,
+        strictNullChecks: tcx.strict,
         strictFunctionTypes: true,
         strictBindCallApply: true,
         strictBuiltinIteratorReturn: true,
-        strictPropertyInitialization: options.strict,
+        strictPropertyInitialization: tcx.strict,
         removeComments: true,
-        outDir: options.outputDirectory ?? '/vbuild',
-        ...options.additionalOptions,
-    });
-}
-
-// return null for failure
-function transpile(program: ts.Program): Record<string, string> {
-    logInfo('tsc', 'transpiling');
-
-    const files: Record<string, string> = {};
-    const emitResult = program.emit(undefined, (fileName, data) => {
-        if (data) { files[fileName] = data; }
+        outDir: '/vbuild',
+        ...tcx.additionalOptions,
     });
 
-    // TODO the typescript level top level item tree shaking is nearly implemented by the unusedimport and unused variable check
+    tcx.files ??= {};
+    const emitResult = tcx.program.emit(undefined, (fileName, data) => {
+        if (data) { tcx.files[fileName] = data; }
+    });
+
+    // TODO the typescript level top level item tree shaking is nearly completed by the unusedvariable, etc. check
     // the only gap is an item is declared as export but not used by other modules
-    // the complexity is reduced by named imports in ecma module compare to commonjs module, but default import and namespace import still exists
-    // you still need typescript type information to find top level item usages
-    // so the dream is still related to here
+    // the complexity of this check is even reduced by named imports in ecma module compare to commonjs module,
+    // although default import and namespace import still exists, soyou still need typescript type information
+    // to find top level item usages, so still need something to be collected here?
 
-    const diagnostics = program.getCompilerOptions().noEmit ? [
+    const diagnostics = tcx.additionalOptions?.noEmit ? [
         // why are there so many kinds of diagnostics? do I need all of them?
-        program.getGlobalDiagnostics(),
-        program.getOptionsDiagnostics(),
-        program.getSemanticDiagnostics(),
-        program.getSyntacticDiagnostics(),
-        program.getDeclarationDiagnostics(),
-        program.getConfigFileParsingDiagnostics(),
+        tcx.program.getGlobalDiagnostics(),
+        tcx.program.getOptionsDiagnostics(),
+        tcx.program.getSemanticDiagnostics(),
+        tcx.program.getSyntacticDiagnostics(),
+        tcx.program.getDeclarationDiagnostics(),
+        tcx.program.getConfigFileParsingDiagnostics(),
     ].flat() : emitResult.diagnostics;
 
     const errorCount = diagnostics.filter(d => d.category == ts.DiagnosticCategory.Error || ts.DiagnosticCategory.Warning).length;
@@ -154,7 +156,8 @@ function transpile(program: ts.Program): Record<string, string> {
         message = chalk`{yellow ${errorCount}} errors and {yellow ${normalCount}} infos`;
     }
 
-    (diagnostics.length ? logError : logInfo)('tsc', `completed with ${message}`);
+    tcx.success = diagnostics.length == 0;
+    (diagnostics.length ? logError : logInfo)(logheader, `completed with ${message}`);
     for (const { category, code, messageText, file, start } of diagnostics) {
         const displayColor = {
             [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
@@ -176,8 +179,7 @@ function transpile(program: ts.Program): Record<string, string> {
         }
         console.log(displayCode + fileAndPosition + flattenedMessage);
     }
-
-    return diagnostics.length ? null : files;
+    return tcx;
 }
 
 // -----------------------------------------
@@ -206,12 +208,15 @@ async function tryminify(input: string) {
 // ---------------------------------------
 
 interface UploadAsset {
-    data: Buffer,
+    data: string | Buffer,
     remote: string, // relative path to webroot
 }
 
 // return false for not ok
-async function upload(config: BuildScriptConfig, assets: UploadAsset[]): Promise<boolean> {
+// nearly every text file need replace example.com to real domain,
+// so name this function 'deploy' so it is reasonable to do the substitution here,
+// use buffer or Buffer.from(string) to skip that
+async function deploy(config: BuildScriptConfig, assets: UploadAsset[]): Promise<boolean> {
     const client = new SFTPClient();
     try {
         await client.connect({
@@ -223,9 +228,12 @@ async function upload(config: BuildScriptConfig, assets: UploadAsset[]): Promise
         for (const asset of assets) {
             const fullpath = path.join(config.webroot, asset.remote);
             await client.mkdir(path.dirname(fullpath), true);
+            if (!Buffer.isBuffer(asset.data)) {
+                asset.data = Buffer.from(asset.data.replaceAll('example.com', config.domain));
+            }
             await client.put(asset.data, fullpath);
         }
-        logInfo('ssh', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
+        logInfo('sftp', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
         return true;
     } catch (error) {
         logError('sftp', 'failed to upload', error);
@@ -240,23 +248,34 @@ async function upload(config: BuildScriptConfig, assets: UploadAsset[]): Promise
 // ------- ATTENTION AUTO GENERATED --------
 // -----------------------------------------
 
-// TODO it's inconvient to manually pass ts.Program, try add TypeScriptResult
 interface MyPackContext {
-    program: ts.Program,
-    // transpile result, file name here starts with /vbuild, should be relatively short and easy to read
-    files: Record<string, string>,
+    program?: ts.Program,
+    // transpile result,
+    // file name here normally starts with /vbuild,
+    // and should be kind of short and easy to read so no more module name concept
+    files?: Record<string, string>,
     // entry path as a key in mcx.files
     entry: string,
     // change external references to cdn, this is also module resolution so is here
     cdnfy?: boolean,
+    // if logheader does not starts with 'mypack', it is prepended
+    logheader?: string,
     // the major module list to work on
     modules?: MyPackModule[],
     // all external references
     externalRequests?: MyPackModuleRequest[],
-    // bundle result, assign result hash in input mcx to compare last result
+    // pack result
+    success?: boolean,
     resultJs?: string,
+    // assign result hash in input mcx to compare last result
     resultHash?: string,
     resultModules?: { path: string, hash: string }[],
+}
+
+interface MyPackModule {
+    path: string, // this comes from transpile result, which should start with /vbuild
+    content: string, // full original content
+    requests: MyPackModuleRequest[],
 }
 
 // syntax:
@@ -283,14 +302,8 @@ interface MyPackModuleRequest {
     relativeModule?: MyPackModule, // resolved relative import
 }
 
-interface MyPackModule {
-    path: string, // this comes from transpile result, which should start with /vbuild
-    content: string, // full original content
-    requests: MyPackModuleRequest[],
-}
-
 // validate no duplicate top level names, return false for not ok
-// this reads mcx.program
+// NOTE this reads mcx.program
 function validateTopLevelNames(mcx: MyPackContext): boolean {
     let hasError = false;
     const allNames: Record<string, string[]> = {}; // module name (absolute path) => names
@@ -303,7 +316,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                     hasError = true;
                     const { line, character } = ts.getLineAndCharacterOfPosition(sourceFile, node.pos);
                     const position = `${sourceFile.fileName}:${line + 1}${character + 1}`;
-                    logError('pack', `${position} not support multiple declarations in variable declaration, I will not do that, when will that happen?`);
+                    logError(mcx.logheader, `${position} not support multiple declarations in variable declaration, I will not do that, when will that happen?`);
                     return;
                 }
                 const declaration = node.declarationList.declarations[0];
@@ -337,7 +350,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                 // export const and export function is normal variable statement or function definition statement
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError('pack', `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
             } else if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
                 // not relavent to js
             } else if (ts.isClassDeclaration(node)) {
@@ -351,7 +364,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
             } else {
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError('pack', `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
             }
         });
         allNames[sourceFile.fileName] = names;
@@ -361,7 +374,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
             const previousFileName = Object.entries(allNames).find(file => file[0] != fileName && file[1].includes(name))?.[0];
             if (previousFileName) {
                 hasError = true;
-                logError('pack', `${fileName} top level name ${name} has appeared in previous file ${previousFileName}`);
+                logError(mcx.logheader, `${fileName} top level name ${name} has appeared in previous file ${previousFileName}`);
             }
         }
     }
@@ -369,11 +382,11 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
     // for (const [fileName, names] of Object.entries(result)) {
     //     console.log(`${fileName}: ${names.join(',')}`)
     // }
-    return !hasError; // !hasError => ok
+    return !hasError;
 }
 
 // collect modules by resolve import declarations, return false for not ok
-// this reads mcx.files, creates mcx.modules
+// NOTE this reads mcx.files, creates mcx.modules
 // NOTE current implementation does not allow multiline import declarations,
 // NOTE in current implementation, if multiple requests from same module in same module,
 //      it results in multiple module.requests records, but later the merge correctly merge that
@@ -403,14 +416,14 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                 line = line.substring(1).trimStart(); // consume *
                 if (!line.startsWith('as')) {
                     hasError = true;
-                    logError('pack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (1)`);
+                    logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (1)`);
                     return;
                 }
                 line = line.substring(2).trimStart(); // consume 'as'
                 match = /^(?<name>\w+\s)/.exec(line);
                 if (!match) {
                     hasError = true;
-                    logError('pack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (2)`);
+                    logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (2)`);
                     return;
                 }
                 request.namespaceName = match.groups['name'].trim();
@@ -424,26 +437,20 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                     if (!match) {
                         break; // this is end of name list, not error
                     }
-                    // TODO only not allow alias name in relative import
-                    // if (match.groups.alias) {
-                    //     hasError = true;
-                    //     logError('pack', `${fileName}:${rowNumber}: ${raw}: not support import name alias for now`);
-                    //     return;
-                    // }
                     request.namedNames.push({ name: match.groups['name'], alias: match.groups['alias'] ?? match.groups['name'] });
                     line = line.substring(match[0].length).trimStart(); // consume name and alias
                     if (line.startsWith(',')) { line = line.substring(1).trimStart(); }// consume comma if exist
                 }
                 if (!line.startsWith('}')) {
                     hasError = true;
-                    logError('pack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (4)`);
+                    logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (4)`);
                     return;
                 }
                 line = line.substring(1).trimStart(); // consume right brace
             }
             if (!line.startsWith('from ')) {
                 hasError = true;
-                logError('pack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (5)`);
+                logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (5)`);
                 return;
             }
             line = line.substring(5).trimStart(); // consume 'from '
@@ -451,7 +458,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
             match = /^['"](?<name>.+)['"]/.exec(line);
             if (!match) {
                 hasError = true;
-                logError('pack', `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (6)`);
+                logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: invalid syntax, when will this happen? (6)`);
                 return;
             }
             request.moduleName = match.groups['name'];
@@ -460,7 +467,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                 const name = request.namedNames.find(n => n.name != n.alias);
                 if (name) {
                     hasError = true;
-                    logError('pack', `${fileName}:${rowNumber}: ${raw}: not allow import alias in relative import for now`);
+                    logError(mcx.logheader, `${fileName}:${rowNumber}: ${raw}: not allow import alias in relative import for now`);
                     return;
                 }
             }
@@ -482,7 +489,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
 // resolve relative imports, check recursive reference, sort modules
 // validate external references use same defualt name, same namespace name and same alias, merge into one external request list
 // return false for not ok
-// this reads mcx.modules, creates mcx.externalRequests, sorts mcx.modules
+// NOTE this reads mcx.modules, creates mcx.externalRequests, sorts mcx.modules
 // NOTE allow same name to be imported as different alias
 // NOTE sort external references by 'node:' first, then name, sort named import by alias
 // NOTE if namespace import and named import are used at the same time,
@@ -502,15 +509,15 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
             if (moduleImport.defaultName) {
                 if (mergedImport.defaultName && mergedImport.defaultName != moduleImport.defaultName) {
                     hasError = true;
-                    logError('pack', `${module.path}: inconsistent default import from '${moduleImport.moduleName}', previous use ${mergedImport.defaultName}, here use ${moduleImport.defaultName}`);
+                    logError(mcx.logheader, `${module.path}: inconsistent default import from '${moduleImport.moduleName}', previous use ${mergedImport.defaultName}, here use ${moduleImport.defaultName}`);
                 } else if (mcx.externalRequests.some(o => o.moduleName != moduleImport.moduleName
                     && (o.defaultName == moduleImport.defaultName || o.namespaceName == moduleImport.defaultName || o.namedNames.some(n => n.alias == moduleImport.defaultName))
                 )) {
                     hasError = true;
-                    logError('pack', `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
+                    logError(mcx.logheader, `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (mergedImport.namedNames.some(n => n.alias == moduleImport.defaultName)) {
                     hasError = true;
-                    logError('pack', `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
                 } else if (!moduleImport.defaultName) {
                     mergedImport.defaultName = moduleImport.defaultName;
                 }
@@ -518,15 +525,15 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
             if (moduleImport.namespaceName) {
                 if (mergedImport.namespaceName && mergedImport.namespaceName != moduleImport.namespaceName) {
                     hasError = true;
-                    logError('pack', `${module.path}: inconsistent namespace import from '${moduleImport.moduleName}', previous use ${mergedImport.namespaceName}, here use ${moduleImport.namespaceName}`);
+                    logError(mcx.logheader, `${module.path}: inconsistent namespace import from '${moduleImport.moduleName}', previous use ${mergedImport.namespaceName}, here use ${moduleImport.namespaceName}`);
                 } else if (mcx.externalRequests.some(o => o.moduleName != moduleImport.moduleName
                     && (o.namespaceName == moduleImport.namespaceName || o.namespaceName == moduleImport.namespaceName || o.namedNames.some(n => n.alias == moduleImport.namespaceName))
                 )) {
                     hasError = true;
-                    logError('pack', `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
+                    logError(mcx.logheader, `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (mergedImport.namedNames.some(n => n.alias == moduleImport.namespaceName)) {
                     hasError = true;
-                    logError('pack', `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
                 } else if (!moduleImport.namespaceName) {
                     mergedImport.namespaceName = moduleImport.namespaceName;
                 }
@@ -536,14 +543,14 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     && (o.defaultName == namedName.alias || o.namespaceName == namedName.alias || o.namedNames.some(n => n.alias == namedName.alias))
                 )) {
                     hasError = true;
-                    logError('pack', `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared in other import declarations`);
+                    logError(mcx.logheader, `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared in other import declarations`);
                 } else if (mergedImport.namespaceName == namedName.alias || mergedImport.defaultName == namedName.alias) {
                     hasError = true;
-                    logError('pack', `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared previous namespace import or default import from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared previous namespace import or default import from this module, when will this happen?`);
                 } else if (mergedImport.namedNames.some(e => e.name != namedName.name && e.alias == namedName.alias)) {
                     hasError = true;
                     const previous = mergedImport.namedNames.find(e => e.name != namedName.name && e.alias == namedName.alias);
-                    logError('pack', `${module.path}: inconsistant import ${namedName.name} as ${namedName.alias} from '${moduleImport.moduleName}, previous is ${previous.name} as ${previous.alias}'`);
+                    logError(mcx.logheader, `${module.path}: inconsistant import ${namedName.name} as ${namedName.alias} from '${moduleImport.moduleName}, previous is ${previous.name} as ${previous.alias}'`);
                 }
                 // name != name and alias != alias: normal different name
                 // name != name and alias == alias: already reported name conflict
@@ -584,7 +591,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
             ].find(p => mcx.modules.some(m => m.path == p));
             if (!resolvedModuleName) {
                 hasError = true;
-                logError('pack', `${module.path}: import '${request.moduleName}' not found, when will this happen?`);
+                logError(mcx.logheader, `${module.path}: import '${request.moduleName}' not found, when will this happen?`);
                 continue;
             }
             request.relativeModule = mcx.modules.find(m => m.path == resolvedModuleName);
@@ -608,7 +615,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
         depth += 1;
         if (depth >= 10) {
             hasError = true;
-            logError('pack', `too deep dependency or recursive dependency`, remainingRelationships);
+            logError(mcx.logheader, `too deep dependency or recursive dependency`, remainingRelationships);
             break;
         }
     }
@@ -618,9 +625,8 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
     return !hasError;
 }
 
-// convert external references to cdn url
-// this reads mcx.externalRequests, sets externalRequest.cdn
-// return false for not ok
+// convert external references to cdn url, return false for not ok
+// NOTE this reads mcx.externalRequests, sets externalRequest.cdn
 async function cdnfy(mcx: MyPackContext): Promise<boolean> {
     if (!mcx.cdnfy) { return true; }
     let hasError = false;
@@ -632,7 +638,7 @@ async function cdnfy(mcx: MyPackContext): Promise<boolean> {
     try {
         projectConfig = JSON.parse(await fs.readFile('package.json', 'utf-8'));
     } catch (error) {
-        logError('pack', 'failed to read package.json in cdnfy', error);
+        logError(mcx.logheader, 'failed to read package.json in cdnfy', error);
         return false;
     }
     const projectDependencies = Object
@@ -649,7 +655,7 @@ async function cdnfy(mcx: MyPackContext): Promise<boolean> {
             .sort((d1, d2) => d2.name.length - d1.name.length);
         if (packages.length == 0) {
             hasError = true;
-            logError('pack', `external reference ${request.moduleName} not found package in package.json`);
+            logError(mcx.logheader, `external reference ${request.moduleName} not found package in package.json`);
             continue;
         }
         const $package = packages[0];
@@ -660,9 +666,8 @@ async function cdnfy(mcx: MyPackContext): Promise<boolean> {
     return !hasError;
 }
 
-// combine into one file
-// this reads mcx.modules, mcx.externalRequests, assign to mcx.resultJs
-// return false for not ok, currently no expected error
+// combine into one file, return false for not ok, currently no expected error
+// NOTE this reads mcx.modules, mcx.externalRequests, assign to mcx.resultJs
 function combineModules(mcx: MyPackContext): boolean {
 
     let resultJs = '';
@@ -695,49 +700,62 @@ function combineModules(mcx: MyPackContext): boolean {
     return true;
 }
 
-// return false for not ok
-async function mypack(mcx: MyPackContext): Promise<boolean> {
-    logInfo('pack', `pack ${mcx.entry}`);
+function filesize(size: number) {
+    return `${Math.round(size / 1024 * 100) / 100}kb`;
+}
+// if tcx is provided, it overwrites some input properties of mcx
+// if you need to avoid that, avoid tcx or some of tcx properties, when do I need that?
+async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPackContext> {
+    if (tcx) {
+        mcx.program = tcx.program;
+        mcx.files = tcx.files;
+        // ATTENTION entry is not same
+        // if (!Array.isArray(tcx.entry)) { mcx.entry = tcx.entry; }
+        if (tcx.target == 'browser') { mcx.cdnfy = true; }
+        if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; }
+    } else {
+        mcx.logheader = mcx.logheader ? (mcx.logheader.startsWith('mypack') ? mcx.logheader : 'mypack' + mcx.logheader) : 'mypack';
+    }
+    logInfo(mcx.logheader, `pack ${mcx.entry}`);
 
-    if (!validateTopLevelNames(mcx)) { return false; }
-    if (!resolveModuleDependencies(mcx)) { return false; }
-    if (!validateModuleDependencies(mcx)) { return false; }
-    if (!await cdnfy(mcx)) { return false; }
-    if (!combineModules(mcx)) { return false; }
-    
-    // minify here
+    if (!validateTopLevelNames(mcx)) { mcx.success = false; return mcx; }
+    if (!resolveModuleDependencies(mcx)) { mcx.success = false; return mcx; }
+    if (!validateModuleDependencies(mcx)) { mcx.success = false; return mcx; }
+    if (!await cdnfy(mcx)) { mcx.success = false; return mcx; }
+    if (!combineModules(mcx)) { mcx.success = false; return mcx; }
+
     mcx.resultJs = await tryminify(mcx.resultJs);
-    if (!mcx.resultJs) { return false; }
+    if (!mcx.resultJs) { mcx.success = false; return mcx; }
 
+    mcx.success = true;
     const newResultHash = createHash('sha256').update(mcx.resultJs).digest('hex');
     if (newResultHash == mcx.resultHash) {
-        logInfo('pack', chalk`completed with {gray no change}`);
+        logInfo(mcx.logheader, chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        // TODO improve file size display
-        logInfo('pack', chalk`completed with {yellow 1} asset {yellow ${mcx.resultJs.length / 1024}kb}`);
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {
             for (const addedModule of newResultModules.filter(n => !mcx.resultModules.some(p => p.path == n.path))) {
-                console.log(chalk`  {gray +} ${addedModule.path} ${addedModule.size / 1024}kb`);
+                console.log(chalk`  {gray +} ${addedModule.path} ${filesize(addedModule.size)}`);
             }
             for (const [updatedModule] of newResultModules
                 .map(n => [n, mcx.resultModules.find(p => p.path == n.path)] as const)
                 .filter(([currentModule, previousModule]) => previousModule && currentModule.hash != previousModule.hash)) {
-                console.log(chalk`  {gray *} ${updatedModule.path} ${updatedModule.size / 1024}kb`);
+                console.log(chalk`  {gray *} ${updatedModule.path} ${filesize(updatedModule.size)}`);
             }
             for (const removedModule of mcx.resultModules.filter(p => !newResultModules.some(n => n.path == p.path))) {
                 console.log(chalk`  {gray -} ${removedModule.path}`);
             }
         } else {
             for (const { path, size } of newResultModules) {
-                console.log(chalk`   {gray +} {greenBright ${path}} ${size / 1024}kb`);
+                console.log(chalk`   {gray +} {greenBright ${path}} ${filesize(size)}`);
             }
         }
         mcx.resultModules = newResultModules;
     }
-    return true;
+    return mcx;
 }
 
 // ---------------------------------------
@@ -816,7 +834,7 @@ async function startCommandCenterClient(
             if (!local || !remote) {
                 console.error('invalid upload command, expecting upload localpath remotepath');
             } else {
-                await upload(config, [{ data: await fs.readFile(local), remote }]);
+                await deploy(config, [{ data: await fs.readFile(local), remote }]);
             }
         } else if (command.startsWith('build')) {
             await handleRemoteCommand(command);
@@ -829,75 +847,84 @@ async function startCommandCenterClient(
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
-    logInfo('akari', chalk`upload {cyan public}`);
+    logInfo('akari', chalk`deploy {cyan public}`);
     const assets = await Promise.all((await fs
         .readdir('src/public', { recursive: true, withFileTypes: true }))
         .filter(entry => entry.isFile())
         .map<Promise<UploadAsset>>(async entry => {
             const filepath = path.join(entry.parentPath, entry.name);
-            return { data: await fs.readFile(filepath), remote: filepath.replace('src/', 'public2/') };
+            // return { data: await fs.readFile(filepath), remote: filepath.replace('src/', '') };
+            return { data: await fs.readFile(filepath), remote: filepath.replace('src/public/', 'public2/') };
         }));
-    await upload(config, assets);
-    logInfo('akari', chalk`upload {cyan public} complete`);
+    await deploy(config, assets);
+    logInfo('akari', chalk`deploy {cyan public} complete`);
 }
 
 // static command was referring to home page and user page
 // but now it means the pure static pages home, short, 404, 418
 async function uploadStaticAssets() {
-    logInfo('akari', chalk`upload {cyan static}`);
+    logInfo('akari', chalk`deploy {cyan static}`);
     const assets = await Promise.all([
         ['src/static/home.html', 'static/home.html'],
         ['src/static/short.html', 'static/short.html'],
         ['src/static/404.html', 'static/404.html'],
         ['src/static/418.html', 'static/418.html'],
     ].map(async ([local, remote]) => ({ data: await fs.readFile(local), remote })));
-    await upload(config, assets);
-    logInfo('akari', chalk`upload {cyan static} complete`);
+    await deploy(config, assets);
+    logInfo('akari', chalk`deploy {cyan static} complete`);
 }
 
 // deploy remote akari.ts
 async function deployCommandCenter() {
-    logInfo('akari', chalk`upload {cyan command center}`);
-    // type check command-center.ts
-    if (!transpile(createTypescriptProgram({
-        entry: 'script/command-center.ts',
+    logInfo('akari', chalk`deploy {cyan remote self}`);
+    // type check the file to avoid some potential errors
+    const tcx = transpile({
+        entry: 'script/remote-akari.ts',
         target: 'node',
         additionalOptions: { noEmit: true, erasableSyntaxOnly: true },
-    }))) {
-        logError('akari', chalk`{cyan command center} failed at type check`);
-        return;
+    });
+    if (!tcx.success) { logError('akari', chalk`{cyan remote self} failed at type check`); return; }
+    const uploadResult = await deploy(config, [{ data: await fs.readFile('script/remote-akari.ts'), remote: 'akari.ts' }]);
+    if (!uploadResult) {
+        logError('akari', chalk`{cyan remote self} failed at upload`); return;
     }
-    await upload(config, [{
-        data: await fs.readFile('script/command-center.ts'),
-        remote: 'akari.ts',
-    }]);
-    logInfo('akari', chalk`upload {cyan command center} complete`);
+    logInfo('akari', chalk`deploy {cyan remote self} completed successfully`);
 }
 
 // identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md 
 async function buildIdentityProvider(): Promise<boolean> {
     logInfo('akari', chalk`build {cyan user page}`);
 
-    const program = createTypescriptProgram({ entry: 'src/static/user.tsx', target: 'browser' });
-    const transpileResult = transpile(program);
-    if (!transpileResult || !transpileResult['/vbuild/user.js']) {
-        logError('akari', chalk`{cyan user page} failed at transpile`);
-        return false;
-    }
+    const tcx = transpile({ entry: 'src/static/user.tsx', target: 'browser' });
+    if (!tcx.success) { logError('akari', chalk`{cyan user page} failed at transpile`); return false; }
 
-    const mcx: MyPackContext = { program, files: transpileResult, entry: '/vbuild/user.js', cdnfy: true };
-    if (!await mypack(mcx)) { logError('akari', chalk`{cyan user page} failed at pack`); return false; };
+    const mcx = await mypack({ entry: '/vbuild/user.js' }, tcx);
+    if (!mcx.success) { logError('akari', chalk`{cyan user page} failed at pack`); return false; };
 
-    const files = [
-        [await fs.readFile('src/static/user.html', 'utf-8'), 'static/user.html'],
-        [mcx.resultJs, 'static/user.js'],
-    ];
-    // all files need replace example.com
-    if (!await upload(config, files.map(([content, remote]) => ({ data: Buffer.from(content.replaceAll('example.com', config.domain)), remote })))) {
-        logError('akari', chalk`{cyan user page} failed at upload`); return false;
-    }
-    logInfo('akari', chalk`build {cyan user page} complete`);
-    return true;
+    const uploadResult = await deploy(config, [
+        // read html into string to do exmaple.com substitution
+        { data: await fs.readFile('src/static/user.html', 'utf-8'), remote: 'static/user.html' },
+        { data: mcx.resultJs, remote: 'static/user.js' },
+    ]);
+    if (!uploadResult) { logError('akari', chalk`{cyan user page} failed at upload`); return false; }
+    
+    logInfo('akari', chalk`build {cyan user page} completed successfully`); return true;
+}
+
+// // this is extremely simple comparing to the full standalone version of temp version of build-core.js
+async function buildCore(): Promise<boolean> {
+    logInfo('akari', chalk`build {cyan core}`);
+
+    const tcx = transpile({ entry: 'src/core/index.ts', target: 'node' });
+    if (!tcx.success) { logError('akari', chalk`{cyan core} failed at transpile`); return false; }
+
+    const mcx = await mypack({ entry: '/vbuild/core/index.js' }, tcx);
+    if (!mcx.success) { logError('akari', chalk`{cyan core} failed at pack`); return false; }
+
+    const uploadResult = await deploy(config, [{ data: mcx.resultJs, remote: 'index.js' }]);
+    if (!uploadResult) { logError('akari', chalk`{cyan core} failed at upload`); return false; }
+
+    logInfo('akari', chalk`build {cyan core} completed successfully`); return true;
 }
 
 async function dispatch(command: string[]) {
@@ -914,11 +941,13 @@ async function dispatch(command: string[]) {
         // and should be no more similar pages in future in this repository, so a dedicated command
         await buildIdentityProvider();
     } else if (command[0] == 'user+reload') {
+        // TODO fine tune communication with remote akari
         startCommandCenterClient(async () => ({ ok: await buildIdentityProvider() }), async () => {});
+    } else if (command[0] == 'core') {
+        await buildCore();
     } else {
         logError('akari', 'unknown command');
     }
 }
 
-const command = process.argv.slice(2);
-dispatch(command);
+dispatch(process.argv.slice(2));

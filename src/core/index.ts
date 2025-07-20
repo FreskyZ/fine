@@ -160,7 +160,7 @@ httpsServer.on('connection', (socket: net.Socket) => {
 });
 
 // servers start and close // that's how they are implemented braceful
-const isSocketActivation = !!process.env.LISTEN_FDS;
+const isSocketActivation = !!process.env['LISTEN_FDS'];
 Promise.all([
     new Promise<void>((resolve, reject) => {
         const handleListenError = (error: Error) => {

@@ -134,7 +134,8 @@ and devtools gets typescript transpile result
 
 ### app
 
-// TODO use make.ts to assmeble other repository's akari.ts
+TODO use make-akari.ts to assmeble other repository's akari.ts
+compare original makelink and add their own script folder and target.ts and index.ts and bootstrap workflow
 
 app ui and backend target is not available in this project, they need to
 access script/tools and src/adk and some other files or directories to work

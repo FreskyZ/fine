@@ -4,7 +4,7 @@ import chalk from 'chalk-template';
 import ts from 'typescript';
 // NOTE when directly executing typescript, this need to be .ts
 import { logInfo, logError, logCritical } from './components/logger.ts';
-import { createTypescriptProgram, transpile } from './components/typescript.ts';
+import { transpile } from './components/typescript.ts';
 
 // this script assembles build scripts (akari.ts in this repository and related repositories)
 // TODO change the following comment to 'see build-script.md'
@@ -26,9 +26,6 @@ import { createTypescriptProgram, transpile } from './components/typescript.ts';
 // - different from original bootstrapping architecture, this build-build-script script is not
 //   transpiled and built, in this case, I may try to type checking and eslint this script occassionally
 
-// TODO don't forget that akari.ts manual part need to handle example.com
-// TODO allow local akari to run without remote akari
-
 const targetDirectory = process.argv[2];
 if (!targetDirectory) {
     logCritical('make', 'missing target directory parameter');
@@ -46,14 +43,14 @@ const components = [
     'sftp',
     'arch',
 ];
-const program = createTypescriptProgram({
+const tcx = transpile({
     // include this file to type checking/basic linting by the way
     // this file will be excluded in the following validation automatically by the startsWith(script/components) filter
-    entry: components.map(c => `script/components/${c}.ts`).concat('script/make.ts'),
+    entry: components.map(c => `script/components/${c}.ts`).concat('script/make-akari.ts'),
     target: 'node',
     additionalOptions: { noEmit: true, allowImportingTsExtensions: true, erasableSyntaxOnly: true },
 });
-if (!transpile(program)) { process.exit(1); }
+if (!tcx.success) { process.exit(1); }
 
 interface ExternalReference {
     moduleName: string,
@@ -76,7 +73,7 @@ const allExternalReferences: ExternalReference[] = [];
 // depedency and depedent is module name/component name like 'mypack', 'typescript'
 const relativeRelationships: { dependency: string, dependent: string }[] = [];
 
-for (const sourceFile of program.getSourceFiles().filter(sf => sf.fileName.startsWith('script/components/'))) {
+for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.startsWith('script/components/'))) {
     const moduleFileName = sourceFile.fileName.substring(18);
     const getLocation = (node: ts.Node) => {
         const { line, character } = ts.getLineAndCharacterOfPosition(sourceFile, node.pos);
@@ -308,7 +305,7 @@ for (const reference of allExternalReferences) {
 for (const moduleName of sortedModuleNames.filter(m => requestedComponents.includes(m))) {
     const modulePath = `script/components/${moduleName}.ts`;
     // removing leading and trailing empty lines
-    const moduleContent = program.getSourceFile(modulePath).text.trim();
+    const moduleContent = tcx.program.getSourceFile(modulePath).text.trim();
     // console.log(`${moduleName}: ${moduleContent.substring(0, 100)}\n...\n${moduleContent.substring(moduleContent.length - 100)}`);
     sb += '\n';
     // ?
