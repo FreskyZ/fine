@@ -79,30 +79,30 @@ adminServer.on('connection', connection => {
             command = JSON.parse(payload);
         } catch {
             log.error({ type: 'admin interface payload parse failed', payload });
-            connection.write(JSON.stringify({ ok: false, log: 'failed to parse payload ' + payload }));
+            connection.write(JSON.stringify({ ok: false, log: 'invalid payload ' + payload }));
             return;
         }
 
         if (command.kind == 'ping') {
-            connection.write(JSON.stringify({ ok: true, log: 'pong' }));
+            connection.write(JSON.stringify({ id: command.id, ok: true, log: 'pong' }));
             return;
         } else if (command.kind == 'shutdown') {
             log.info({ type: 'received shutdown request from admin interface' });
-            connection.write(JSON.stringify({ ok: true, log: 'scheduling shutdown' }));
+            connection.write(JSON.stringify({ id: command.id, ok: true, log: 'scheduling shutdown' }));
             shutdown();
             return;
-        } else {
-            for (const handler of adminInterfaceHandlers) {
-                const response = await handler(command);
-                if (response) {
-                    log.info({ type: 'admin interface response', response });
-                    connection.write(JSON.stringify(response));
-                    return;
-                }
+        }
+        for (const handler of adminInterfaceHandlers) {
+            const response = await handler(command);
+            if (response) {
+                response.id = command.id;
+                log.info({ type: 'admin interface response', response });
+                connection.write(JSON.stringify(response));
+                return;
             }
         }
         log.info({ type: 'admin interface unhandled command', payload });
-        connection.write(JSON.stringify({ ok: false, log: 'unhandled command ' + payload }));
+        connection.write(JSON.stringify({ id: command.id, ok: false, log: 'unhandled command' }));
     });
 });
 

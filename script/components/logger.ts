@@ -8,12 +8,6 @@ export interface BuildScriptConfig {
     ssh: { user: string, identity: string, passphrase: string },
 }
 
-// TODO check whether this pattern is useful
-// current color schema
-// error: red
-// target name: cyan
-// watching (the long displayed long message): blue
-
 export function logInfo(header: string, message: string, error?: any): void {
     if (error) {
         console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);

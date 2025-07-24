@@ -471,7 +471,7 @@ export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promi
         // ATTENTION entry is not same
         // if (!Array.isArray(tcx.entry)) { mcx.entry = tcx.entry; }
         if (tcx.target == 'browser') { mcx.cdnfy = true; }
-        if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; }
+        if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; } else { mcx.logheader = 'mypack'; }
     } else {
         mcx.logheader = mcx.logheader ? (mcx.logheader.startsWith('mypack') ? mcx.logheader : 'mypack' + mcx.logheader) : 'mypack';
     }

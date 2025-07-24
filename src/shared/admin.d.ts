@@ -1,6 +1,6 @@
 // admin interface types
 
-export type AdminInterfaceCommand =
+export type AdminInterfaceCommandKind =
     | { kind: 'ping' }
     | { kind: 'shutdown' }
     | { kind: 'static-content:reload', key: string }
@@ -19,7 +19,12 @@ export type AdminInterfaceCommand =
     | { kind: 'app:reload-server', name: string }
     | { kind: 'app:reload-client', name: string };
 
+export type AdminInterfaceCommand = {
+    id: number,
+} & AdminInterfaceCommandKind;
+
 export interface AdminInterfaceResponse {
+    id?: number,
     ok: boolean,
     log: string,
     [p: string]: any,
