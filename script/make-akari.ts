@@ -1,10 +1,11 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk-template';
 import ts from 'typescript';
 // NOTE when directly executing typescript, this need to be .ts
-import { logInfo, logError, logCritical } from './components/logger.ts';
-import { transpile } from './components/typescript.ts';
+import { logInfo, logError, logCritical } from './components/common.ts';
+import { validateSharedTypeDefinition, transpile } from './components/typescript.ts';
 
 // this script assembles build scripts (akari.ts in this repository and related repositories)
 // TODO change the following comment to 'see build-script.md'
@@ -35,13 +36,13 @@ const originalContent = await fs.readFile(targetFile, 'utf-8');
 logInfo('make', chalk`make {cyan ${targetFile}}`);
 
 const components = [
-    'logger',
+    'common',
     'codegen',
     'typescript',
     'minify',
     'mypack',
     'sftp',
-    'arch',
+    'messenger',
 ];
 const tcx = transpile({
     // include this file to type checking/basic linting by the way
@@ -208,6 +209,18 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
     topLevelTypeNames.forEach(n => allTopLevelTypeNames.push(n));
 }
 
+// sort named names by alias
+allExternalReferences.forEach(r => r.namedNames.sort((lhs, rhs) => lhs.alias.localeCompare(rhs.alias)));
+// sort by module name, first by starts with 'node:' first, then by name
+allExternalReferences.sort((lhs, rhs) => {
+    const leftIsNode = lhs.moduleName.startsWith('node:');
+    const rightIsNode = rhs.moduleName.startsWith('node:');
+    if (leftIsNode && !rightIsNode) return -1;
+    if (!leftIsNode && rightIsNode) return 1;
+    // this correctly handles rest part after node: and non node module names
+    return lhs.moduleName.localeCompare(rhs.moduleName);
+});
+
 const sortedModuleNames: string[] = [];
 let remainingModuleNames = [...components];
 let remainingRelationships = [...relativeRelationships];
@@ -233,11 +246,16 @@ while (true) {
 // console.log(JSON.stringify(allExternalReferences, undefined, 2));
 if (hasError) { process.exit(1); }
 
+// validate shared type between messenger and remote-akari
+// no need to make make-akari fail if mismatch
+if (!await validateSharedTypeDefinition('script/remote-akari.ts', 'script/components/messenger.ts', 'BuildScriptMessage')) { /* process.exit(1); */ }
+
 // although the previous process.exit(1) makes this has error always true, still keep it in case process is not exited
 hasError = false;
 let state: 'manual-import' | 'component-decl' | 'library' | 'manual-script' = 'manual-import';
 const manualImportLines: string[] = [];
 const requestedComponents: string[] = [];
+const libraryHasher = crypto.createHash('sha256');
 const manualScriptLines: string[] = [];
 for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i + 1] as const)) {
     if (state == 'manual-import') {
@@ -255,7 +273,7 @@ for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i 
                 logError('make', `${targetFile}:${rowNumber}: unrecognized components: ${unrecognizedComponents.length}`);
             }
             requestedComponents.push(...rawComponents.filter(c => components.includes(c)));
-            if (!requestedComponents.includes('logger')) { requestedComponents.push('logger'); }
+            if (!requestedComponents.includes('common')) { requestedComponents.push('common'); }
         } else if (line == '// BEGIN LIBRARY') {
             state = 'library';
         } else {
@@ -263,8 +281,26 @@ for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i 
             logError('make', `${targetFile}:${rowNumber}: expecting components declaration`);
         }
     } else if (state == 'library') {
-        if (line == '// END LIBRARY') {
+        if (line.startsWith('// END LIBRARY')) {
             state = 'manual-script';
+            const actualHash = line.substring(15);
+            const expectHash = libraryHasher.digest('hex');
+            // TODO add this to codegen, for current 2 ending 
+            if (actualHash != expectHash) {
+                const actualShortHash = actualHash.substring(0, 6);
+                const expectShortHash = expectHash.substring(0, 6);
+                if (actualShortHash != expectShortHash) {
+                    logError('make', `${targetFile}: hash mismatch expect ${expectShortHash} actual ${actualShortHash}`);
+                } else {
+                    logError('make', `${targetFile}: hash mismatch expect ${expectHash} actual ${actualHash}`);
+                }
+                if (!process.env['AKARIN_IGNORE_HASH_MISMATCH']) {
+                    logError('make', `generated content seems unexpectedly changed, use AKARIN_IGNORE_HASH_MISMATCH to ignore and overwrite`);
+                    process.exit(1);
+                }
+            }
+        } else {
+            libraryHasher.update(line + '\n');
         }
     } else if (state == 'manual-script') {
         manualScriptLines.push(line);
@@ -282,6 +318,7 @@ for (const line of manualImportLines) {
 sb += '// END IMPORT\n';
 sb += `// components: ${requestedComponents.join(', ')}\n`;
 sb += '// BEGIN LIBRARY\n';
+const beginLibraryIndex = sb.length;
 
 for (const reference of allExternalReferences) {
     sb += 'import ';
@@ -312,8 +349,8 @@ for (const moduleName of sortedModuleNames.filter(m => requestedComponents.inclu
     const headerBlockLength = Math.max(modulePath.length, 24);
     const filled = (length: number) => length <= 0 ? '' : new Array(length).fill('-').join('');
     sb += '// ' + filled(headerBlockLength + 14) + '\n';
-    sb += `// ------${filled(Math.floor((headerBlockLength - modulePath.length) / 2))} ${modulePath} ${filled(Math.ceil((headerBlockLength - modulePath.length) / 2))}------ \n`;
-    sb += `// ------${filled(Math.floor((headerBlockLength - 24) / 2))} ATTENTION AUTO GENERATED ${filled(Math.ceil((headerBlockLength - 24) / 2))}------\n`;
+    sb += `// ------${filled(Math.ceil((headerBlockLength - modulePath.length) / 2))} ${modulePath} ${filled(Math.floor((headerBlockLength - modulePath.length) / 2))}------ \n`;
+    sb += `// ------${filled(Math.ceil((headerBlockLength - 24) / 2))} ATTENTION AUTO GENERATED ${filled(Math.floor((headerBlockLength - 24) / 2))}------\n`;
     sb += '// ' + filled(headerBlockLength + 14) + '\n';
     for (let line of moduleContent.split('\n')) {
         if (line.trim().startsWith('import ')) { continue; }
@@ -329,11 +366,11 @@ for (const moduleName of sortedModuleNames.filter(m => requestedComponents.inclu
         sb += line + '\n';
     }
 }
-sb += '// END LIBRARY\n';
+sb += `// END LIBRARY ${crypto.hash('sha256', sb.substring(beginLibraryIndex))}\n`;
 for (const line of manualScriptLines) {
     sb += line + '\n';
 }
 sb = sb.trimEnd() + '\n';
 logInfo('make', `writing ${targetFile}`);
 await fs.writeFile(targetFile, sb);
-logInfo('make', chalk`complete make {cyan ${targetFile}}`);
+logInfo('make', chalk`make {cyan ${targetFile}} completed successfully`);

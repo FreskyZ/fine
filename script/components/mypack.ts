@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { zstdCompressSync } from 'node:zlib';
 import chalk from 'chalk-template';
 import ts from 'typescript';
-import { logInfo, logError } from './logger.ts';
+import { logInfo, logError } from './common.ts';
 import { tryminify } from './minify.ts';
 import type { TypeScriptContext } from './typescript.ts';
 
@@ -460,7 +461,7 @@ function combineModules(mcx: MyPackContext): boolean {
 }
 
 function filesize(size: number) {
-    return `${Math.round(size / 1024 * 100) / 100}kb`;
+    return size < 1024 ? `${size}b` : `${Math.round(size / 1024 * 100) / 100}kb`;
 }
 // if tcx is provided, it overwrites some input properties of mcx
 // if you need to avoid that, avoid tcx or some of tcx properties, when do I need that?
@@ -492,7 +493,9 @@ export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promi
         logInfo(mcx.logheader, chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}`);
+        // TODO compress result should use in uploadwithremoteconnection
+        const compressSize = zstdCompressSync(mcx.resultJs).length;
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}} ({yellow ${filesize(compressSize)}})`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {

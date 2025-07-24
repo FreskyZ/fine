@@ -1,4 +1,5 @@
-// authentication shared types, used in core auth, user page and rpc library
+
+// access control shared types, used in src/core/access.ts and user page
 
 export interface UserSession {
     id?: number,

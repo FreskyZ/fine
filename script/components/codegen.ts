@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import chalk from 'chalk-template';
 import { XMLParser } from 'fast-xml-parser';
-import { logInfo, logError } from './logger.ts';
+import { logInfo, logError } from './common.ts';
 
 interface DatabaseModelField {
     name: string,

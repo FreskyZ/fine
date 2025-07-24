@@ -1,36 +1,25 @@
+import readline from 'node:readline/promises';
 // END IMPORT
-// components: arch, logger, minify, mypack, sftp, typescript
+// components: minify, mypack, sftp, typescript, messenger, common
 // BEGIN LIBRARY
+import { createHash } from 'node:crypto'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import type { Interface } from 'node:readline/promises'
+import tls from 'node:tls'
+import { zstdCompress, zstdCompressSync } from 'node:zlib'
+import chalkNotTemplate from 'chalk'
 import chalk from 'chalk-template'
 import dayjs from 'dayjs'
-import fs from 'node:fs/promises'
 import { XMLParser } from 'fast-xml-parser'
-import ts from 'typescript'
-import chalkNotTemplate from 'chalk'
-import { minify } from 'terser'
-import { createHash } from 'node:crypto'
-import path from 'node:path'
 import SFTPClient from 'ssh2-sftp-client'
-import readline from 'node:readline/promises'
-import tls from 'node:tls'
+import { minify } from 'terser'
+import ts from 'typescript'
 
 // -----------------------------------------
-// ------ script/components/logger.ts ------ 
-// ------- ATTENTION AUTO GENERATED --------
+// ------ script/components/common.ts ------ 
+// -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
-
-interface BuildScriptConfig {
-    domain: string,
-    certificate: string,
-    webroot: string,
-    ssh: { user: string, identity: string, passphrase: string },
-}
-
-// TODO check whether this pattern is useful
-// current color schema
-// error: red
-// target name: cyan
-// watching (the long displayed long message): blue
 
 function logInfo(header: string, message: string, error?: any): void {
     if (error) {
@@ -51,9 +40,19 @@ function logCritical(header: string, message: string): never {
     return process.exit(1);
 }
 
+// build script's config (akari.json), or config for code in 'script' folder,
+// to be distinguished with codegen config (api.xml and database.xml) and core config (/webroot/config)
+interface ScriptConfig {
+    domain: string,
+    webroot: string,
+    certificate: string,
+    ssh: { user: string, identity: string, passphrase: string },
+}
+const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
+
 // ---------------------------------------------
 // ------ script/components/typescript.ts ------ 
-// --------- ATTENTION AUTO GENERATED ----------
+// ---------- ATTENTION AUTO GENERATED ---------
 // ---------------------------------------------
 
 interface TypeScriptContext {
@@ -72,6 +71,57 @@ interface TypeScriptContext {
     success?: boolean,
     // transpile result files
     files?: Record<string, string>,
+}
+
+// extract BEGIN SHARED TYPE xxx from source file and target file and compare they are same
+// although this works on string, but still put it here because this is used to extracting and compare type definition
+// return false for not ok
+async function validateSharedTypeDefinition(sourceFile: string, targetFile: string, typename: string): Promise<boolean> {
+
+    const sourceContent = await fs.readFile(sourceFile, 'utf-8');
+    const expectLines = getSharedTypeDefinition(sourceFile, sourceContent, typename);
+    if (!expectLines) { return false; }
+
+    const targetContent = await fs.readFile(targetFile, 'utf-8');
+    const actualLines = getSharedTypeDefinition(targetFile, targetContent, typename);
+    if (!actualLines) { return false; }
+
+    // console.log(expectLines, actualLines);
+    if (expectLines.length != actualLines.length) {
+        logError('share-type', `mismatched SHARED TYPE ${typename} between ${sourceFile} and ${targetFile}, expect ${expectLines.length} lines, actual ${actualLines.length} lines`);
+        return false;
+    }
+    for (const [i, expect] of expectLines.map((r, i) => [i, r] as const)) {
+        if (expect != actualLines[i]) {
+            logError('share-type', `mismatched SHARED TYPE ${typename} between ${sourceFile} and ${targetFile}, line ${i + 1}:`);
+            console.log('   expect: ', expect);
+            console.log('   actual: ', actualLines[i]);
+            return false;
+        }
+    }
+    return true;
+
+    function getSharedTypeDefinition(filename: string, originalContent: string, name: string): string[] {
+        let state: 'before' | 'inside' | 'after' = 'before';
+        const result: string[] = [];
+        for (const line of originalContent.split('\n')) {
+            if (state == 'before' && line == `// BEGIN SHARED TYPE ${name}`) {
+                state = 'inside';
+            } else if (state == 'inside' && line == `// END SHARED TYPE ${name}`) {
+                state = 'after';
+            } else if (state == 'inside') {
+                result.push(line);
+            }
+        }
+        if (state == 'before') {
+            logError('share-type', `${filename}: missing shared type ${name}`);
+            return null;
+        } else if (state == 'inside') {
+            logError('share-type', `${filename}: unexpected EOF in shared type ${name}`);
+            return null;
+        }
+        return result;
+    }
 }
 
 function transpile(tcx: TypeScriptContext): TypeScriptContext {
@@ -184,7 +234,7 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
 
 // -----------------------------------------
 // ------ script/components/minify.ts ------ 
-// ------- ATTENTION AUTO GENERATED --------
+// -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
 
 // the try catch structure of minify is hard to use, return null for not ok
@@ -204,7 +254,7 @@ async function tryminify(input: string) {
 
 // ---------------------------------------
 // ------ script/components/sftp.ts ------ 
-// ------ ATTENTION AUTO GENERATED -------
+// ------- ATTENTION AUTO GENERATED ------
 // ---------------------------------------
 
 interface UploadAsset {
@@ -214,22 +264,22 @@ interface UploadAsset {
 
 // return false for not ok
 // nearly every text file need replace example.com to real domain,
-// so name this function 'deploy' so it is reasonable to do the substitution here,
+// so change this function to 'deploy' to make it reasonable to do the substitution,
 // use buffer or Buffer.from(string) to skip that
-async function deploy(config: BuildScriptConfig, assets: UploadAsset[]): Promise<boolean> {
+async function deploy(assets: UploadAsset[]): Promise<boolean> {
     const client = new SFTPClient();
     try {
         await client.connect({
-            host: config.domain,
-            username: config.ssh.user,
-            privateKey: await fs.readFile(config.ssh.identity),
-            passphrase: config.ssh.passphrase,
+            host: scriptconfig.domain,
+            username: scriptconfig.ssh.user,
+            privateKey: await fs.readFile(scriptconfig.ssh.identity),
+            passphrase: scriptconfig.ssh.passphrase,
         });
         for (const asset of assets) {
-            const fullpath = path.join(config.webroot, asset.remote);
+            const fullpath = path.join(scriptconfig.webroot, asset.remote);
             await client.mkdir(path.dirname(fullpath), true);
             if (!Buffer.isBuffer(asset.data)) {
-                asset.data = Buffer.from(asset.data.replaceAll('example.com', config.domain));
+                asset.data = Buffer.from(asset.data.replaceAll('example.com', scriptconfig.domain));
             }
             await client.put(asset.data, fullpath);
         }
@@ -245,7 +295,7 @@ async function deploy(config: BuildScriptConfig, assets: UploadAsset[]): Promise
 
 // -----------------------------------------
 // ------ script/components/mypack.ts ------ 
-// ------- ATTENTION AUTO GENERATED --------
+// -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
 
 interface MyPackContext {
@@ -701,7 +751,7 @@ function combineModules(mcx: MyPackContext): boolean {
 }
 
 function filesize(size: number) {
-    return `${Math.round(size / 1024 * 100) / 100}kb`;
+    return size < 1024 ? `${size}b` : `${Math.round(size / 1024 * 100) / 100}kb`;
 }
 // if tcx is provided, it overwrites some input properties of mcx
 // if you need to avoid that, avoid tcx or some of tcx properties, when do I need that?
@@ -712,7 +762,7 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
         // ATTENTION entry is not same
         // if (!Array.isArray(tcx.entry)) { mcx.entry = tcx.entry; }
         if (tcx.target == 'browser') { mcx.cdnfy = true; }
-        if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; }
+        if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; } else { mcx.logheader = 'mypack'; }
     } else {
         mcx.logheader = mcx.logheader ? (mcx.logheader.startsWith('mypack') ? mcx.logheader : 'mypack' + mcx.logheader) : 'mypack';
     }
@@ -733,7 +783,9 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
         logInfo(mcx.logheader, chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}`);
+        // TODO compress result should use in uploadwithremoteconnection
+        const compressSize = zstdCompressSync(mcx.resultJs).length;
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}} ({yellow ${filesize(compressSize)}})`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {
@@ -758,92 +810,259 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
     return mcx;
 }
 
-// ---------------------------------------
-// ------ script/components/arch.ts ------ 
-// ------ ATTENTION AUTO GENERATED -------
-// ---------------------------------------
+// --------------------------------------------
+// ------ script/components/messenger.ts ------ 
+// --------- ATTENTION AUTO GENERATED ---------
+// --------------------------------------------
 
-// command center client architecture
+// messenger: message sender abbreviated as messenger
 
-const config: BuildScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
+// use this to avoid global variables because currently no other major global variables used
+interface MessengerContext {
+    '?'?: boolean, // ?
+    readline: Interface,
+    connection?: WebSocket,
+    // id to waker (the promise resolver)
+    wakers?: Record<number, (data: BuildScriptMessageResponse) => void>,
+    nextMessageId?: number,
+    reconnectCount?: number,
+}
 
-async function startCommandCenterClient(
-    handleRemoteCommand: (command: any) => Promise<any>,
-    handleLocalCommand: (command: string) => Promise<void>,
-) {
-    // ???
-    const myCertificate = await fs.readFile(config.certificate, 'utf-8');
-    const originalCreateSecureContext = tls.createSecureContext;
-    tls.createSecureContext = options => {
-        const originalResult = originalCreateSecureContext(options);
-        if (!options.ca) {
-            originalResult.context.addCACert(myCertificate);
-        }
-        return originalResult;
-    };
+// return true for connected
+async function connectRemote(ecx: MessengerContext) {
+    if (!ecx['?']) {
+        // ???
+        const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
+        const originalCreateSecureContext = tls.createSecureContext;
+        tls.createSecureContext = options => {
+            const originalResult = originalCreateSecureContext(options);
+            if (!options.ca) {
+                originalResult.context.addCACert(myCertificate);
+            }
+            return originalResult;
+        };
+        ecx['?'] = true;
+        // this place exactly can use to initialize member fields
+        ecx.reconnectCount = 0;
+        ecx.nextMessageId = 1;
+        ecx.wakers = {};
+    }
+    if (ecx.reconnectCount >= 3) {
+        ecx.reconnectCount = 0;
+        logError('messenger', 'connect retry time >= 3, you may manually reconnect later');
+        return false;
+    }
 
-    let websocket: WebSocket;
-    const readlineInterface = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-    function connectRemoteCommandCenter() {
-        websocket = new WebSocket(`wss://${config.domain}:8001/for-build`);
+    return new Promise<boolean>(resolve => {
+        const websocket = new WebSocket(`wss://${scriptconfig.domain}:8001`, 'akari');
+
+        // the close event may not be called after error event is called
+        // but normally will, use this to avoid duplicate invocation of reconnect
+        // https://stackoverflow.com/questions/38181156/websockets-is-an-error-event-always-followed-by-a-close-event
+        let reconnectInvoked = false;
+
+        websocket.addEventListener('open', async () => {
+            ecx.reconnectCount = 0;
+            logInfo('messenger', `connected, you'd better complete authentication quickly`);
+            const token = await ecx.readline.question('> ');
+            websocket.send(token);
+        });
         websocket.addEventListener('close', async () => {
-            logInfo('ccc', `websocket disconnected`);
-            await readlineInterface.question('input anything to reconnect: ');
-            connectRemoteCommandCenter();
+            logInfo('messenger', `websocket disconnected`);
+            if (!reconnectInvoked) {
+                ecx.reconnectCount += 1;
+                resolve(await connectRemote(ecx));
+            }
         });
         websocket.addEventListener('error', async error => {
-            logInfo('ccc', `websocket error:`, error);
-            await readlineInterface.question('input anything to reconnect: ');
-            connectRemoteCommandCenter();
+            logInfo('messenger', `websocket error:`, error);
+            reconnectInvoked = true;
+            ecx.reconnectCount += 1;
+            resolve(await connectRemote(ecx));
         });
-        websocket.addEventListener('open', async () => {
-            logInfo('ccc', `websocket connected, you'd better complete authentication quickly`);
-            const token = await readlineInterface.question('> ');
-            websocket.send(token);
-            logInfo('ccc', 'listening to remote request');
-        });
+
         websocket.addEventListener('message', async event => {
-            logInfo('ccc', 'websocket received data', event.data);
-            const result = await handleRemoteCommand(event.data);
-            const response = await fetch(`https://${config.domain}:8001/local-build-complete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(result),
-            });
-            if (response.ok) {
-                logInfo('ccc', 'POST /local-build-complete ok');
+            if (event.data == 'authenticated') {
+                ecx.connection = websocket;
+                logInfo('messenger', 'websocket received authenticated');
+                // this resolve should be most normal case
+                resolve(true);
             } else {
-                logError('ccc', 'POST /local-build-complete not ok', response);
+                logInfo('messenger', 'websocket received', event.data);
+                try {
+                    const response = JSON.parse(event.data);
+                    if (!response.id) {
+                        logError('messenger', `received response without id, when will this happen?`);
+                    } else if (!(response.id in ecx.wakers)) {
+                        logError('messenger', `no waker found for received response, when will this happen?`);
+                    } else {
+                        ecx.wakers[response.id](response);
+                        delete ecx.wakers[response.id];
+                    }
+                } catch (error) {
+                    logError('messenger', `received data failed to parse json`, error);
+                }
             }
         });
-    }
-    connectRemoteCommandCenter();
-    readlineInterface.on('SIGINT', () => {
-        websocket?.close();
-        process.exit(0);
     });
-    for await (const command of readlineInterface) {
-        if (command == 'exit') {
-            websocket?.close();
-            process.exit(0);
-        } else if (command.startsWith('upload ')) {
-            const [, local, remote] = command.split(' ');
-            if (!local || !remote) {
-                console.error('invalid upload command, expecting upload localpath remotepath');
-            } else {
-                await deploy(config, [{ data: await fs.readFile(local), remote }]);
-            }
-        } else if (command.startsWith('build')) {
-            await handleRemoteCommand(command);
-        }
-        await handleLocalCommand(command);
-        readlineInterface.prompt();
-    }
 }
-// END LIBRARY
+
+// BEGIN SHARED TYPE BuildScriptMessage
+interface HasId {
+    id: number,
+}
+
+// received packet format
+// - magic: NIRA, packet id: u16le, kind: u8
+// - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
+// - kind: 2 (admin), command kind: u8
+//   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
+//   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
+// - kind: 3 (reload-browser)
+interface BuildScriptMessageUploadFile {
+    kind: 'file',
+    filename: string,
+    content: Buffer, // this is compressed
+}
+interface BuildScriptMessageAdminInterfaceCommand {
+    kind: 'admin',
+    command:
+        // remote-akari knows AdminInterfaceCommand type, local akari don't
+        // this also explicitly limit local admin command range, which is ok
+        | { kind: 'static-content:reload', key: string }
+        | { kind: 'app:reload-server', name: string },
+}
+interface BuildScriptMessageReloadBrowser {
+    kind: 'reload-browser',
+}
+type BuildScriptMessage =
+    | BuildScriptMessageUploadFile
+    | BuildScriptMessageAdminInterfaceCommand
+    | BuildScriptMessageReloadBrowser;
+
+// response packet format
+// - magic: NIRA, packet id: u16le, kind: u8
+// - kind: 1 (file), status: u8
+// - kind: 2 (admin)
+// - kind: 3 (reload-browser)
+interface BuildScriptMessageResponseUploadFile {
+    kind: 'file',
+    // 0: ok, write
+    // 1: error, no error message in response, it is displayed here
+    // 2: no change
+    status: number,
+}
+interface BuildScriptMessageResponseAdminInterfaceCommand {
+    kind: 'admin',
+    // no data for now, the result is displayed here
+}
+interface BuildScriptMessageResponseReloadBrowser {
+    kind: 'reload-browser',
+}
+type BuildScriptMessageResponse =
+    | BuildScriptMessageResponseUploadFile
+    | BuildScriptMessageResponseAdminInterfaceCommand
+    | BuildScriptMessageResponseReloadBrowser;
+// END SHARED TYPE BuildScriptMessage
+
+async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessageUploadFile): Promise<BuildScriptMessageResponseUploadFile>;
+async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessageAdminInterfaceCommand): Promise<BuildScriptMessageResponseAdminInterfaceCommand>;
+async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessageReloadBrowser): Promise<BuildScriptMessageResponseReloadBrowser>;
+async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessage): Promise<BuildScriptMessageResponse> {
+    if (!ecx.connection) {
+        logError('messenger', "not connected, type 'connect remote' to reconnect");
+        return null;
+    }
+
+    const messageId = ecx.nextMessageId;
+    ecx.nextMessageId += 1;
+
+    let buffer: Buffer;
+    if (message.kind == 'file') {
+        buffer = Buffer.alloc(12 + message.filename.length + message.content.length);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(1, 6); // kind size 1
+        buffer.writeUInt8(message.filename.length, 7); // file name length size 1
+        buffer.write(message.filename, 8);
+        buffer.writeUInt32LE(message.content.length, message.filename.length + 8); // content length size 4
+        message.content.copy(buffer, 12 + message.filename.length, 0);
+        logInfo('messenger', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
+    } else if (message.kind == 'admin') {
+        if (message.command.kind == 'static-content:reload') {
+            buffer = Buffer.alloc(9 + message.command.key.length);
+            buffer.write('NIRA', 0); // magic size 4
+            buffer.writeUInt16LE(messageId, 4); // packet id size 2
+            buffer.writeUInt8(2, 6); // kind size 1
+            buffer.writeUInt8(1, 7); // command kind size 1
+            buffer.writeUInt8(message.command.key.length, 8); // key length size 1
+            buffer.write(message.command.key, 9);
+            logInfo('messenger', `send #${messageId} static-content:reload ${message.command.key}`);
+        } else if (message.command.kind == 'app:reload-server') {
+            buffer = Buffer.alloc(9 + message.command.name.length);
+            buffer.write('NIRA', 0); // magic size 4
+            buffer.writeUInt16LE(messageId, 4); // packet id size 2
+            buffer.writeUInt8(2, 6); // kind size 1
+            buffer.writeUInt8(2, 7); // command kind size 1
+            buffer.writeUInt8(message.command.name.length, 8); // name length size 1
+            buffer.write(message.command.name, 9);
+            logInfo('messenger', `send #${messageId} app:reload-server ${message.command.name}`);
+        }
+    } else if (message.kind == 'reload-browser') {
+        buffer = Buffer.alloc(7);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(3, 6); // kind size 1
+        logInfo('messenger', `send #${messageId} reload-browser`);
+    }
+
+    ecx.connection.send(buffer);
+    let timeout: any;
+    const received = new Promise<BuildScriptMessageResponse>(resolve => {
+        ecx.wakers[messageId] = response => {
+            if (timeout) { clearTimeout(timeout); }
+            resolve(response);
+        };
+    });
+
+    return await Promise.any([
+        received,
+        new Promise<BuildScriptMessageResponse>(resolve => {
+            timeout = setTimeout(() => {
+                delete ecx.wakers[messageId];
+                logError('messenger', `message ${messageId} timeout`);
+                resolve(null);
+            }, 30_000);
+        }),
+    ]);
+}
+
+// upload through websocket connection eliminate the time to establish tls connection and ssh connection
+// this also have centralized handling of example.com replacement
+// return item is null for not ok
+async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
+    // compare to the not know whether can parallel sftp, this is designed to be parallel
+    return await Promise.all(assets.map(async asset => {
+        // webroot base path and parent path mkdir is handled in remote akari
+        if (!Buffer.isBuffer(asset.data)) {
+            asset.data = Buffer.from(asset.data.replaceAll('example.com', scriptconfig.domain));
+        }
+        const data = await new Promise<Buffer>(resolve => zstdCompress(asset.data, (error, data) => {
+            if (error) {
+                logError('messenger-upload', `failed to compress ${asset.remote}`, error);
+                resolve(null);
+            } else {
+                resolve(data);
+            }
+        }));
+        if (data) {
+            return await sendRemoteMessage(ecx, { kind: 'file', filename: asset.remote, content: data });
+        } else {
+            return null;
+        }
+    }));
+}
+// END LIBRARY 03da49550682e21299ddf4d32c155eb025e359abb6591fd322de12937abf4c27
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
@@ -856,7 +1075,7 @@ async function uploadPublicAssets() {
             // return { data: await fs.readFile(filepath), remote: filepath.replace('src/', '') };
             return { data: await fs.readFile(filepath), remote: filepath.replace('src/public/', 'public2/') };
         }));
-    await deploy(config, assets);
+    await deploy(assets);
     logInfo('akari', chalk`deploy {cyan public} complete`);
 }
 
@@ -870,13 +1089,18 @@ async function uploadStaticAssets() {
         ['src/static/404.html', 'static/404.html'],
         ['src/static/418.html', 'static/418.html'],
     ].map(async ([local, remote]) => ({ data: await fs.readFile(local), remote })));
-    await deploy(config, assets);
+    await deploy(assets);
     logInfo('akari', chalk`deploy {cyan static} complete`);
 }
 
 // deploy remote akari.ts
-async function deployCommandCenter() {
+async function deployRemoteSelf() {
     logInfo('akari', chalk`deploy {cyan remote self}`);
+
+    const adminInterfaceTypeOk = await validateSharedTypeDefinition(
+        'src/shared/admin.d.ts', 'script/remote-akari.ts', 'AdminInterfaceCommand');
+    if (!adminInterfaceTypeOk) { logError('akari', chalk`{cyan remote self} failed at shared type`); return; }
+    
     // type check the file to avoid some potential errors
     const tcx = transpile({
         entry: 'script/remote-akari.ts',
@@ -884,7 +1108,7 @@ async function deployCommandCenter() {
         additionalOptions: { noEmit: true, erasableSyntaxOnly: true },
     });
     if (!tcx.success) { logError('akari', chalk`{cyan remote self} failed at type check`); return; }
-    const uploadResult = await deploy(config, [{ data: await fs.readFile('script/remote-akari.ts'), remote: 'akari.ts' }]);
+    const uploadResult = await deploy([{ data: await fs.readFile('script/remote-akari.ts'), remote: 'akari.ts' }]);
     if (!uploadResult) {
         logError('akari', chalk`{cyan remote self} failed at upload`); return;
     }
@@ -892,37 +1116,58 @@ async function deployCommandCenter() {
 }
 
 // identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md 
-async function buildIdentityProvider(): Promise<boolean> {
+async function buildIdentityProvider(ecx?: MessengerContext) {
     logInfo('akari', chalk`build {cyan user page}`);
 
     const tcx = transpile({ entry: 'src/static/user.tsx', target: 'browser' });
-    if (!tcx.success) { logError('akari', chalk`{cyan user page} failed at transpile`); return false; }
+    if (!tcx.success) { logError('akari', chalk`{cyan user page} failed at transpile`); return; }
 
     const mcx = await mypack({ entry: '/vbuild/user.js' }, tcx);
-    if (!mcx.success) { logError('akari', chalk`{cyan user page} failed at pack`); return false; };
+    if (!mcx.success) { logError('akari', chalk`{cyan user page} failed at pack`); return; };
 
-    const uploadResult = await deploy(config, [
+    const assets: UploadAsset[] = [
         // read html into string to do exmaple.com substitution
         { data: await fs.readFile('src/static/user.html', 'utf-8'), remote: 'static/user.html' },
         { data: mcx.resultJs, remote: 'static/user.js' },
-    ]);
-    if (!uploadResult) { logError('akari', chalk`{cyan user page} failed at upload`); return false; }
+    ];
+    if (ecx) {
+        const uploadResults = await deployWithRemoteConnect(ecx, assets);
+        if (uploadResults.some(r => !r || r.status == 1)) {
+            logError('akari', chalk`{cyan user page} failed at upload`); return;
+        } else if (uploadResults.some(r => r.status == 0)) {
+            await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
+            await sendRemoteMessage(ecx, { kind: 'reload-browser' });
+            // no response display here, see remote akari output
+            // TODO in theory admininterfaceresult.ok should affect the displayed completed successfully? but the message only include build?
+        }
+    } else {
+        const uploadResult = await deploy(assets);
+        if (!uploadResult) { logError('akari', chalk`{cyan user page} failed at upload`); return false; }
+    }
     
     logInfo('akari', chalk`build {cyan user page} completed successfully`); return true;
 }
 
 // // this is extremely simple comparing to the full standalone version of temp version of build-core.js
-async function buildCore(): Promise<boolean> {
+async function buildCore(ecx?: MessengerContext) {
     logInfo('akari', chalk`build {cyan core}`);
 
     const tcx = transpile({ entry: 'src/core/index.ts', target: 'node' });
-    if (!tcx.success) { logError('akari', chalk`{cyan core} failed at transpile`); return false; }
+    if (!tcx.success) { logError('akari', chalk`{cyan core} failed at transpile`); return; }
 
     const mcx = await mypack({ entry: '/vbuild/core/index.js' }, tcx);
-    if (!mcx.success) { logError('akari', chalk`{cyan core} failed at pack`); return false; }
+    if (!mcx.success) { logError('akari', chalk`{cyan core} failed at pack`); return; }
 
-    const uploadResult = await deploy(config, [{ data: mcx.resultJs, remote: 'index.js' }]);
-    if (!uploadResult) { logError('akari', chalk`{cyan core} failed at upload`); return false; }
+    const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'index.js' }];
+    if (ecx) {
+        const [uploadResult] = await deployWithRemoteConnect(ecx, assets);
+        if (!uploadResult || uploadResult.status == 1) { logError('akari', chalk`{cyan core} failed at upload`); return; }
+        else if (uploadResult.status == 2) { logInfo('akari', chalk`build {cyan core} completed with no change`); return; }
+        // no furthur reload command for core
+    } else {
+        const uploadResult = await deploy(assets);
+        if (!uploadResult) { logError('akari', chalk`{cyan core} failed at upload`); return false; }
+    }
 
     logInfo('akari', chalk`build {cyan core} completed successfully`); return true;
 }
@@ -935,16 +1180,45 @@ async function dispatch(command: string[]) {
     } else if (command[0] == 'rself') {
         // the original command for bootstraping is 'self', and the original command
         // for remote akari is self server, so keep part of the tradition to call this rself (remote self)
-        await deployCommandCenter();
+        await deployRemoteSelf();
     } else if (command[0] == 'user') {
         // user.html and user.tsx is currently the only ui page in this repository
         // and should be no more similar pages in future in this repository, so a dedicated command
         await buildIdentityProvider();
-    } else if (command[0] == 'user+reload') {
-        // TODO fine tune communication with remote akari
-        startCommandCenterClient(async () => ({ ok: await buildIdentityProvider() }), async () => {});
     } else if (command[0] == 'core') {
         await buildCore();
+    } else if (command[0] == 'with' && command[1] == 'remote') {
+        const ecx: MessengerContext = {
+            readline: readline.createInterface({
+                input: process.stdin,
+                output: process.stdout,
+                removeHistoryDuplicates: true,
+            }),
+        };
+        await connectRemote(ecx);
+        ecx.readline.on('SIGINT', () => process.exit(0));
+        ecx.readline.prompt();
+        for await (const raw of ecx.readline) {
+            const line = raw.trim();
+            if (line.length == 0) {
+                // nothing
+            } else if (line == 'exit') {
+                // it's more complex to disable websocket auto reconnect
+                process.exit(0);
+            } else if (line.startsWith('connect')) {
+                await connectRemote(ecx);
+            } else if (line == 'core') {
+                // TODO reuse mcx
+                await buildCore(ecx);
+            } else if (line == 'user') {
+                await buildIdentityProvider(ecx);
+            } else if (line.startsWith('upload ')) {
+                // TODO upload arbitrary file
+            } else { // TODO download arbitrary file?
+                logError('akari', `unknown command`);
+            }
+            ecx.readline.prompt();
+        }
     } else {
         logError('akari', 'unknown command');
     }

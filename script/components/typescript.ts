@@ -1,5 +1,6 @@
+import fs from 'node:fs/promises';
 import ts from 'typescript';
-import { logInfo, logError } from './logger.ts';
+import { logInfo, logError } from './common.ts';
 import chalk from 'chalk-template';
 import chalkNotTemplate from 'chalk';
 
@@ -19,6 +20,57 @@ export interface TypeScriptContext {
     success?: boolean,
     // transpile result files
     files?: Record<string, string>,
+}
+
+// extract SHARED TYPE xxx from source file and target file and compare they are same
+// although this works on string, still put it here because it logically work on type definition
+// return false for not ok
+export async function validateSharedTypeDefinition(sourceFile: string, targetFile: string, typename: string): Promise<boolean> {
+
+    const sourceContent = await fs.readFile(sourceFile, 'utf-8');
+    const expectLines = getSharedTypeDefinition(sourceFile, sourceContent, typename);
+    if (!expectLines) { return false; }
+
+    const targetContent = await fs.readFile(targetFile, 'utf-8');
+    const actualLines = getSharedTypeDefinition(targetFile, targetContent, typename);
+    if (!actualLines) { return false; }
+
+    // console.log(expectLines, actualLines);
+    if (expectLines.length != actualLines.length) {
+        logError('share-type', `mismatched SHARED TYPE ${typename} between ${sourceFile} and ${targetFile}, expect ${expectLines.length} lines, actual ${actualLines.length} lines`);
+        return false;
+    }
+    for (const [i, expect] of expectLines.map((r, i) => [i, r] as const)) {
+        if (expect != actualLines[i]) {
+            logError('share-type', `mismatched SHARED TYPE ${typename} between ${sourceFile} and ${targetFile}, line ${i + 1}:`);
+            console.log('   expect: ', expect);
+            console.log('   actual: ', actualLines[i]);
+            return false;
+        }
+    }
+    return true;
+
+    function getSharedTypeDefinition(filename: string, originalContent: string, name: string): string[] {
+        let state: 'before' | 'inside' | 'after' = 'before';
+        const result: string[] = [];
+        for (const line of originalContent.split('\n')) {
+            if (state == 'before' && line == `// BEGIN SHARED TYPE ${name}`) {
+                state = 'inside';
+            } else if (state == 'inside' && line == `// END SHARED TYPE ${name}`) {
+                state = 'after';
+            } else if (state == 'inside') {
+                result.push(line);
+            }
+        }
+        if (state == 'before') {
+            logError('share-type', `${filename}: missing shared type ${name}`);
+            return null;
+        } else if (state == 'inside') {
+            logError('share-type', `${filename}: unexpected EOF in shared type ${name}`);
+            return null;
+        }
+        return result;
+    }
 }
 
 export function transpile(tcx: TypeScriptContext): TypeScriptContext {

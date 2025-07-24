@@ -7,7 +7,7 @@ import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import type { PoolOptions } from 'mysql2';
-import type { AdminInterfaceCommand } from '../shared/admin.js';
+import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
@@ -74,7 +74,7 @@ adminServer.on('connection', connection => {
     connection.on('data', async data => {
         const payload = data.toString('utf-8');
         log.info({ type: 'admin interface received data', payload });
-        let command: AdminInterfaceCommand;
+        let command: AdminInterfaceCommand & HasId;
         try {
             command = JSON.parse(payload);
         } catch {
@@ -93,7 +93,7 @@ adminServer.on('connection', connection => {
             return;
         }
         for (const handler of adminInterfaceHandlers) {
-            const response = await handler(command);
+            const response = await handler(command) as AdminInterfaceResponse & HasId;
             if (response) {
                 response.id = command.id;
                 log.info({ type: 'admin interface response', response });

@@ -3,9 +3,9 @@ import path from 'node:path';
 import chalk from 'chalk-template';
 import chalkNotTemplate from 'chalk';
 import SFTPClient from 'ssh2-sftp-client';
-import { type BuildScriptConfig, logError, logInfo } from './logger.ts';
+import { scriptconfig, logError, logInfo } from './common.ts';
 
-interface UploadAsset {
+export interface UploadAsset {
     data: string | Buffer,
     remote: string, // relative path to webroot
 }
@@ -14,20 +14,20 @@ interface UploadAsset {
 // nearly every text file need replace example.com to real domain,
 // so change this function to 'deploy' to make it reasonable to do the substitution,
 // use buffer or Buffer.from(string) to skip that
-export async function deploy(config: BuildScriptConfig, assets: UploadAsset[]): Promise<boolean> {
+export async function deploy(assets: UploadAsset[]): Promise<boolean> {
     const client = new SFTPClient();
     try {
         await client.connect({
-            host: config.domain,
-            username: config.ssh.user,
-            privateKey: await fs.readFile(config.ssh.identity),
-            passphrase: config.ssh.passphrase,
+            host: scriptconfig.domain,
+            username: scriptconfig.ssh.user,
+            privateKey: await fs.readFile(scriptconfig.ssh.identity),
+            passphrase: scriptconfig.ssh.passphrase,
         });
         for (const asset of assets) {
-            const fullpath = path.join(config.webroot, asset.remote);
+            const fullpath = path.join(scriptconfig.webroot, asset.remote);
             await client.mkdir(path.dirname(fullpath), true);
             if (!Buffer.isBuffer(asset.data)) {
-                asset.data = Buffer.from(asset.data.replaceAll('example.com', config.domain));
+                asset.data = Buffer.from(asset.data.replaceAll('example.com', scriptconfig.domain));
             }
             await client.put(asset.data, fullpath);
         }

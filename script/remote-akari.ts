@@ -111,6 +111,11 @@ httpServer.on('request', (request, response) => {
 // also use this synchronization in admin interface, if ok, remove shared/admin.d.ts
 // if very ok, remove shared/access.d.ts
 
+// BEGIN SHARED TYPE BuildScriptMessage
+export interface HasId {
+    id: number,
+}
+
 // received packet format
 // - magic: NIRA, packet id: u16le, kind: u8
 // - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
@@ -118,21 +123,52 @@ httpServer.on('request', (request, response) => {
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
 //   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
 // - kind: 3 (reload-browser)
-type BuildScriptMessage = {
-    id: number,
+interface BuildScriptMessageUploadFile {
     kind: 'file',
     filename: string,
     content: Buffer, // this is compressed
-} | {
-    id: number,
+}
+interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
     command:
+        // remote-akari knows AdminInterfaceCommand type, local akari don't
+        // this also explicitly limit local admin command range, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'app:reload-server', app: string }
-} | {
-    id: number,
-    kind: 'reload-browser'
-};
+        | { kind: 'app:reload-server', name: string },
+}
+interface BuildScriptMessageReloadBrowser {
+    kind: 'reload-browser',
+}
+type BuildScriptMessage =
+    | BuildScriptMessageUploadFile
+    | BuildScriptMessageAdminInterfaceCommand
+    | BuildScriptMessageReloadBrowser;
+
+// response packet format
+// - magic: NIRA, packet id: u16le, kind: u8
+// - kind: 1 (file), status: u8
+// - kind: 2 (admin)
+// - kind: 3 (reload-browser)
+interface BuildScriptMessageResponseUploadFile {
+    kind: 'file',
+    // 0: ok, write
+    // 1: error, no error message in response, it is displayed here
+    // 2: no change
+    status: number,
+}
+interface BuildScriptMessageResponseAdminInterfaceCommand {
+    kind: 'admin',
+    // no data for now, the result is displayed here
+}
+interface BuildScriptMessageResponseReloadBrowser {
+    kind: 'reload-browser',
+}
+type BuildScriptMessageResponse =
+    | BuildScriptMessageResponseUploadFile
+    | BuildScriptMessageResponseAdminInterfaceCommand
+    | BuildScriptMessageResponseReloadBrowser;
+// END SHARED TYPE BuildScriptMessage
+
 class BuildScriptMessageParser {
 
     private chunk: Buffer = Buffer.allocUnsafe(0); // working chunk
@@ -175,23 +211,25 @@ class BuildScriptMessageParser {
     }
 
     // try pull one message, if not enough, return null
-    public pull(): BuildScriptMessage {
+    public pull(): BuildScriptMessage & HasId {
         while (true) {
             if (this.state == 'magic') {
                 if (!this.hasEnoughLength(4)) { return null; }
                 const maybeMagic = this.chunk.toString('utf-8', this.position, this.position + 4);
                 if (maybeMagic != 'NIRA') {
-                    logError('parser', `state = ${this.state}, meet ${maybeMagic}`);
+                    logError('parser', `state = ${this.state}, meet ${maybeMagic} (${this.chunk.subarray(this.position, this.position + 4)})`);
                     this.state = 'skip-to-next-magic';
                 } else {
                     this.position += 4;
                     this.state = 'packet-id';
                 }
             } else if (this.state == 'skip-to-next-magic') {
+                if (!this.hasEnoughLength(4)) { return null; }
                 const maybeIndex = this.chunk.indexOf('NIRA', this.position);
+                // NOTE this 0 happens when previous packet is completely skipped and next packet is correct
                 if (maybeIndex >= 0) {
                     logInfo('parser', `state = ${this.state}, skip ${maybeIndex} bytes and find next magic`);
-                    this.position += maybeIndex;
+                    this.position += maybeIndex + 4;
                     this.state = 'packet-id';
                 } else {
                     logInfo('parser', `state = ${this.state}, skip ${this.chunk.length - this.position} bytes and still seeking next magic`);
@@ -282,25 +320,25 @@ class BuildScriptMessageParser {
                 this.state = 'reload-server-app';
             } else if (this.state == 'reload-server-app') {
                 if (!this.hasEnoughLength(this.reloadServerAppLength)) { return null; }
-                const app = this.chunk.toString('utf-8', this.position, this.position + this.reloadServerAppLength);
+                const name = this.chunk.toString('utf-8', this.position, this.position + this.reloadServerAppLength);
                 this.position += this.reloadServerAppLength;
-                logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, app ${app}`);
+                logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, app ${name}`);
                 this.reset();
-                return { id: this.packetId, kind: 'admin', command: { kind: 'app:reload-server', app } };
+                return { id: this.packetId, kind: 'admin', command: { kind: 'app:reload-server', name } };
             } else {
                 logError('parser', `invalid state? ${this.state}`);
             }
         }
     }
 }
-let buildScriptMessageParser = new BuildScriptMessageParser();
 
-const browserWebsocketConnections: WebSocket[] = [];
 let buildScriptConnection: WebSocket;
-let buildScriptConnectionEventEmitter: EventEmitter<{
-    'message': [BuildScriptMessage],
+const buildScriptConnectionEventEmitter: EventEmitter<{
+    'message': [BuildScriptMessage & HasId],
     'disconnect': [null],
 }> = new EventEmitter();
+const buildScriptMessageParser = new BuildScriptMessageParser();
+const browserWebsocketConnections: WebSocket[] = [];
 
 httpServer.on('upgrade', (request, socket, header) => {
     const protocol = request.headers['sec-websocket-protocol'];
@@ -378,9 +416,39 @@ function shutdown() {
     });
 }
 
+// BEGIN SHARED TYPE AdminInterfaceCommand
+export interface HasId {
+    id: number,
+}
+export type AdminInterfaceCommand =
+    | { kind: 'ping' }
+    | { kind: 'shutdown' }
+    | { kind: 'static-content:reload', key: string }
+    | { kind: 'static-content:reload-config' }
+    | { kind: 'short-link:reload' }
+    | { kind: 'access-control:display-application-sessions' } // with new response-ful design, you can get
+    | { kind: 'access-control:revoke', sessionId: number }
+    | { kind: 'static-content:source-map:enable' }
+    | { kind: 'static-content:source-map:disable' }
+    | { kind: 'access-control:user:enable', userId: number }
+    | { kind: 'access-control:user:disable', userId: number }
+    | { kind: 'access-control:signup:enable' }
+    | { kind: 'access-control:signup:disable' }
+    | { kind: 'access-control:display-rate-limits' } // guess will be interesting
+    | { kind: 'app:reload-domain' }
+    | { kind: 'app:reload-server', name: string }
+    | { kind: 'app:reload-client', name: string };
+
+export interface AdminInterfaceResponse {
+    ok: boolean,
+    log: string,
+    [p: string]: any,
+}
+// END SHARED TYPE AdminInterfaceCommand
+
 let adminInterfaceReconnectCount: number = 0;
 let adminInterfaceConnection: net.Socket = net.connect('/tmp/fine.socket');
-const adminInterfaceResponseIds: { id: number, time: dayjs.Dayjs }[] = [];
+const adminInterfaceResponseWakers: Record<number, () => void> = {};
 function connectAdminInterface() {
     if (adminInterfaceReconnectCount >= 3) {
         logError('admin-interface', 'connect retry time >= 3, you may manually reconnect later');
@@ -395,19 +463,14 @@ function connectAdminInterface() {
         const text = data.toString('utf-8');
         logInfo('admin-interface', `received ${text}`);
         try {
-            const response = JSON.parse(text);
-            // cleanup by the way
-            for (const response of [...adminInterfaceResponseIds]) {
-                if (response.time.add(1, 'minute').isBefore(dayjs.utc())) {
-                    adminInterfaceResponseIds.splice(adminInterfaceResponseIds.findIndex(r => r.id == response.id), 1);
-                }
-            }
+            const response: AdminInterfaceResponse & HasId = JSON.parse(text);
             if (!response.id) {
                 logError('admin-interface', `received response without id, when will this happen?`);
-            } else if (adminInterfaceResponseIds.some(i => i.id == response.id)) {
-                logError('admin-interface', `received duplicate response id, when will this happen?`);
+            } else if (!(response.id in adminInterfaceResponseWakers)) {
+                logError('admin-interface', `no waker found for received response, when will this happen?`);
             } else {
-                adminInterfaceResponseIds.push({ id: response.id, time: dayjs.utc() });
+                adminInterfaceResponseWakers[response.id]();
+                delete adminInterfaceResponseWakers[response.id];
             }
         } catch (error) {
             logError('admin-interface', `received data failed to parse json`, error);
@@ -430,80 +493,75 @@ function connectAdminInterface() {
 
 connectAdminInterface();
 let adminInterfaceCommandIdNext: number = 1;
-// TODO add type to admin command
-async function sendAdminCommand(command: any) {
+async function sendAdminCommand(command: AdminInterfaceCommand) {
     if (!connectAdminInterface) {
         logError('admin-interface', "not connect, use 'connect admin interface' to connect");
     }
-    command.id = adminInterfaceCommandIdNext;
+    const commandId = adminInterfaceCommandIdNext;
+    const commandWithId: AdminInterfaceCommand & HasId = { id: commandId, ...command };
     adminInterfaceCommandIdNext += 1;
-    const serializedCommand = JSON.stringify(command);
+    const serializedCommand = JSON.stringify(commandWithId);
     logInfo('admin-interface', `send ${serializedCommand}`);
 
+    let timeout: any;
+    const responseReceived = new Promise<void>(resolve => {
+        adminInterfaceResponseWakers[commandId] = () => {
+            if (timeout) { clearTimeout(timeout); }
+            resolve();
+        };
+    });
     adminInterfaceConnection.write(serializedCommand);
-    // poll waiting for response for limited amount of time
-    let count = 0;
-    while (count <= 15) {
-        await new Promise<void>(resolve => setTimeout(resolve, 1000));
-        if (adminInterfaceResponseIds.some(r => r.id == command.id)) {
-            return;
-        }
-    }
-    logError('admin-interface', 'wait for response timeout, when will this happen?');
+
+    return await Promise.any([
+        responseReceived,
+        new Promise<void>(resolve => {
+            timeout = setTimeout(() => {
+                delete adminInterfaceResponseWakers[commandId];
+                logError('admin-interface', `command ${commandId} timeout`);
+                resolve();
+            }, 30_000);
+        }),
+    ]);
 }
 
-// response packet format
-// - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), status: u8
-// - kind: 2 (admin)
-// - kind: 3 (reload-browser)
-type BuildScriptMessageResponse = {
-    id: number,
-    kind: 'file',
-    // 0: ok, write
-    // 1: error, no error message in response, it is displayed here
-    // 2: no change
-    status: number,
-} | {
-    id: number,
-    kind: 'admin',
-    // no data for now, the result is displayed here
-} | {
-    id: number,
-    kind: 'reload-browser',
-};
 buildScriptConnectionEventEmitter.addListener('message', async message => {
+    const send = (response: BuildScriptMessageResponse) => {
+        buildScriptConnection?.send(JSON.stringify({ id: message.id, ...response } as BuildScriptMessageResponse & HasId));
+    };
     if (message.kind == 'admin') {
         await sendAdminCommand(message.command);
-        buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'admin' } as BuildScriptMessageResponse));
+        send({ kind: 'admin' });
     } else if (message.kind == 'reload-browser') {
         browserWebsocketConnections.forEach(c => c.send('reload'));
         if (browserWebsocketConnections.length) { logInfo('akari', 'forward reload-browser'); }
-        buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'reload-browser' } as BuildScriptMessageResponse));
+        send({ kind: 'reload-browser' });
     } else if (message.kind == 'file') {
         logInfo('fs', `deploy ${message.filename}`);
         const fullpath = path.join(config.webroot, message.filename);
         if (!syncfs.existsSync(path.dirname(fullpath))) {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
-            buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'file', status: 1 } as BuildScriptMessageResponse));
+            send({ kind: 'file', status: 1 });
             return;
         }
         zlib.zstdDecompress(message.content, async (error, messageContent) => {
             if (error) {
                 logError('fs', `message content decompress error`, error);
-                buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'file', status: 1 } as BuildScriptMessageResponse));
+                send({ kind: 'file', status: 1 });
                 return;
             }
             if (syncfs.existsSync(fullpath)) {
                 const originalContent = await fs.readFile(fullpath);
                 if (Buffer.compare(messageContent, originalContent) == 0) {
-                    logError('fs', `${fullpath} content same, no update`);
-                    buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'file', status: 2 } as BuildScriptMessageResponse));
+                    logInfo('fs', `${fullpath} content same, no update`);
+                    send({ kind: 'file', status: 2 });
                     return;
                 }
             }
+            if (!syncfs.existsSync(path.dirname(fullpath))) {
+                await fs.mkdir(path.dirname(fullpath), { recursive: true });
+            }
             fs.writeFile(fullpath, messageContent);
-                    buildScriptConnection?.send(JSON.stringify({ id: message.id, kind: 'file', status: 0 } as BuildScriptMessageResponse));
+            send({ kind: 'file', status: 0 });
         });
     }
 });

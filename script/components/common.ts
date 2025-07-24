@@ -1,12 +1,6 @@
+import fs from 'node:fs/promises';
 import chalk from 'chalk-template';
 import dayjs from 'dayjs';
-
-export interface BuildScriptConfig {
-    domain: string,
-    certificate: string,
-    webroot: string,
-    ssh: { user: string, identity: string, passphrase: string },
-}
 
 export function logInfo(header: string, message: string, error?: any): void {
     if (error) {
@@ -26,3 +20,13 @@ export function logCritical(header: string, message: string): never {
     console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     return process.exit(1);
 }
+
+// build script's config (akari.json), or config for code in 'script' folder,
+// to be distinguished with codegen config (api.xml and database.xml) and core config (/webroot/config)
+export interface ScriptConfig {
+    domain: string,
+    webroot: string,
+    certificate: string,
+    ssh: { user: string, identity: string, passphrase: string },
+}
+export const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
