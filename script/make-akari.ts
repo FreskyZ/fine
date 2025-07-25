@@ -6,6 +6,7 @@ import ts from 'typescript';
 // NOTE when directly executing typescript, this need to be .ts
 import { logInfo, logError, logCritical } from './components/common.ts';
 import { validateSharedTypeDefinition, transpile } from './components/typescript.ts';
+import { eslint } from './components/eslint.ts';
 
 // this script assembles build scripts (akari.ts in this repository and related repositories)
 // TODO change the following comment to 'see build-script.md'
@@ -39,6 +40,7 @@ const components = [
     'common',
     'codegen',
     'typescript',
+    'eslint',
     'minify',
     'mypack',
     'sftp',
@@ -52,6 +54,8 @@ const tcx = transpile({
     additionalOptions: { noEmit: true, allowImportingTsExtensions: true, erasableSyntaxOnly: true },
 });
 if (!tcx.success) { process.exit(1); }
+
+if (!await eslint({ files: 'script/components/*', ignore: ['script/components/template-client.tsx'] })) { /* process.exit(1); */ }
 
 interface ExternalReference {
     moduleName: string,
@@ -337,7 +341,7 @@ for (const reference of allExternalReferences) {
         }
         sb = sb.slice(0, -2) + ' }, ';
     }
-    sb = sb.slice(0, -2) + ` from \'${reference.moduleName}\'\n`;
+    sb = sb.slice(0, -2) + ` from \'${reference.moduleName}\';\n`;
 }
 for (const moduleName of sortedModuleNames.filter(m => requestedComponents.includes(m))) {
     const modulePath = `script/components/${moduleName}.ts`;

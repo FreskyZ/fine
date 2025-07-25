@@ -4,10 +4,12 @@ import tls from 'node:tls';
 import { zstdCompress } from 'node:zlib';
 import { scriptconfig, logInfo, logError } from './common.ts';
 import type { UploadAsset } from './sftp.ts';
+import type { MyPackContext } from './mypack.ts';
 
 // messenger: message sender abbreviated as messenger
 
 // use this to avoid global variables because currently no other major global variables used
+/* eslint-disable @stylistic/quote-props -- ? */
 interface MessengerContext {
     '?'?: boolean, // ?
     readline: Interface,
@@ -16,6 +18,8 @@ interface MessengerContext {
     wakers?: Record<number, (data: BuildScriptMessageResponse) => void>,
     nextMessageId?: number,
     reconnectCount?: number,
+    // store last mcx for report
+    lastmcxStorage?: Record<string, MyPackContext>,
 }
 
 // return true for connected
@@ -36,10 +40,11 @@ export async function connectRemote(ecx: MessengerContext) {
         ecx.reconnectCount = 0;
         ecx.nextMessageId = 1;
         ecx.wakers = {};
+        ecx.lastmcxStorage = {};
     }
     if (ecx.reconnectCount >= 3) {
         ecx.reconnectCount = 0;
-        logError('messenger', 'connect retry time >= 3, you may manually reconnect later');
+        logError('tunnel', 'connect retry time >= 3, you may manually reconnect later');
         return false;
     }
 
@@ -53,19 +58,19 @@ export async function connectRemote(ecx: MessengerContext) {
 
         websocket.addEventListener('open', async () => {
             ecx.reconnectCount = 0;
-            logInfo('messenger', `connected, you'd better complete authentication quickly`);
+            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
             const token = await ecx.readline.question('> ');
             websocket.send(token);
         });
         websocket.addEventListener('close', async () => {
-            logInfo('messenger', `websocket disconnected`);
+            logInfo('tunnel', `websocket disconnected`);
             if (!reconnectInvoked) {
                 ecx.reconnectCount += 1;
                 resolve(await connectRemote(ecx));
             }
         });
         websocket.addEventListener('error', async error => {
-            logInfo('messenger', `websocket error:`, error);
+            logInfo('tunnel', `websocket error:`, error);
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));
@@ -74,29 +79,30 @@ export async function connectRemote(ecx: MessengerContext) {
         websocket.addEventListener('message', async event => {
             if (event.data == 'authenticated') {
                 ecx.connection = websocket;
-                logInfo('messenger', 'websocket received authenticated');
+                logInfo('tunnel', 'websocket received authenticated');
                 // this resolve should be most normal case
                 resolve(true);
             } else {
-                logInfo('messenger', 'websocket received', event.data);
+                logInfo('tunnel', 'websocket received', event.data);
                 try {
                     const response = JSON.parse(event.data);
                     if (!response.id) {
-                        logError('messenger', `received response without id, when will this happen?`);
+                        logError('tunnel', `received response without id, when will this happen?`);
                     } else if (!(response.id in ecx.wakers)) {
-                        logError('messenger', `no waker found for received response, when will this happen?`);
+                        logError('tunnel', `no waker found for received response, when will this happen?`);
                     } else {
                         ecx.wakers[response.id](response);
                         delete ecx.wakers[response.id];
                     }
                 } catch (error) {
-                    logError('messenger', `received data failed to parse json`, error);
+                    logError('tunnel', `received data failed to parse json`, error);
                 }
             }
         });
     });
 }
 
+/* eslint-disable @stylistic/operator-linebreak -- false positive for type X =\n| Variant1\n| Variant2 */
 // BEGIN SHARED TYPE BuildScriptMessage
 export interface HasId {
     id: number,
@@ -137,14 +143,16 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // 0: ok, write
-    // 1: error, no error message in response, it is displayed here
-    // 2: no change
-    status: number,
+    // filename path is not in returned data but assigned at local side
+    filename?: string,
+    // no error message in response, it is displayed here
+    status: 'ok' | 'error' | 'nodiff',
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
-    // no data for now, the result is displayed here
+    // command is not in returned data but assigned at local side
+    command?: BuildScriptMessageAdminInterfaceCommand['command'],
+    // response is not in returned data but displayed here
 }
 interface BuildScriptMessageResponseReloadBrowser {
     kind: 'reload-browser',
@@ -160,7 +168,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
 export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessageReloadBrowser): Promise<BuildScriptMessageResponseReloadBrowser>;
 export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessage): Promise<BuildScriptMessageResponse> {
     if (!ecx.connection) {
-        logError('messenger', "not connected, type 'connect remote' to reconnect");
+        logError('tunnel', "not connected, type 'connect remote' to reconnect");
         return null;
     }
 
@@ -177,7 +185,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         buffer.write(message.filename, 8);
         buffer.writeUInt32LE(message.content.length, message.filename.length + 8); // content length size 4
         message.content.copy(buffer, 12 + message.filename.length, 0);
-        logInfo('messenger', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
+        logInfo('tunnel', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
     } else if (message.kind == 'admin') {
         if (message.command.kind == 'static-content:reload') {
             buffer = Buffer.alloc(9 + message.command.key.length);
@@ -187,7 +195,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(1, 7); // command kind size 1
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
-            logInfo('messenger', `send #${messageId} static-content:reload ${message.command.key}`);
+            logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
         } else if (message.command.kind == 'app:reload-server') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
@@ -196,14 +204,14 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(2, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('messenger', `send #${messageId} app:reload-server ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} app:reload-server ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(3, 6); // kind size 1
-        logInfo('messenger', `send #${messageId} reload-browser`);
+        logInfo('tunnel', `send #${messageId} reload-browser`);
     }
 
     ecx.connection.send(buffer);
@@ -211,6 +219,11 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
     const received = new Promise<BuildScriptMessageResponse>(resolve => {
         ecx.wakers[messageId] = response => {
             if (timeout) { clearTimeout(timeout); }
+            if (message.kind == 'file' && response.kind == 'file') {
+                response.filename = message.filename;
+            } else if (message.kind == 'admin' && response.kind == 'admin') {
+                response.command = message.command;
+            }
             resolve(response);
         };
     });
@@ -220,7 +233,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         new Promise<BuildScriptMessageResponse>(resolve => {
             timeout = setTimeout(() => {
                 delete ecx.wakers[messageId];
-                logError('messenger', `message ${messageId} timeout`);
+                logError('tunnel', `message ${messageId} timeout`);
                 resolve(null);
             }, 30_000);
         }),

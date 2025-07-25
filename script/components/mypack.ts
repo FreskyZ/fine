@@ -8,7 +8,7 @@ import { logInfo, logError } from './common.ts';
 import { tryminify } from './minify.ts';
 import type { TypeScriptContext } from './typescript.ts';
 
-interface MyPackContext {
+export interface MyPackContext {
     program?: ts.Program,
     // transpile result,
     // file name here normally starts with /vbuild,
@@ -56,7 +56,7 @@ interface MyPackModuleRequest {
     defaultName?: string, // default import name, the `a` in `import a from 'module'`
     namespaceName?: string, // the `a` in `import * as a from 'module'`
     // // named import names, name is original name, alias is same as name for normal named import
-    // // e.g. `import { b, c, d as e } from 'module'` result in [{name:b,alias: b},{name:c,alias:c},{name:d,alias:e}] 
+    // // e.g. `import { b, c, d as e } from 'module'` result in [{name:b,alias: b},{name:c,alias:c},{name:d,alias:e}]
     namedNames?: { name: string, alias: string }[],
     cdn?: string, // cdn url for external references if options.cdnfy
     relativeModule?: MyPackModule, // resolved relative import
@@ -97,7 +97,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                             }
                         }
                     };
-                    extractNames(declaration.name);                
+                    extractNames(declaration.name);
                 }
             } else if (ts.isFunctionDeclaration(node)) {
                 if (ts.isIdentifier(node.name)) {
@@ -110,7 +110,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                 // export const and export function is normal variable statement or function definition statement
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); // , node);
             } else if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
                 // not relavent to js
             } else if (ts.isClassDeclaration(node)) {
@@ -124,7 +124,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
             } else {
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); // , node);
             }
         });
         allNames[sourceFile.fileName] = names;
@@ -222,7 +222,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                 return;
             }
             request.moduleName = match.groups['name'];
-            
+
             if (request.moduleName.startsWith('.')) {
                 const name = request.namedNames.find(n => n.name != n.alias);
                 if (name) {
@@ -266,6 +266,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                 mcx.externalRequests.push({ ...moduleImport, namedNames: [...moduleImport.namedNames] });
                 continue;
             }
+            /* eslint-disable @stylistic/indent-binary-ops, @stylistic/comma-dangle -- lazy to find correct formatting rules for following complex conditions */
             if (moduleImport.defaultName) {
                 if (mergedImport.defaultName && mergedImport.defaultName != moduleImport.defaultName) {
                     hasError = true;
@@ -321,6 +322,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     mergedImport.namedNames.push(namedName);
                 }
             }
+            /* eslint-enable @stylistic/indent-binary-ops, @stylistic/comma-dangle */
         }
     }
 
@@ -330,8 +332,8 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
     mcx.externalRequests.sort((lhs, rhs) => {
         const leftIsNode = lhs.moduleName.startsWith('node:');
         const rightIsNode = rhs.moduleName.startsWith('node:');
-        if (leftIsNode && !rightIsNode) return -1;
-        if (!leftIsNode && rightIsNode) return 1;
+        if (leftIsNode && !rightIsNode) { return -1; }
+        if (!leftIsNode && rightIsNode) { return 1; }
         // this correctly handles rest part after node: and non node module names
         return lhs.moduleName.localeCompare(rhs.moduleName);
     });
@@ -436,17 +438,16 @@ function combineModules(mcx: MyPackContext): boolean {
         if (request.defaultName) { resultJs += `${request.defaultName}, `; }
         if (request.namespaceName) { resultJs += `* as ${request.namespaceName}, `; }
         if (request.namespaceName && request.namedNames.length) {
-            resultJs = resultJs.slice(0, -2) + ` from \'${request.moduleName}\'\nimport `;
+            resultJs = resultJs.slice(0, -2) + ` from '${request.moduleName}'\nimport `;
         }
         if (request.namedNames.length) {
             resultJs += `{ `;
             for (const { name, alias } of request.namedNames) {
-                if (name == alias) { resultJs += `${name}, `; }
-                else { resultJs += `${name} as ${alias}, `; }
+                resultJs += name == alias ? `${name}, ` : `${name} as ${alias}, `;
             }
             resultJs = resultJs.slice(0, -2) + ' }, ';
         }
-        resultJs = resultJs.slice(0, -2) + ` from \'${request.cdn ?? request.moduleName}\'\n`;
+        resultJs = resultJs.slice(0, -2) + ` from '${request.cdn ?? request.moduleName}'\n`;
     }
     for (const module of mcx.modules) {
         resultJs += '\n';
@@ -465,7 +466,7 @@ function filesize(size: number) {
 }
 // if tcx is provided, it overwrites some input properties of mcx
 // if you need to avoid that, avoid tcx or some of tcx properties, when do I need that?
-export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPackContext> {
+export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyPackContext): Promise<MyPackContext> {
     if (tcx) {
         mcx.program = tcx.program;
         mcx.files = tcx.files;
@@ -475,6 +476,11 @@ export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promi
         if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; } else { mcx.logheader = 'mypack'; }
     } else {
         mcx.logheader = mcx.logheader ? (mcx.logheader.startsWith('mypack') ? mcx.logheader : 'mypack' + mcx.logheader) : 'mypack';
+    }
+    if (lastmcx) {
+        // not sure whether mcx can reuse, so create new
+        mcx.resultHash = lastmcx.resultHash;
+        mcx.resultModules = lastmcx.resultModules;
     }
     logInfo(mcx.logheader, `pack ${mcx.entry}`);
 
@@ -494,8 +500,8 @@ export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promi
     } else {
         mcx.resultHash = newResultHash;
         // TODO compress result should use in uploadwithremoteconnection
-        const compressSize = zstdCompressSync(mcx.resultJs).length;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}} ({yellow ${filesize(compressSize)}})`);
+        const compressSize = ` (${filesize(zstdCompressSync(mcx.resultJs).length)})`;
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}${compressSize}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {

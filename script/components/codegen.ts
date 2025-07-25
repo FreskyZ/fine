@@ -25,12 +25,12 @@ interface WebInterfaceActionParameter {
     type: 'id' | 'guid', // for now only this
     optional: boolean,
 }
-interface WebInterfaceAction{
+interface WebInterfaceAction {
     // finally you need something to group actions
     // for now =main is main, =share is for share page
     // for now =temp is temporary investigating actions
     key: string,
-    name: String,
+    name: string,
     public: boolean,
     // method is not in config but comes from name
     // GetXXX => GET, AddXXX => PUT, RemoveXXX => DELETE, other => POST
@@ -156,7 +156,7 @@ function generateDatabaseTypes(config: CodeGenerationConfig): string {
                 'string': 'string',
                 'bool': 'boolean',
             }[field.type];
-            sb += `    ${field.name}${field.nullable ? '?' : ''}: ${type},\n`
+            sb += `    ${field.name}${field.nullable ? '?' : ''}: ${type},\n`;
         }
         sb += `    CreateTime: Dayjs,\n`;
         sb += `    UpdateTime: Dayjs,\n`;
@@ -173,7 +173,7 @@ function generateDatabaseSchema(config: CodeGenerationConfig): string {
     sb += '------ ATTENTION AUTO GENERATED ------\n';
     sb += '--------------------------------------\n';
     sb += '\n';
-    sb += '-- -- first, mysql -u root -p:\n'
+    sb += '-- -- first, mysql -u root -p:\n';
     sb += `-- CREATE DATABASE '${config.dbname}';\n`;
     sb += `-- GRANT ALL PRIVILEGES ON \`${config.dbname}\`.* TO 'fine'@'localhost';\n`;
     sb += '-- FLUSH PRIVILEGES;\n';
@@ -212,7 +212,7 @@ function generateDatabaseSchema(config: CodeGenerationConfig): string {
         sb += `);\n`;
     }
     return hasError ? null : sb;
-} 
+}
 // api.d.ts, return null for not ok
 function generateWebInterfaceTypes(config: CodeGenerationConfig): string {
 
@@ -230,7 +230,7 @@ function generateWebInterfaceTypes(config: CodeGenerationConfig): string {
                 'datetime': 'string',
                 'string': 'string',
             }[field.type] ?? field.type;
-            sb += `    ${field.name}${field.nullable ? '?': ''}: ${type},\n`;
+            sb += `    ${field.name}${field.nullable ? '?' : ''}: ${type},\n`;
         }
         sb += '}\n';
     }
@@ -245,7 +245,8 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
-    sb += '\n'
+    sb += '/* eslint-disable @stylistic/lines-between-class-members */\n';
+    sb += '\n';
     sb += `class MyError extends Error {
     // fine error middleware need this to know this is known error type
     public readonly name: string = 'FineError';
@@ -270,7 +271,7 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     sb += 'export async function dispatch(ctx: DispatchContext): Promise<DispatchResult> {\n';
     // NOTE no need to wrap try in this function because it correctly throws into overall request error handler
     sb += `    const { pathname, searchParams } = new URL(ctx.path, 'https://example.com');\n`;
-    sb += `    const v = new ParameterValidator(searchParams);\n`
+    sb += `    const v = new ParameterValidator(searchParams);\n`;
     sb += `    const ax: ActionContext = { now: ctx.state.now, userId: ctx.state.user?.id, userName: ctx.state.user?.name };\n`;
     sb += `    const action = ({\n`;
     for (const action of config.actions) {
@@ -285,7 +286,7 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
         }
         sb = sb.substring(0, sb.length - 2) + '),\n';
     }
-    sb += '    } as Record<string, () => Promise<any>>)[\`\${ctx.method} \${pathname}\`];\n';
+    sb += `    } as Record<string, () => Promise<any>>)[\`\${ctx.method} \${pathname}\`];\n`;
     sb += `    return action ? { body: await action() } : { error: new MyError('not-found', 'invalid-invocation') };\n`;
     sb += `}\n`;
     return sb;
@@ -300,7 +301,7 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
 
-    // NOTE this is hardcode replaced in make.ts
+    // NOTE this is hardcode replaced in make-akari.ts
     sb += `template-client.tsx`.replaceAll('api.example.com/example', `api.example.com/${config.appname}`);
 
     sb += 'const api = {\n';
@@ -384,6 +385,6 @@ export async function generateCode(config: CodeGenerationConfig, options: CodeGe
     // console.log('scheduled tasks', tasks);
     await Promise.all(tasks.map(t => t.run()));
 
-    hasError ? logError('codegen', 'code generation completed with error') : logInfo('codegen', 'code generation complete');
+    if (hasError) { logError('codegen', 'code generation completed with error'); } else { logInfo('codegen', 'code generation complete'); }
     return !hasError;
 }

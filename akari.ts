@@ -1,20 +1,24 @@
 import readline from 'node:readline/promises';
 // END IMPORT
-// components: minify, mypack, sftp, typescript, messenger, common
+// components: minify, mypack, sftp, typescript, messenger, eslint, common
 // BEGIN LIBRARY
-import { createHash } from 'node:crypto'
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import type { Interface } from 'node:readline/promises'
-import tls from 'node:tls'
-import { zstdCompress, zstdCompressSync } from 'node:zlib'
-import chalkNotTemplate from 'chalk'
-import chalk from 'chalk-template'
-import dayjs from 'dayjs'
-import { XMLParser } from 'fast-xml-parser'
-import SFTPClient from 'ssh2-sftp-client'
-import { minify } from 'terser'
-import ts from 'typescript'
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import type { Interface } from 'node:readline/promises';
+import tls from 'node:tls';
+import { zstdCompress, zstdCompressSync } from 'node:zlib';
+import js from '@eslint/js';
+import stylistic from '@stylistic/eslint-plugin';
+import chalkNotTemplate from 'chalk';
+import chalk from 'chalk-template';
+import dayjs from 'dayjs';
+import { ESLint } from 'eslint';
+import { XMLParser } from 'fast-xml-parser';
+import SFTPClient from 'ssh2-sftp-client';
+import { minify } from 'terser';
+import ts from 'typescript';
+import tseslint from 'typescript-eslint';
 
 // -----------------------------------------
 // ------ script/components/common.ts ------ 
@@ -73,8 +77,8 @@ interface TypeScriptContext {
     files?: Record<string, string>,
 }
 
-// extract BEGIN SHARED TYPE xxx from source file and target file and compare they are same
-// although this works on string, but still put it here because this is used to extracting and compare type definition
+// extract SHARED TYPE xxx from source file and target file and compare they are same
+// although this works on string, still put it here because it logically work on type definition
 // return false for not ok
 async function validateSharedTypeDefinition(sourceFile: string, targetFile: string, typename: string): Promise<boolean> {
 
@@ -127,7 +131,7 @@ async function validateSharedTypeDefinition(sourceFile: string, targetFile: stri
 function transpile(tcx: TypeScriptContext): TypeScriptContext {
     const logheader = `tsc${tcx.additionalLogHeader ?? ''}`;
     logInfo(logheader, 'transpiling');
-    
+
     // design considerations
     // - the original tool distinguishes ecma module and commonjs, now everything is esm!
     //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage
@@ -230,6 +234,114 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
         console.log(displayCode + fileAndPosition + flattenedMessage);
     }
     return tcx;
+}
+
+// -----------------------------------------
+// ------ script/components/eslint.ts ------ 
+// -------- ATTENTION AUTO GENERATED -------
+// -----------------------------------------
+
+interface ESLintOptions {
+    files: string | string[], // pattern
+    ignore?: string[], // pattern
+    falsyRules?: boolean, // enable falsy rules to check for postential true positives
+    additionalLogHeader?: string,
+}
+// return false for has issues, but build scripts may not fail on this
+async function eslint(options: ESLintOptions): Promise<boolean> {
+    const eslint = new ESLint({
+        ignorePatterns: options.ignore,
+        overrideConfigFile: true,
+        plugins: {
+            tseslint: tseslint.plugin as any,
+            stylistic,
+        },
+        // ??? these 3 packages use 3 different patterns to provide recommended configurations?
+        overrideConfig: [
+            js.configs.recommended,
+            stylistic.configs.recommended,
+            ...tseslint.configs.recommended as any,
+            {
+                linterOptions: {
+                    reportUnusedDisableDirectives: true,
+                },
+                rules: {
+                    // when-I-use-I-really-need-to-use
+                    '@typescript-eslint/no-explicit-any': 'off',
+                    // when-I-use-I-really-need-to-use
+                    // why do I need to expecting error? I ts-ignore because ts is not clever enough, I do not expect error
+                    '@typescript-eslint/ban-ts-comment': 'off',
+                    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+                    // not interested
+                    '@stylistic/arrow-parens': 'off',
+                    // document says default 1tbs but errors say not
+                    '@stylistic/brace-style': options.falsyRules ? ['error', '1tbs', { 'allowSingleLine': true }] : 'off',
+                    // document says default 4 but errors say default 2, UPDATE: too many false positive on nested ternery expression
+                    '@stylistic/indent': options.falsyRules ? ['error', 4] : 'off',
+                    // why is this a separate rule with 2 space idention?
+                    '@stylistic/indent-binary-ops': 'off',
+                    // not sufficient option to follow my convention
+                    '@stylistic/jsx-closing-bracket-location': 'off',
+                    // not sufficient option to follow my convention, who invented the very strange default value?
+                    '@stylistic/jsx-closing-tag-location': 'off',
+                    // not sufficient option to follow my convention
+                    '@stylistic/jsx-first-prop-new-line': 'off',
+                    // no, fragment already looks like newline
+                    '@stylistic/jsx-function-call-newline': 'off',
+                    // I'm tired of indenting props according to formatting rules
+                    '@stylistic/jsx-indent-props': 'off',
+                    // when-I-use-I-really-need-to-use
+                    '@stylistic/jsx-one-expression-per-line': 'off',
+                    // I need negative rule
+                    '@stylistic/jsx-wrap-multilines': 'off',
+                    // it's meaningless to move properties to next line and fight with idention rules
+                    '@stylistic/jsx-max-props-per-line': 'off',
+                    '@stylistic/jsx-quotes': 'off',
+                    // when-I-use-I-really-need-to-use
+                    '@stylistic/max-statements-per-line': 'off',
+                    '@stylistic/member-delimiter-style': ['error', {
+                        'multiline': {
+                            'delimiter': 'comma',
+                            'requireLast': true,
+                        },
+                        'singleline': {
+                            'delimiter': 'comma',
+                            'requireLast': false,
+                        },
+                    }],
+                    // I'm tired of indenting/spacing ternary expressions according formatting rules
+                    '@stylistic/multiline-ternary': 'off',
+                    '@stylistic/no-multi-spaces': ['error', { ignoreEOLComments: true }],
+                    // not interested
+                    '@stylistic/padded-blocks': 'off',
+                    // in old days I say it's not possible to enable on existing code base
+                    // now I say it's not possible to enforcing overall code base
+                    '@stylistic/quotes': 'off',
+                    '@stylistic/quote-props': ['error', 'consistent'],
+                    '@stylistic/semi': ['error', 'always'],
+                },
+            },
+        ],
+    });
+
+    const lintResults = await eslint.lintFiles(options.files);
+
+    let hasIssue = false;
+    // // the default formatter is extremely bad when one message is long, so have to implement on your own
+    // const formattedResults = (await eslint.loadFormatter('stylish')).format(lintResults);
+    // if (formattedResults) { console.log(formattedResults); }
+    for (const fileResult of lintResults) {
+        if (fileResult.errorCount == 0) { continue; }
+        hasIssue = true;
+        const relativePath = path.relative(process.cwd(), fileResult.filePath);
+        console.log(chalk`\n${relativePath} {yellow ${fileResult.errorCount}} errors`);
+        for (const message of fileResult.messages) {
+            console.log(chalk`{gray ${message.line}:${message.column}} ${message.message} {gray ${message.ruleId}}`);
+        }
+    }
+
+    if (!hasIssue) { logInfo(`eslint${options.additionalLogHeader ?? ''}`, 'clear'); }
+    return !hasIssue;
 }
 
 // -----------------------------------------
@@ -346,7 +458,7 @@ interface MyPackModuleRequest {
     defaultName?: string, // default import name, the `a` in `import a from 'module'`
     namespaceName?: string, // the `a` in `import * as a from 'module'`
     // // named import names, name is original name, alias is same as name for normal named import
-    // // e.g. `import { b, c, d as e } from 'module'` result in [{name:b,alias: b},{name:c,alias:c},{name:d,alias:e}] 
+    // // e.g. `import { b, c, d as e } from 'module'` result in [{name:b,alias: b},{name:c,alias:c},{name:d,alias:e}]
     namedNames?: { name: string, alias: string }[],
     cdn?: string, // cdn url for external references if options.cdnfy
     relativeModule?: MyPackModule, // resolved relative import
@@ -387,7 +499,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                             }
                         }
                     };
-                    extractNames(declaration.name);                
+                    extractNames(declaration.name);
                 }
             } else if (ts.isFunctionDeclaration(node)) {
                 if (ts.isIdentifier(node.name)) {
@@ -400,7 +512,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
                 // export const and export function is normal variable statement or function definition statement
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: not support dedicated export statement for now`); // , node);
             } else if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
                 // not relavent to js
             } else if (ts.isClassDeclaration(node)) {
@@ -414,7 +526,7 @@ function validateTopLevelNames(mcx: MyPackContext): boolean {
             } else {
                 hasError = true;
                 const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
+                logError(mcx.logheader, `${sourceFile.fileName}:${line + 1}:${character + 1}: unknown top level node kind: ${ts.SyntaxKind[node.kind]}`); // , node);
             }
         });
         allNames[sourceFile.fileName] = names;
@@ -512,7 +624,7 @@ function resolveModuleDependencies(mcx: MyPackContext): boolean {
                 return;
             }
             request.moduleName = match.groups['name'];
-            
+
             if (request.moduleName.startsWith('.')) {
                 const name = request.namedNames.find(n => n.name != n.alias);
                 if (name) {
@@ -556,6 +668,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                 mcx.externalRequests.push({ ...moduleImport, namedNames: [...moduleImport.namedNames] });
                 continue;
             }
+            /* eslint-disable @stylistic/indent-binary-ops, @stylistic/comma-dangle -- lazy to find correct formatting rules for following complex conditions */
             if (moduleImport.defaultName) {
                 if (mergedImport.defaultName && mergedImport.defaultName != moduleImport.defaultName) {
                     hasError = true;
@@ -611,6 +724,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     mergedImport.namedNames.push(namedName);
                 }
             }
+            /* eslint-enable @stylistic/indent-binary-ops, @stylistic/comma-dangle */
         }
     }
 
@@ -620,8 +734,8 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
     mcx.externalRequests.sort((lhs, rhs) => {
         const leftIsNode = lhs.moduleName.startsWith('node:');
         const rightIsNode = rhs.moduleName.startsWith('node:');
-        if (leftIsNode && !rightIsNode) return -1;
-        if (!leftIsNode && rightIsNode) return 1;
+        if (leftIsNode && !rightIsNode) { return -1; }
+        if (!leftIsNode && rightIsNode) { return 1; }
         // this correctly handles rest part after node: and non node module names
         return lhs.moduleName.localeCompare(rhs.moduleName);
     });
@@ -726,17 +840,16 @@ function combineModules(mcx: MyPackContext): boolean {
         if (request.defaultName) { resultJs += `${request.defaultName}, `; }
         if (request.namespaceName) { resultJs += `* as ${request.namespaceName}, `; }
         if (request.namespaceName && request.namedNames.length) {
-            resultJs = resultJs.slice(0, -2) + ` from \'${request.moduleName}\'\nimport `;
+            resultJs = resultJs.slice(0, -2) + ` from '${request.moduleName}'\nimport `;
         }
         if (request.namedNames.length) {
             resultJs += `{ `;
             for (const { name, alias } of request.namedNames) {
-                if (name == alias) { resultJs += `${name}, `; }
-                else { resultJs += `${name} as ${alias}, `; }
+                resultJs += name == alias ? `${name}, ` : `${name} as ${alias}, `;
             }
             resultJs = resultJs.slice(0, -2) + ' }, ';
         }
-        resultJs = resultJs.slice(0, -2) + ` from \'${request.cdn ?? request.moduleName}\'\n`;
+        resultJs = resultJs.slice(0, -2) + ` from '${request.cdn ?? request.moduleName}'\n`;
     }
     for (const module of mcx.modules) {
         resultJs += '\n';
@@ -755,7 +868,7 @@ function filesize(size: number) {
 }
 // if tcx is provided, it overwrites some input properties of mcx
 // if you need to avoid that, avoid tcx or some of tcx properties, when do I need that?
-async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPackContext> {
+async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyPackContext): Promise<MyPackContext> {
     if (tcx) {
         mcx.program = tcx.program;
         mcx.files = tcx.files;
@@ -765,6 +878,11 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
         if (tcx.additionalLogHeader) { mcx.logheader = 'mypack' + tcx.additionalLogHeader; } else { mcx.logheader = 'mypack'; }
     } else {
         mcx.logheader = mcx.logheader ? (mcx.logheader.startsWith('mypack') ? mcx.logheader : 'mypack' + mcx.logheader) : 'mypack';
+    }
+    if (lastmcx) {
+        // not sure whether mcx can reuse, so create new
+        mcx.resultHash = lastmcx.resultHash;
+        mcx.resultModules = lastmcx.resultModules;
     }
     logInfo(mcx.logheader, `pack ${mcx.entry}`);
 
@@ -784,8 +902,8 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
     } else {
         mcx.resultHash = newResultHash;
         // TODO compress result should use in uploadwithremoteconnection
-        const compressSize = zstdCompressSync(mcx.resultJs).length;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}} ({yellow ${filesize(compressSize)}})`);
+        const compressSize = ` (${filesize(zstdCompressSync(mcx.resultJs).length)})`;
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}${compressSize}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {
@@ -818,6 +936,7 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext): Promise<MyPa
 // messenger: message sender abbreviated as messenger
 
 // use this to avoid global variables because currently no other major global variables used
+/* eslint-disable @stylistic/quote-props -- no */
 interface MessengerContext {
     '?'?: boolean, // ?
     readline: Interface,
@@ -826,6 +945,8 @@ interface MessengerContext {
     wakers?: Record<number, (data: BuildScriptMessageResponse) => void>,
     nextMessageId?: number,
     reconnectCount?: number,
+    // store last mcx for report
+    mcx?: MyPackContext,
 }
 
 // return true for connected
@@ -907,6 +1028,7 @@ async function connectRemote(ecx: MessengerContext) {
     });
 }
 
+/* eslint-disable @stylistic/operator-linebreak -- false positive for type X =\n| Variant1\n| Variant2 */
 // BEGIN SHARED TYPE BuildScriptMessage
 interface HasId {
     id: number,
@@ -947,14 +1069,16 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // 0: ok, write
-    // 1: error, no error message in response, it is displayed here
-    // 2: no change
-    status: number,
+    // filename path is not in returned data but assigned at local side
+    filename?: string,
+    // no error message in response, it is displayed here
+    status: 'ok' | 'error' | 'nodiff',
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
-    // no data for now, the result is displayed here
+    // command is not in returned data but assigned at local side
+    command?: BuildScriptMessageAdminInterfaceCommand['command'],
+    // response is not in returned data but displayed here
 }
 interface BuildScriptMessageResponseReloadBrowser {
     kind: 'reload-browser',
@@ -1021,6 +1145,11 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
     const received = new Promise<BuildScriptMessageResponse>(resolve => {
         ecx.wakers[messageId] = response => {
             if (timeout) { clearTimeout(timeout); }
+            if (message.kind == 'file' && response.kind == 'file') {
+                response.filename = message.filename;
+            } else if (message.kind == 'admin' && response.kind == 'admin') {
+                response.command = message.command;
+            }
             resolve(response);
         };
     });
@@ -1062,7 +1191,7 @@ async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsse
         }
     }));
 }
-// END LIBRARY 03da49550682e21299ddf4d32c155eb025e359abb6591fd322de12937abf4c27
+// END LIBRARY dcd201d6c076f3c9b177e63f7c697cdf9005bb8e3e5e2ca5a40504c825bec029
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
@@ -1121,9 +1250,11 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
 
     const tcx = transpile({ entry: 'src/static/user.tsx', target: 'browser' });
     if (!tcx.success) { logError('akari', chalk`{cyan user page} failed at transpile`); return; }
-
     const mcx = await mypack({ entry: '/vbuild/user.js' }, tcx);
     if (!mcx.success) { logError('akari', chalk`{cyan user page} failed at pack`); return; };
+
+    // TODO recover change from old dev machine and enable this
+    // if (!await eslint({ files: 'src/static/user.tsx' })) { /* return; */ }
 
     const assets: UploadAsset[] = [
         // read html into string to do exmaple.com substitution
@@ -1132,13 +1263,14 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
     ];
     if (ecx) {
         const uploadResults = await deployWithRemoteConnect(ecx, assets);
-        if (uploadResults.some(r => !r || r.status == 1)) {
+        if (uploadResults.some(r => !r || r.status == 'error')) {
             logError('akari', chalk`{cyan user page} failed at upload`); return;
-        } else if (uploadResults.some(r => r.status == 0)) {
+        } else if (!uploadResults.some(r => r.status == 'error')) {
+            logInfo('akari', chalk`build {cyan user page} completed with no change`); return;
+        } else {
             await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
-            await sendRemoteMessage(ecx, { kind: 'reload-browser' });
-            // no response display here, see remote akari output
-            // TODO in theory admininterfaceresult.ok should affect the displayed completed successfully? but the message only include build?
+            // no response display here, see remote akari output,
+            // reload static fail is kind of fail, but the final message here is build complete so ok
         }
     } else {
         const uploadResult = await deploy(assets);
@@ -1154,16 +1286,20 @@ async function buildCore(ecx?: MessengerContext) {
 
     const tcx = transpile({ entry: 'src/core/index.ts', target: 'node' });
     if (!tcx.success) { logError('akari', chalk`{cyan core} failed at transpile`); return; }
-
     const mcx = await mypack({ entry: '/vbuild/core/index.js' }, tcx);
     if (!mcx.success) { logError('akari', chalk`{cyan core} failed at pack`); return; }
+    
+    // TODO recover change from old dev machine and enable this
+    // if (!await eslint({ files: 'src/core/*' })) { /* return; */ }
 
     const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'index.js' }];
     if (ecx) {
         const [uploadResult] = await deployWithRemoteConnect(ecx, assets);
-        if (!uploadResult || uploadResult.status == 1) { logError('akari', chalk`{cyan core} failed at upload`); return; }
-        else if (uploadResult.status == 2) { logInfo('akari', chalk`build {cyan core} completed with no change`); return; }
-        // no furthur reload command for core
+        if (!uploadResult || uploadResult.status == 'error') {
+            logError('akari', chalk`{cyan core} failed at upload`); return;
+        } else if (uploadResult.status == 'nodiff') {
+            logInfo('akari', chalk`build {cyan core} completed with no change`); return;
+        } // no furthur reload command for core
     } else {
         const uploadResult = await deploy(assets);
         if (!uploadResult) { logError('akari', chalk`{cyan core} failed at upload`); return false; }

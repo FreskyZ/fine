@@ -76,7 +76,7 @@ export async function validateSharedTypeDefinition(sourceFile: string, targetFil
 export function transpile(tcx: TypeScriptContext): TypeScriptContext {
     const logheader = `tsc${tcx.additionalLogHeader ?? ''}`;
     logInfo(logheader, 'transpiling');
-    
+
     // design considerations
     // - the original tool distinguishes ecma module and commonjs, now everything is esm!
     //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage

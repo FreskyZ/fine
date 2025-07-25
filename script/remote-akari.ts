@@ -14,17 +14,6 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-// new design
-// - remote akari start, connect to admin socket, start websocket server, listen to https /client-dev.js
-// - local akari start, connect to for-build websocket, complete authentication
-// - browser start, download from /client-dev.js, connect to for-client websocket
-// - local command input (poll watch file?)
-// - local build
-
-// - remote send browser reload
-// - allow other local command (build without deploy, upload other file)
-// - allow other remote command (to admin, to browser), not build script related admin command only available on remote
-
 dayjs.extend(utc);
 
 function logInfo(header: string, message: string, error?: any): void {
@@ -97,7 +86,7 @@ httpServer.on('request', (request, response) => {
     // request.url contains query, but should be enough for this
     if (request.method == 'GET' && request.url == '/client-dev.js') {
         response.writeHead(200, 'OK');
-        response.end(`const w=new WebSocket(\`wss://${domain}:8001/for-client\`);w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
+        response.end(`const w=new WebSocket(\`wss://${domain}:8001\`,'browser');w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
     } else {
         // upgrade does not goto here, so direct 400 is ok
         response.writeHead(400, 'Bad Request');
@@ -151,14 +140,16 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // 0: ok, write
-    // 1: error, no error message in response, it is displayed here
-    // 2: no change
-    status: number,
+    // filename path is not in returned data but assigned at local side
+    filename?: string,
+    // no error message in response, it is displayed here
+    status: 'ok' | 'error' | 'nodiff',
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
-    // no data for now, the result is displayed here
+    // command is not in returned data but assigned at local side
+    command?: BuildScriptMessageAdminInterfaceCommand['command'],
+    // response is not in returned data but displayed here
 }
 interface BuildScriptMessageResponseReloadBrowser {
     kind: 'reload-browser',
@@ -540,20 +531,20 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         const fullpath = path.join(config.webroot, message.filename);
         if (!syncfs.existsSync(path.dirname(fullpath))) {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
-            send({ kind: 'file', status: 1 });
+            send({ kind: 'file', status: 'error' });
             return;
         }
         zlib.zstdDecompress(message.content, async (error, messageContent) => {
             if (error) {
                 logError('fs', `message content decompress error`, error);
-                send({ kind: 'file', status: 1 });
+                send({ kind: 'file', status: 'error' });
                 return;
             }
             if (syncfs.existsSync(fullpath)) {
                 const originalContent = await fs.readFile(fullpath);
                 if (Buffer.compare(messageContent, originalContent) == 0) {
                     logInfo('fs', `${fullpath} content same, no update`);
-                    send({ kind: 'file', status: 2 });
+                    send({ kind: 'file', status: 'nodiff' });
                     return;
                 }
             }
@@ -561,7 +552,7 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
                 await fs.mkdir(path.dirname(fullpath), { recursive: true });
             }
             fs.writeFile(fullpath, messageContent);
-            send({ kind: 'file', status: 0 });
+            send({ kind: 'file', status: 'ok' });
         });
     }
 });
