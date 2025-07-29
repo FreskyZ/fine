@@ -256,7 +256,6 @@ async function eslint(options: ESLintOptions): Promise<boolean> {
             tseslint: tseslint.plugin as any,
             stylistic,
         },
-        // ??? these 3 packages use 3 different patterns to provide recommended configurations?
         overrideConfig: [
             js.configs.recommended,
             stylistic.configs.recommended,
@@ -936,7 +935,7 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyP
 // messenger: message sender abbreviated as messenger
 
 // use this to avoid global variables because currently no other major global variables used
-/* eslint-disable @stylistic/quote-props -- no */
+/* eslint-disable @stylistic/quote-props -- ? */
 interface MessengerContext {
     '?'?: boolean, // ?
     readline: Interface,
@@ -946,7 +945,7 @@ interface MessengerContext {
     nextMessageId?: number,
     reconnectCount?: number,
     // store last mcx for report
-    mcx?: MyPackContext,
+    lastmcxStorage?: Record<string, MyPackContext>,
 }
 
 // return true for connected
@@ -967,10 +966,11 @@ async function connectRemote(ecx: MessengerContext) {
         ecx.reconnectCount = 0;
         ecx.nextMessageId = 1;
         ecx.wakers = {};
+        ecx.lastmcxStorage = {};
     }
     if (ecx.reconnectCount >= 3) {
         ecx.reconnectCount = 0;
-        logError('messenger', 'connect retry time >= 3, you may manually reconnect later');
+        logError('tunnel', 'connect retry time >= 3, you may manually reconnect later');
         return false;
     }
 
@@ -984,19 +984,19 @@ async function connectRemote(ecx: MessengerContext) {
 
         websocket.addEventListener('open', async () => {
             ecx.reconnectCount = 0;
-            logInfo('messenger', `connected, you'd better complete authentication quickly`);
+            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
             const token = await ecx.readline.question('> ');
             websocket.send(token);
         });
         websocket.addEventListener('close', async () => {
-            logInfo('messenger', `websocket disconnected`);
+            logInfo('tunnel', `websocket disconnected`);
             if (!reconnectInvoked) {
                 ecx.reconnectCount += 1;
                 resolve(await connectRemote(ecx));
             }
         });
         websocket.addEventListener('error', async error => {
-            logInfo('messenger', `websocket error:`, error);
+            logInfo('tunnel', `websocket error:`, error);
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));
@@ -1005,23 +1005,23 @@ async function connectRemote(ecx: MessengerContext) {
         websocket.addEventListener('message', async event => {
             if (event.data == 'authenticated') {
                 ecx.connection = websocket;
-                logInfo('messenger', 'websocket received authenticated');
+                logInfo('tunnel', 'websocket received authenticated');
                 // this resolve should be most normal case
                 resolve(true);
             } else {
-                logInfo('messenger', 'websocket received', event.data);
+                logInfo('tunnel', 'websocket received', event.data);
                 try {
                     const response = JSON.parse(event.data);
                     if (!response.id) {
-                        logError('messenger', `received response without id, when will this happen?`);
+                        logError('tunnel', `received response without id, when will this happen?`);
                     } else if (!(response.id in ecx.wakers)) {
-                        logError('messenger', `no waker found for received response, when will this happen?`);
+                        logError('tunnel', `no waker found for received response, when will this happen?`);
                     } else {
                         ecx.wakers[response.id](response);
                         delete ecx.wakers[response.id];
                     }
                 } catch (error) {
-                    logError('messenger', `received data failed to parse json`, error);
+                    logError('tunnel', `received data failed to parse json`, error);
                 }
             }
         });
@@ -1094,7 +1094,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
 async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessageReloadBrowser): Promise<BuildScriptMessageResponseReloadBrowser>;
 async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMessage): Promise<BuildScriptMessageResponse> {
     if (!ecx.connection) {
-        logError('messenger', "not connected, type 'connect remote' to reconnect");
+        logError('tunnel', "not connected, type 'connect remote' to reconnect");
         return null;
     }
 
@@ -1111,7 +1111,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         buffer.write(message.filename, 8);
         buffer.writeUInt32LE(message.content.length, message.filename.length + 8); // content length size 4
         message.content.copy(buffer, 12 + message.filename.length, 0);
-        logInfo('messenger', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
+        logInfo('tunnel', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
     } else if (message.kind == 'admin') {
         if (message.command.kind == 'static-content:reload') {
             buffer = Buffer.alloc(9 + message.command.key.length);
@@ -1121,7 +1121,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(1, 7); // command kind size 1
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
-            logInfo('messenger', `send #${messageId} static-content:reload ${message.command.key}`);
+            logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
         } else if (message.command.kind == 'app:reload-server') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
@@ -1130,14 +1130,14 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(2, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('messenger', `send #${messageId} app:reload-server ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} app:reload-server ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(3, 6); // kind size 1
-        logInfo('messenger', `send #${messageId} reload-browser`);
+        logInfo('tunnel', `send #${messageId} reload-browser`);
     }
 
     ecx.connection.send(buffer);
@@ -1159,7 +1159,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         new Promise<BuildScriptMessageResponse>(resolve => {
             timeout = setTimeout(() => {
                 delete ecx.wakers[messageId];
-                logError('messenger', `message ${messageId} timeout`);
+                logError('tunnel', `message ${messageId} timeout`);
                 resolve(null);
             }, 30_000);
         }),
@@ -1191,7 +1191,7 @@ async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsse
         }
     }));
 }
-// END LIBRARY dcd201d6c076f3c9b177e63f7c697cdf9005bb8e3e5e2ca5a40504c825bec029
+// END LIBRARY bcaea0c95a90b7618cfa1db4a82093b1a67cb5ed6b68b6f506fa3e6d4f977a88
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
@@ -1206,6 +1206,12 @@ async function uploadPublicAssets() {
         }));
     await deploy(assets);
     logInfo('akari', chalk`deploy {cyan public} complete`);
+}
+
+async function uploadPackageJson() {
+    logInfo('akari', chalk`deploy {cyan package.json}`);
+    await deploy([{ remote: 'package.json', data: await fs.readFile('package.json') }]);
+    logInfo('akari', chalk`deploy {cyan package.json} complete, run \`npm i --omit=dev\` on server`);
 }
 
 // static command was referring to home page and user page
@@ -1311,6 +1317,8 @@ async function buildCore(ecx?: MessengerContext) {
 async function dispatch(command: string[]) {
     if (command[0] == 'public') {
         await uploadPublicAssets();
+    } else if (command[0] == 'package.json') {
+        await uploadPackageJson();
     } else if (command[0] == "static") {
         await uploadStaticAssets();
     } else if (command[0] == 'rself') {
