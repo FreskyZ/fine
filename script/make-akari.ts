@@ -271,7 +271,6 @@ for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i 
             state = 'manual-script';
             const actualHash = line.substring(15);
             const expectHash = libraryHasher.digest('hex');
-            // TODO add this to codegen, for current 2 ending 
             if (actualHash != expectHash) {
                 const actualShortHash = actualHash.substring(0, 6);
                 const expectShortHash = expectHash.substring(0, 6);

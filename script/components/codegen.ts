@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import chalk from 'chalk-template';
 import { XMLParser } from 'fast-xml-parser';
@@ -54,6 +55,7 @@ interface WebInterfaceActionType {
 }
 
 interface CodeGenerationConfig {
+    options: CodeGenerationOptions,
     dbname: string,
     tables: DatabaseModelTable[],
     appname: string,
@@ -63,7 +65,7 @@ interface CodeGenerationConfig {
 
 // currently input files are at fixed path
 // return null for read error, currently no expected error
-export async function readCodeGenerationConfig(): Promise<CodeGenerationConfig> {
+export async function readCodeGenerationConfig(options: CodeGenerationOptions): Promise<CodeGenerationConfig> {
 
     const parser = new XMLParser({
         preserveOrder: true,
@@ -132,7 +134,7 @@ export async function readCodeGenerationConfig(): Promise<CodeGenerationConfig> 
     });
     // console.log(JSON.stringify(actionTypes, undefined, 2), actions);
 
-    return { dbname: databaseName, tables: databaseTables, appname: applicationName, actions, actionTypes };
+    return { options, dbname: databaseName, tables: databaseTables, appname: applicationName, actions, actionTypes };
 }
 
 // database.d.ts, return null for not ok
@@ -236,12 +238,35 @@ function generateWebInterfaceTypes(config: CodeGenerationConfig): string {
     }
     return sb;
 }
+
+// return original manual content (content before mark), return null for have error
+function checkPartialGeneratedContentHash(config: CodeGenerationConfig, taskName: string, originalContent: string): string {
+    const markIndex = originalContent.indexOf('// AUTOGEN');
+    const markEndIndex = originalContent.indexOf('\n', markIndex);
+    const expectHash = originalContent.substring(markIndex + 11, markEndIndex);
+    const actualHash = crypto.hash('sha256', originalContent.substring(markEndIndex + 1));
+    if (expectHash != actualHash) {
+        const expectShortHash = expectHash.substring(0, 6);
+        const actualShortHash = actualHash.substring(0, 6);
+        if (actualShortHash != expectShortHash) {
+            logError('codegen', `${taskName}: hash mismatch expect ${expectShortHash} actual ${actualShortHash}`);
+        } else {
+            logError('codegen', `${taskName}: hash mismatch expect ${expectHash} actual ${actualHash}`);
+        }
+        if (!config.options.ignoreHashMismatch) {
+            logError('codegen', `${taskName}: generated content seems unexpectedly changed, use ignorehash to ignore and overwrite`);
+            return null;
+        }
+    }
+    return originalContent.substring(0, markIndex);
+}
+
 // index.ts, return null for not ok
 function generateWebInterfaceServer(config: CodeGenerationConfig, originalContent: string): string {
 
-    let sb = originalContent;
-    sb = sb.substring(0, sb.indexOf('// AUTOGEN'));
-    sb += '// AUTOGEN\n';
+    const manualContent = checkPartialGeneratedContentHash(config, 'actions-server', originalContent);
+    if (!manualContent) { return null; }
+    let sb = '';
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
@@ -289,14 +314,16 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     sb += `    } as Record<string, () => Promise<any>>)[\`\${ctx.method} \${pathname}\`];\n`;
     sb += `    return action ? { body: await action() } : { error: new MyError('not-found', 'invalid-invocation') };\n`;
     sb += `}\n`;
-    return sb;
+
+    const hash = crypto.hash('sha256', sb);
+    return `${manualContent}// AUTOGEN ${hash}\n${sb}`;
 }
 // index.tsx, return null for not ok
 function generateWebInterfaceClient(config: CodeGenerationConfig, originalContent: string): string {
 
-    let sb = originalContent;
-    sb = sb.substring(0, sb.indexOf('// AUTOGEN'));
-    sb += '// AUTOGEN\n';
+    const manualContent = checkPartialGeneratedContentHash(config, 'actions-client', originalContent);
+    if (!manualContent) { return null; }
+    let sb = '';
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
@@ -338,16 +365,19 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
         sb = sb.substring(0, sb.length - 2) + '),\n';
     }
     sb += '};\n';
-    return sb;
+
+    const hash = crypto.hash('sha256', sb);
+    return `${manualContent}// AUTOGEN ${hash}\n${sb}`;
 }
 
 interface CodeGenerationOptions {
     emit: boolean, // actually write file
     client: boolean, // include client side targets
     server: boolean, // include server side targets
+    ignoreHashMismatch: boolean,
 }
 // return true for ok, false for not ok
-export async function generateCode(config: CodeGenerationConfig, options: CodeGenerationOptions): Promise<boolean> {
+export async function generateCode(config: CodeGenerationConfig): Promise<boolean> {
     logInfo('codegen', 'code generation');
     let hasError = false;
 
@@ -356,7 +386,7 @@ export async function generateCode(config: CodeGenerationConfig, options: CodeGe
         if (!generatedContent) {
             hasError = true;
         }
-        if (options.emit && generatedContent) {
+        if (config.options.emit && generatedContent) {
             // write file may throw error, but actually you don't need to care about that
             logInfo('codegen', chalk`write {yellow ${path}}`);
             await fs.writeFile(path, generatedContent);
@@ -368,7 +398,7 @@ export async function generateCode(config: CodeGenerationConfig, options: CodeGe
         if (!generatedContent) {
             hasError = true;
         }
-        if (options.emit && generatedContent) {
+        if (config.options.emit && generatedContent) {
             // write file may throw error, but actually you don't need to care about that
             logInfo('codegen', chalk`write {yellow ${path}}`);
             await fs.writeFile(path, generatedContent);
@@ -381,7 +411,7 @@ export async function generateCode(config: CodeGenerationConfig, options: CodeGe
         { kind: 'client,server', name: 'api.d.ts', run: createTask('src/shared/api.d.ts', generateWebInterfaceTypes) },
         { kind: 'server', name: 'index.ts', run: createPartialTask('src/server/index.ts', generateWebInterfaceServer) },
         { kind: 'client', name: 'index.tsx', run: createPartialTask('src/client/index.tsx', generateWebInterfaceClient) },
-    ].filter(t => (options.client && t.kind.includes('client')) || (options.server && t.kind.includes('server')));
+    ].filter(t => (config.options.client && t.kind.includes('client')) || (config.options.server && t.kind.includes('server')));
     // console.log('scheduled tasks', tasks);
     await Promise.all(tasks.map(t => t.run()));
 
