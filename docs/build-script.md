@@ -1,144 +1,144 @@
 # Build Script
 
-build script builds, deploys and maintenances the whole project and related projects, which
+A core topic of this project is the unified build script. The build script
 
-- build, deploy and debug core module
-- build and deploy builtin pages include main and user page
-- deploy public assets
-- other devops like lint
-- provide cli to forward other administration commands
-- provide a server executable file to be run on deployment environment, which
-  - provide debug and manage interface for core process, in a really strange way to increase safety
-  - forward administration commands to core process and backward(?) results from core process
-  - host core process for actual debug experience
-- provide build script tools for use in apps development process, which
-  - supports more "traditional" webpack bundler for front end pages
-  - deploy and hot reload front end build artifacts
-  - rpc style api declaration, code generation and support library
+- transpile typescript
+- lint source code
+- bundle multiple source file programs
+- code generation for database model and web api model
+- deploy
+- hot reload static content and application servers
+- other development lifecycle functionalities
 
-in additional
+> The build script executable file name is `akari`, あっかりんーー
 
-- all executable files are all called `akari`, あっかりんーー
-- build script is invoked directly, that is *8* characters
-  less then `npm run akari args` and *5* characters less than `node akari args`
-- build script is written in typescript and it is build by itself, to prevent bootstrap issues,
-  this project tracks the executable file in version control, while bootstrap shell script is still prepared for apps
-- apps can write their own build process (even a similar administration interface like in this project)
-  but some common things are still described here
+### Motivation
 
-## CLI Reference
+The unified build script design was motivated by the complexity and redundancy of configuration files commonly found
+in web application codebases, such as `tsconfig.json`, `babelrc`, `eslintrc` and `webpack.config.js`. These files make
+the project structure horrific and hard to understand and maintain.
 
-(maybe incomplete, maybe out of date)
+In monorepo setups, this challenge is amplified. While some tools support shared configurations accross projects,
+others require duplicating files, leading to potential desynchronization or accidental synchronization. Additionally,
+some tools use hierarchical configuration systems and make it difficult to determine the actual settings applied to
+specific files. And then the `webpack` further complicate matters with extensive and fragmented configuration
+requirements, involving many third-party plugins. This complexity necessitates frequent relearning from various
+tutorials, guidelines, blogs and document sources before the LLM AI era, especially during architectural changes.
 
-```bash
-# basic
-$ akari self
-$ akari public
-$ akari core
-$ akari watch core
-$ akari static
-$ akari watch static
+To simplify this process, this build script avoids the need for separate configuration files by inverse of control,
+instead of providing configuration files for tools to read, this build script leveraging the nodejs APIs of these
+tools. And configuration details are embedded directly within the build script source code, streamlining maintenance
+and reducing cognitive overhead.
 
-# authentication
-$ akari enable-signup
-$ akari disable-signup
-$ akari disable-user 3
-$ akari enable-user 3
-$ akari expire-device 3
+This approach affects some other design decisions and will be called "AC rule" (anti-configuration) in the following
+sections in the document.
 
-# core process service
-$ akari service start
-$ akari service status
-$ akari service stop
-$ akari service restart
-$ akari service is-active
-```
+This approach is not fully compatible with multi-developer projects in open-source communities or commercial companies.
+The absence of a standalone TypeScript configuration file forces vscode to rely on its "implicit project configuration"
+mechanism. This mechanism lacks essential settings for real-time issue detection in the editor and includes unnecessary
+settings that may highlight false positives. This reduces development efficiency, especially when developers have
+varying levels of expertise and habits. Some of these issues are mitigated by vscode new setting features and can be
+found in the `.vscode/settings.json` file, which allows customization of the implicit configuration.
 
-akari (server) should run as background service
+For lint tools, real-time issue detection can be disruptive for work-in-progress code, often producing false positives.
+Based on actual experience, this limitation can improve efficiency by reducing unnecessary distractions during
+development.
 
-## No Build Config File
+The use of nodejs api also enables unique features compared to traditional configuration approaches. By keeping all
+intermediate states and files in memory, this project eliminates the need to design file structures for intermediate
+files across different steps or stages of various build targets. Additionally, final build artifacts are deployed
+immediately, removing the need for temporary storage locations.
 
-normally you will have many config files in a typical web app project,
-include `tsconfig.json`, `webpack.config.js`, `.babelrc`, `eslintrc`, etc.,
-maintaining them is already very hard and harder with the fact that
-webpack is too complex and need to learn again to update related configurations.
+This principle is cool and affects some other design decisions and will be called "NI rule" in this document.
 
-the situation is worse in monorepo that these files are needed for all targets,
-some of the targets does not need some of the files, some types of the files are very
-similar but do need essential difference, some types of the files support reuse while
-some does not consider monorepo at all, these issues makes maintaining configuration
-files in monorepo not suitable for human especially in early development phase with
-frequent changes include large architecture changes.
+### The Make App Easier Movement
 
-this build script, instead of normal approach, uses all tools' node api to construct a single script,
-because nearly all modern front end engineering tools have node api, because most of them want to
-integrite with webpack which requires adapting their node api with webpack's api, while many tools have
-standalone command line interface, a well-designed internal structure will separate a node api to be
-shared between cli and webpack api, webpack itself also have very powerful and complex node api for sure. 
+The major development on this project has restarted in this year (I believe I will not tweak the document which ruin
+the git blame result so will keep the "this year" term). This project was stuck at a refactoring process on this build
+script which then stuck the development process of other applications. Despite this mysterious stuck chain, there are
+many other issues in the old application development process, so this time I'd like to address all of the known issues
+and make developing applications and add new applications easy and smooth.
 
-in detail,
-- typescript: use compiler api, not `ts-loader` or `awesome-typescript-loader`, 
-  because both of them do not support no-config-file usage, while compiler api supports
-- sass: use it's own node api instead of `sass-loader!css-loader!style-loader`
-  (the exclamation mark is how these series of loaders display in webpack statistics),
-  because I'd like to compare this usage to commonly used 'bundle-css-in-js' pattern
-- backend is not using webpack, see following section
-- web pages are not using webpack, because they only have
-  one ts file and it is tranpiled into javascript and served
-- front end webpack configuration is inlined in build script source code
-- eslint node api supports no-config-file usage, actually its command line interface also supports it
+This movement affects some design decisions and will be called "AE movement" in the document.
 
-> vscode eslint is disabled in editor's config because it is annoying in many cases,
-  while vscode have many unexpected or not-designed behavior facing mono repo,
-  especially this mono repo without tsconfig, like its hinting browser javascript
-  global variables in backend code, or complains unknown variable which is implemented
-  by typescript custom transformer in build script
+### Bootstrapping
 
-> update: vscode have provided some more configurations like 'js/ts.implicitProjectConfig.*', which
-  should be designed for "simple projects without tsconfig", this helps a little but not much,
-  actually currently I found that append @ts-ignore directly is more convenientand actually more
-  suitable for not important some false positives.
+The build script is organized in multiple nodejs typescript files. In *old days*, these files required transpilation
+into javascript for execution. To avoid placing a javascript file beside each typescript file or need a separate
+directory to put the javascript files, the transpile result is bundled into one javascript executable, this operation
+is done by the build script itself, which is bootstrapping. An initial bootstrapping shell script was provided to
+compile the early version of the source files into an initial executable file. This executable file would then build
+newer version of the source files, replacing itself after each update.
 
-## Targets
+However, the bootstrapping process introduced significant challenges then anticipated. For example, a runtime bug in
+critical execution path could pass transpile but render the executable non-functional. The design of restart
+bootstrapping from early versions of the source files actually never works. Additionally, since the build script is
+used in application repositories, it requires duplicating full bootstrapping capabilities, adding further complexity
+and suffers from same pitfalls.
 
-### self
+Then nodejs supports directly executing typescript, which casually invalidates the need of bootstrapping.
 
-self and other backend targets are bundled with `mypack` bundler, not webpack, because
-I was experiencing serious performance issues on my deployment environment using webpack
-and typescript watching and rebuilding.
+> nodejs typescript support is added at https://github.com/nodejs/node/releases/tag/v22.6.0.
+> To make things better, the experimental warning is removed several days before the AE movement
+> https://github.com/nodejs/node/pull/58643
 
-It starts from a very simple text joiner to a not very simple but still simple text joiner
-with source map, minify, etc. features, this bundler read file from memory, recognizes
-all `require(".` and replace them with `myimport`, module id (module name) is relative path
-to entry, then join them and generate source map by the way, finally minified if configured,
-this showed that the core functionality of a bundler is not that complex and mysterious.
+The build script no longer needs to build itself, and becomes different from normal build targets. The target file is a
+typescript script, whereas normal build targets produce javascript. The input source files function like a library, but
+the target file includes additional manually written sections to make it an executable script. Normal build targets
+either produce a library from library source code or an executable from executable source code. To handle this, a
+dedicated script, `make-akari.ts`, is implemented to build the build script. This script, referred to as the make
+script in this document, is specifically designed to process and generate the `akari.ts` files.
 
-### core
+The make script first performs type checking on the build script source files using slightly modified compiler options
+compared to normal targets. This process skips javascript emission to improve clarity and speed. Currently, the
+`erasableSyntaxOnly` compiler option is enabled because node does not yet support non-strippable TypeScript syntax,
+such as enums and class constructor parameters as class properties. This limitation is expected to be resolved in
+future nodejs releases.
 
-the core module, the actually implementation for static file, authentication and rpc support,
-see admin server part for more about admin interface and debug host
+Next, the make script lints the build script source files and also lints and type-checks itself to prevent potential
+errors. Since this is a read-only operation on the make script's source code, it avoids the bootstrap issues present
+in the original design.
 
-### public
+The make script processes the build script source files by traversing their TypeScript AST. It collects import
+declarations, ensures external reference consistency (e.g., consistent default and namespace import names for the same
+package), gathers all named imports, and analyzes relative import relationships. After organizing the components, it
+combines the source file contents and inserts them into the target file's partial generation section, between the
+`// BEGIN LIBRARY` and `// END LIBRARY` markers.
 
-deploy public files (copy all files via ssh based ftp)
+This approach makes the resulting build script highly readable and nearly standalone, except for its npm dependencies.
+However, it is prone to accidental modifications since navigating to a definition only leads to the build script file
+instead of the original source files in the `script` folder. These changes are naturally overwritten by the make
+script, causing the loss of edits. To address this, a hash of the auto-generated section's content is added to the
+marker, like `// END LIBRARY 123abcdef`. If the content between the markers has a mismatched hash, a warning is
+displayed, and the make script aborts make process.
 
-### static
+The local and remote parts of the build script need to share message type definitions, but both are typescript modules
+requiring type definitions in their respective target files. Using a `.d.ts` file alongside these modules violates the
+AC rule. Instead, a similar partial generation technique is employed: type definitions are manually copied into the
+local part source file and wrapped with `// BEGIN SHARED TYPE name` and `// END SHARED TYPE name` markers. During
+validation, the content is compared with the original definition in the remote part. This feature is also used to share
+admin interface command type definitions between the build script and the core module.
 
-build builtin pages (home page and user page), home page is now a single standalone html page,
-user page implements login and sign up part for authentication, may be used by apps
+> TODO validate packages in the script and install them if need.
 
-user page now uses react for ui, while react 17.0.1 introduces the
-[new jsx transform](https://reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html),
-which is great readability improvement because no bundler is involved and browser
-and devtools gets typescript transpile result
+> The remaining part of this section are stories and is not important.
 
-### app
+I spent several days for this section, because I cannot explain clearly why the requirements and constraints leads to
+this design, why is copy source code around a good idea? But that's not the actual thinking process, I first
+implemented the new bundle approach, the partial code generation mechanism and the generated content hash experience,
+then think up of this design as a whole because it is cool. I tried to reject AI recommendations to make the decision
+looks reasonable. AI says I can publish the package, publish the package to private registry, use `npm link` to link
+packages in development time, or use npm local file dependency
+https://docs.npmjs.com/cli/v11/configuring-npm/package-json#local-paths
+(this feature is new to me), I rejected that this script is not a package, this is true, because this script is too
+dedicated to be a common package. AI also recommends relative path import, although marked with hacky, this is easy to
+reject because it relies on local file structure and adds step to project setup. AI also suggestes symbolic link, which
+is actually used in the old design, but based on my current experience, the shell script to make symbolic links is too
+hard to understand and too not structural, which is even actually worse than the relative import approach. And then the
+remaining option, copy source code around still does not seem reasonable...so I give up and directly explain what
+happens instead of find a reason.
 
-TODO use make-akari.ts to assmeble other repository's akari.ts
-compare original makelink and add their own script folder and target.ts and index.ts and bootstrap workflow
-
-app ui and backend target is not available in this project, they need to
-access script/tools and src/adk and some other files or directories to work
+Quote old rejection because I forget I wrote this and now this section is called complete I'm lazy to integrate them.
 
 - it is not suitable to submodule app projects in this project, because it is really strange
   to include apps in a reverse proxy project, I did not split them to include them together again
@@ -151,171 +151,299 @@ access script/tools and src/adk and some other files or directories to work
   and static pages) while actually static content implementation, admin interface implementation is
   tightly coupled with logics in build script, so split repo approach is also not good
 
-and the final (currently) solution is to symbolic link related directories and files into
-app's development directory, it prevents the "forget to deploy adk" error in current akari (app)
-implementation (although this have never been mentioned in script)
+There was several standalone javascript scripts for each target in early days of this AE movement, because at that time
+the old build script completely stuck on its bootstrap cycle and cannot work, so I'd like to start rebuild the core
+module first, and developped a `build-core.js` script (I'm not aware the type stripping feature of nodejs at that
+time), initially implemented the new bundler that does not wrap contents in a function, try AI to implement the import
+declaration parser and finally implemented a complete version on my own. After the core module works, I need to invoke
+admin interface commands to reload the user page to implement and test for the new authentication feature, the original
+local-remote communication is...very strange, and is stuck in the old build script and cannot be easily recovered, if
+you are interested in the old version, you can even find a core host feature that host the core module as a subprocess
+and directly send command to it or receive output from stdout. So I implemented a `command-center.js` and try new
+approaches that allow this script to be interactive and only send human triggerred commands from remote to local to in
+theory keep the original security principle that admin interface cannot be easily invoked from external commands, this
+local scripts `build-core.js` and `build-user.js` are made non interactive and that proved inconvenient so lead to the
+current double interactive script design. And with several runnable `build*.js` implementations, and learn from old
+component split pattern, the current `script/components` project structure is implemented as current design.
 
-mapped directories and files include
+### Local-Remote Architecture
 
-- `script/tools`, combinator part of build script
-- `src/adk`, rpc(api) related common logics
-- `script/common.ts`, common utilities used in script/tools
-- `src/shared/auth.d.ts`, authentication related types used in rpc
-- `src/shared/admin.d.ts`, admin command types, although apps only
-   need several commands, it is strange to split them into multiple files
+First, the core server process requires an admin interface for hot reloading and controlling switches. Instead of
+exposing a GUI interface on the web, which increases the attack surface, a Unix domain socket interface is exposed
+locally on the server. To integrate this interface into the build script's deployment process, a dedicated script is
+implemented. This script runs on the server to receive messages from the local build script, send messages to the
+server process, and handle other tasks. This script is called `remote-akari.ts`, it is referred to as the "remote part"
+in this document, and the other is local part, the remote part is previously called "akari (server)" in this document.
 
-the deploy script is in `script/makelink`, which is a bash script and not need transpile
+The remote part sets up a WebSocket server to handle connections from the local part. Once a WebSocket connection
+is established and authenticated, the remote part listens for messages. After the local part completes validation,
+transpilation, and bundling, it sends the resulting file through the WebSocket connection. The remote part writes the
+file to the deployment location and forwards a hot reload command from the local part to the server process's admin
+interface. The response from the server process is then relayed back to the local part.
 
-## Administration Interface
+Additionally, the remote part manages another WebSocket protocol for web pages served by the server process or
+individual applications. The local part can send browser reload commands, which the remote part forwards to the browser
+to trigger a page reload. The small code snippet runs on browser that connects to this websocket server is also served
+in the http server of the websocket server. This mechanism is similar to how `webpack-dev-server` handles live reload
+of web pages.
 
-// TODO this is now remote command center architecture
+> By the way, there is a `reload-css` command in old browser communication mechanism to only reload css file,
+> but now I do not have separate css file so this command is not supported, RIP `reload-css`
 
-I have no traditional administration page (mainly for security reasons),
-but admin operations is actually needed so they are implemented in a very starge way.
+> The following part are stories and is not important.
 
-an admin command is normally sent by akari (local),
-handled and forward by akari (server) or handled by core module
+For reference, the old implementation before the AE movement was vastly different. The akari (server) would first start
+an HTTP server and generate a random key and initialization vector for symmetric encryption. The local build part would
+then retrieve these encryption parameters via SFTP download. When the local part needed to send a message, it would
+encrypt the message in the HTTP request and handle the response precisely based on the message type. For instance, it
+would pipe `systemctl` command output to stdout, as the akari (server) is a service and not designed to display
+arbitrary information in real time. One of the most facinating aspects of the original design was its ability to host
+the core server process and pipe its output through the akari (server), over an HTTP connection, and display it on the
+local part. While undeniably cool, this design made communication handling overly complex and unstable. It also
+employed unconventional methods for security — on one hand, "strange" methods should not be relied upon for security;
+on the other hand, this design was secure because my SSH identity is secure, preventing unauthorized users from
+sending valid messages to the akari (server), even if they read and understandd the source code.
 
-### akari (server)
+During the early stages of the AE movement, a temporary implementation was introduced. The server-side executable was
+named `command-center.js`, and it became known as the "command center" in subsequent discussions. This implementation
+was born out of frustration with the cumbersome workflow: I had to manually switch between the local shell to input
+build commands and the server-side shell to execute a small script for sending admin commands to trigger hot reloads,
+even for minor application source code changes. To streamline this process and maintain development momentum, I
+quickly implemented a new local-remote communication system.
 
-akari (server) is another self target of build script,
-it runs on deployment environment works as a background service,
-it is actually a http server and websocket server handling custom requests,
-it is not integrited with core module is for hot reload and self host features.
+The command center started a WebSocket server, which the local part would connect to. Since WebSocket does not support
+authentication headers, I devised a human-in-the-loop authentication scheme. The command center would generate a token,
+display it on the remote side, and require me to manually copy and input the token into the local part. Once
+authenticated, no additional connections were allowed. In this design, only the remote command center was interactive,
+requiring me to input commands there, while the local part passively listened for remote messages and initiated the
+local build process. To adhere to the original strict limits on the remote part's receiving side, the local part was
+restricted to sending only a simple ok flag to indicate whether to proceed. To simplify the authentication process, the
+WebSocket server would stop responding to further messages after authentication. Instead, the local part used an HTTPS
+endpoint to send its status report. However, this design introduced significant complexity and stability issues.
+Real-world usage revealed that the two local-initiated operations—SFTP file uploads and HTTPS POST requests—were
+painfully slow. Each operation often took 2–3 seconds, and occasionally over 10 seconds, partially due to the overhead
+of initiating new TLS connections.
 
-### Hot Reload
+Ultimately, I designed and implemented a fully WebSocket-based solution. This new design is blazingly fast, enabling
+seamless file transfers and admin command execution. It has proven to be far more efficient and stable than its
+predecessors, marking a significant improvement in the development workflow.
 
-although the core module is very small and starts up really quickly, it is still
-not convenient and suitable to restart the core process everytime any change happens,
-so there is hot reload mechanism for everything other than core functionality
+### File System Watch
 
-for app servers, they are in separate process, see build-script.md and rpc.md for detail
+File system watching was implemented in the old version, it is not implemented currently because it changes how the
+invocation of components are organized and need new design, I'd like to implement a simpler poll based watch mechanism,
+like read file per 10 seconds should be very enough for the purpose of the build script.
 
-for builtin web pages and other app's web pages, they are frequently accessed while
-require immediate update after new build result deployed, the common and widely used
-approach is file system watchers, *BUT* they are not stable, not compatible
-between platforms (although I have never planned to run this server on Windows or Mac OS,
-but most part of this project should be platform independent) and complex to use, so
-I'm using an admin command to try to reload new contents instead of using any operating
-system provided file system watching mechanism, see src/core/content.ts for detail
+The file system watching based auto rebuild is very cool that it automatically detects source code change, triggers
+rebuild, automatically deploy and hot reload, and automatically reloads web page in the end. But my current experience
+of lacking file system watching works quite well and I don't need to avoid saving file when I don't want to the
+automatic process starting.
 
-webpack dev server has the feature to hot reload css or reload page for javascript changes,
-it is actually not hard to add to app's build process
+By the way, (because seems no other place to talk about this), core module static content handling does not use file
+system watching, because that's too unreliable for the purpose, I struggled very long time in old days and finally
+settled down at the current fully external command triggered hot reloading design.
 
-> but it is not that simple regarding the web browser is opened on local environment (the same
-  machine runs akari (local)), while at some other time I need to test web pages on mobile
-  device, akari (local) and the web page still need a well known address to communicate with,
-  and that is exactly the akari (server)
+### TypeScript
 
-1. a `client-dev.js` is served from akari (server), containing dev mode code,
-   this element is added by when watching app's ui target, by pretending there is additional build result
-2. the code will connect to the websocket server (also hosted by akari (server)) and reads
-   reload command from akari (server) forwarded from akari (local), one of
-   - `reload-all` refresh the complete page
-   - `reload-css` which removes the css link element and adds back again, the css file is marked 'must-validate' cache control and will be reload by browser
+The typescript module is simple for now, you `ts.createProgram`, then `program.emit`, use the second parameter of the
+`emit` function to write file into memory, and done the process to type check and transpile typescript for non-project
+and non-watching programs.
 
-there is no cli interface for this reload command because it is integrited in building process
+> Following are old topics and not important.
 
-## RPC API Framework
+To make things better, all build targets now leverage the latest features of ECMAScript modules. The previously complex
+`target`, `module`, and `moduleResolution` compiler options have been standardized to their `*Next` variants, which
+work seamlessly.
 
-it is common for app to have backend and provide web api
+To make things better, source maps are no longer supported in the build script, a deliberate decision made during the
+AE movement. In the past, the core module relied on source maps to display enhanced error messages. However, this was
+identified as a design flaw and has since been rectified. Instead, the minified output is split into multiple lines,
+allowing error message location information to remain effective without the overhead of source maps.
 
-app servers were originally designed to be in-process and loaded by simple `require` function,
-but new apps become complex and have its own other services to host, it is hard to unload
-the services (incorrect unload leads to memory leak, resource leak or error (like port in use)),
-and critical error makes the core module unstable (unhandled error and unhandled rejection leads to restart),
-so these new apps are deployed on their own, communicating with core process by domain socket, sending
-json as plain text, the socket connections are pooled to prevent frequent open and close
+To make things better, typescript has introduced several new compiler options for enhanced checking and linting,
+enabling the detection of more potential issues. These options have been incorporated into the build script, further
+improving code quality and reliability.
 
-> this is also why this project is categoried from "website" to "reverse proxy"
+To make things better, in old days, the introduction of the `jsx-runtime` concept by React was a notable development.
+At the time, I was constrained to React 16 due to compatibility issues with `antd`. To overcome this, I studied the
+official JSX runtime source code and implemented a custom JSX runtime. Thankfully, this workaround is no longer
+necessary with modern updates.
 
-and writing api declaration twice (or sometimes more times) in front end and back end is boring and error prone,
-so there is code generation part to make front end calling back end looks like a function call (like *rpc*)
+To make things better, the adoption of CSS-in-JS for styling has eliminated the need to manage separate style files.
+This change has streamlined the build process, allowing the TypeScript module to reclaim the `transpile` function,
+which was previously used by the now-obsolete `sass` module.
 
-### File Upload
+### Lint
 
-to prevent large file to be transmitted through domain socket, it is saved to real file system and send a path,
-app server may delete the file after use, or rename to its own place to keep it, core module will delete these
-files after, like 1 month, there should be no app server need them after this long time
+The `eslint` package has transitioned from using `eslintrc` to `eslint.config.js`, evolving its configuration model
+from `Configuration` to `FlatConfig` over the years. This transition aligns with this project's timeline, with the
+final adoption occurring in 2024. The `eslint` component has been upgraded to the latest Node.js API, and several
+rules with high false-positive rates have been excluded. These updates have been seamlessly integrated into the build
+process.
 
-### File Download
+### Bundle
 
-to prevent large file to be transmitted through domain socket, also implementing (should be) commonly used
-cache feature, core module knows all (will download) file requests (in memory and persist storage) and will
-not call app server when cache is fresh, use rename instead of copy by requesting app server's saved file's
-ownership will reduce one file copy, app servers use websocket's reverse domain socket to request for a slot
-for a file request, a slot (not the cache) is permanent for path (url path) in specific app, so furthur request
-(app server does not need to save the mapping for slot id and path) will only return previously allocated slot id,
-use slot id not path (include file name) will make the request look good (content.domain.com/{guid}) also prevent
-malisious (maybe not, just curious) try file path attempt, limiting content request to my own website only
+Bundling is always the core topic of the build script.
 
-### TODO Streaming Response
+> This belief stems from years of reading of the README file, However, revisiting the older content of this document
+> reveals a different origin story. The custom bundler was initialy motivated by the limitations of my low
+> performance dev machine which struggled to handle the overhead of vscode Remote SSH combined with `webpack`, fine.
 
-although streaming response is not powerful as websocket, but LLM AI streaming completion need this
+The bundler is called `mypack`, provides a streamlined alternative to the industry-standard bundler `webpack`. Unlike
+`webpack`, mypack does not bundle vendor modules or rely on a bundler runtime.
 
-### Alive Connection
+Initially designed for backend targets, whose build result can directly import from `node_modules` without the need of
+packing vendor packages. Mypack is later adapted for simple web pages that use CDN imports for external dependencies.
+Bundling vendor packages adds another level of complexity, while modern ECMAScript module CDN imports address issues
+like missing tree shaking in UMD bundles. As a result, mypack is likely to remain no-vendor.
 
-I mean websocket, websocket will be implemented as 2 separate domain socket connection for different direction, the
-authentication part can be done via send access-token in Sec-Websocket-Protocol header, which is the only allowed
-customizable header in websocket's http upgrade request, custom header is not allowed, body is not allowed, and cookie
-is not available while cross origin (TODO: determine whether this part should be in auth.md), websocket is useful
-for both current actively developing apps
+The old implementation of mypack used a conventional approach, wrapping each module in a function and relying on a
+bundler runtime to manage relative imports. However, during the AE movement, it became clear that `mypack` primarily
+handles simple inputs—few source files, minimal external dependencies, and straightforward relative imports. The
+function wrapper pattern also limited `terser`'s ability to optimize across module boundaries. To address these issues,
+the bundler is redesigned to directly merge module contents.
+The new approach begins by tranversing the TypeScript AST to identify top-level item names and ensure no duplicates.
+Import declarations are parsed from JavaScript content instead of the TypeScript AST to simplify filtering out type
+imports. External references are consolidated to ensure consistent namespace and default import names across modules,
+preventing runtime errors or the need for renaming in all usage locations. Relative imports are analyzed to establish
+dependency order and detect recursive dependencies. While these checks are not strictly necessary due to function
+hoisting and limited use of global variables, enforcing them improves clarity and structure of module relationships.
 
-### Public API
+> TODO the make script is using typescript AST to collect imports and works well, while considering the defact that
+> current parsing implemation does not support multiline import declarations, I maybe change mypack to also work on
+> typescript AST later.
 
-public api is be provided at `api.domain.com/public/<app>/v1/`, not `api.domain.com/<app>/v1/public` because it is
-not easy and duplicate work to parse version segment, `api.domain.com/<app>/public/v1` is strange, rate limiting may
-not only be applied on public api because a native http client is very capable of pretending formal web site, I'd
-like adding some strange requirement to request to prevent easy frequent access from browser or simple script code,
-like strange header, or even token for public
+For web pages, the old implementation required manually adding `<script>` elements in HTML files to reference CDN URLs.
+The new approach leverages ECMAScript module syntax in `<script type="module">` elements, such as
+`import React from 'https://somecdn/react@19.1.0'`. Source code uses `import React from 'react'` for TypeScript
+language service compatibility, and the module specifier is updated to a CDN URL during the build process. The version
+segment in CDN URLs is derived from `package.json` to ensure compatibility. Subpath imports, such as `react-dom/client`
+or `dayjs/plugin/utc`, are resolved using longest-match resolution to correctly map dependencies to CDN URLs. Any
+unresolved external references result in errors, indicating typos or configuration issues.
 
-### Rate Limit
+After resolving imports, module contents are combined by removing import declarations and stripping `export` keywords
+from non-entry modules. The combined output is then minified using `terser`. A bundle report summarizes included
+modules, their sizes, and the final bundle size, both uncompressed and compressed. This reporting feature is inherited
+from the old implementation and inspired by `webpack`'s compilation result display.
 
-TODO update according to current implementation
+### Code Generation
 
-rate limit: see https://www.nginx.com/blog/rate-limiting-nginx/, I'd prefer burst=20+nodelay, which limits like 
-1 request per second, but permits 20 requests burst, that is 21 request come at one time (in one second), they
-are allowed to forward, but additional requests will allocate slot in bucket, and they deallocate after rate
-interval, in this case, deallocate one by 1 second, note that expire time is determined at allocation time, because
-duration the deallocation interval new burst may come and you can not simple deallocate one per second, and
-more request (bucket overflow) will simple throw 503 service unavailable with message bucket overflow at caller,
-the leaky bucket's leaky part is actually discard access record in previous duration when previous duration expires,
-which implements constant leak rate, CLR(?), this rate limit is applied in forward.ts, and underlying algorithm
-is abstracted and put in adk
+A code generation mechanism has been introduced to streamline the management of boilerplate code when adding, removing
+or modifying web APIs. Specifically, it automates the creation of front-end wrappers for `fetch` calls, converting
+function parameters to URL parameters, handling authentication, managing errors, and processing response bodies. On the
+backend, it generates dispatchers to receive requests from the core module, deserialize them, route them to the
+appropriate API implementation functions, collect return values, and handle errors before returning responses to the
+core module. This approach simplifies application development by making web API interactions resemble direct function
+calls, abstracting away the complexities of web interfaces, reverse proxying, and authentication.
 
-TODO update to current implementation
+Additionally, a new code generation configuration for database models has been added. It automates the generation of
+database table definitions and type definitions, improving backend development efficiency.
 
-first, `api.xml`
+The code generation module begins with simple API definitions, generating straightforward wrappers for complex path
+segment parameters and a sophisticated separate-process server architecture. Leveraging this experience, I developed an
+industry-grade code generation tool capable of handling extensive scales *in my work*, including:
+
+- Hundreds of database tables with over 8000 columns.
+- More than 800 web APIs and their types.
+- Support for 20+ target types, generating 400+ files with over 200k lines of code across five programming languages.
+
+This scale introduces intricate cross-relationships across the application and development process, such as:
+
+- Validating column default values against column sizes.
+- Ensuring table aggregation logic aligns with column data types.
+- Maintaining consistent display names for columns across UI and data migration templates.
+- Validating API names against allowed table names for specific migration schemas.
+- Deriving API types from database types for common fields, simplifying data mapping.
+- Managing database schema upgrades while validating release note changes.
+- Generating business logic stored procedures and ensuring consistency with backend logic.
+
+All of these features not coming to this project because it's too simple. 😅
+
+input configuration file example `database.xml`:
+
 ```xml
-<xs:element name="api">
-  <xs:complexType>
-    <!-- default to 'default' -->
-    <xs:attribute name="namespace" type="xs:string" />
-    <!-- is script function name, so cannot have whitespace or hyphen -->
-    <xs:attribute name="name" type="xs:string" use="required" />
-    <!-- can be GET|PUT|POST|PATCH|DELETE -->
-    <xs:attribute name="method" type="xs:string" use="required" />
-    <!-- is normal url path with optional `{name:type}` segament -->
-    <!-- name cannot have whitespace or hypthen, type is limited to id|number|string|boolean|date|datetime -->
-    <xs:attribute name="path" type="xs:string" use="required" />
-    <!-- required when method is PUT|POST|PATCH -->
-    <xs:attribute name="body-type" type="xs:string" />
-    <!-- required when method is PUT|POST|PATCH -->
-    <xs:attribute name="body-name" type="xs:string" />
-    <!-- default to void -->
-    <xs:attribute name="return-type" type="xs:string" />
-  </xs:complexType>
-</xs:element>
+<?xml version="1.0" encoding="utf-8" ?>
+<database name="YALA">
+  <table name="Session">
+    <primary-key field="SessionId" />
+    <field name="SessionId" type="id" />
+    <field name="UserId" type="int" />
+    <field name="Name" type="string" size="100" />
+    <field name="Comment" type="text?" />
+  </table>
+  <table name="Message">
+    <primary-key field="SessionId,MessageId" />
+    <foreign-key field="SessionId" table="Session" />
+    <field name="SessionId" type="id" />
+    <field name="MessageId" type="int" />
+    <field name="Role" type="string" size="32" />
+    <field name="Content" type="text" />
+  </table>
+</database>
 ```
 
-app's can invoke code generation tools for generate front end and backend code,
-backend code is now inverted to declare an interface to dispatch and let caller to implement the interface
+input configuration file example `api.xml`:
 
-## Security Considerations
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<api name="yala">
+  <type name="Session">
+    <field name="id" type="id" />
+    <field name="name" type="string" />
+    <field name="comment" type="string?" />
+    <field name="createTime" type="datetime?" />
+    <field name="updateTime" type="datetime?" />
+  </type>
+  <type name="Message">
+    <field name="id" type="id" />
+    <field name="role" type="string" />
+    <field name="content" type="string" />
+  </type>
+  <type name="ShareSessionResult">
+    <field name="id" type="string" />
+  </type>
+  <!-- this returned entity does not contain messages -->
+  <action key="main" name="GetSessions" return="Session[]" />
+  <action key="main" name="GetSession" a1="sessionId" return="Session" />
+  <!-- for public api, path logic will exclude the Public prefix in name,
+    generated backend function call and front end function wrapper will include the Public -->
+  <action key="share" name="PublicGetSession" public="true" a1="shareId:guid" return="Session" />
+  <action key="main" name="AddSession" body="Session" return="Session" />
+  <action key="main" name="UpdateSession" body="Session" return="Session" />
+  <action key="main" name="RemoveSession" a1="sessionId" />
+  <action key="main" name="AddMessage" a1="sessionId" body="Message" return="Message" />
+  <action key="main" name="UpdateMessage" a1="sessionId" body="Message" return="Message" />
+  <action key="main" name="RemoveMessageTree" a1="sessionId" a2="messageId" />
+  <action key="main" name="CompleteMessage" a1="sessionId" a2="messageId" return="Message" />
+</api>
+```
 
-1. akari (server) can only start by hand and auto shutdown after 3 hours of inactivity (3 hour is, I think, the longest time I will spend thinking or write raw code while developing)
-2. client my code source map (include source content) is served only when akari (server) is on, vendor source map is not generated or served because of performance not security
-3. it does not use api (app-server)'s authentication machenism but require commands to be encrypted, the symmetric encryption key is generated when akari (server) starts and store in a file and download through ssh by akari (local)
-4. javascript files are not sent through http connection but only sftp connection, because it is dangerous to deploy exectuable files through unauthenticated connection
-5. log files are not downloaded through http connection but only sftp connection, because they may expose server important internal values
-6. add special changing header value to make non official native client hard?
+The generated api url use hyphen names and query parameters, for example
+
+- `GetSessions()`: `GET /sessions`
+- `GetSession(sessionId)`: `GET /session?sessionId=`
+- `UpdateSession(session)`: `POST /update-session` and json body
+- `RemoveMessageTree(sessionId, messageId)`: `DELETE /remove-message-tree?sessionId=id&messagId=id`
+
+Specification
+
+- `key`: group related actions, for now, main page actions use `main`
+- `name`: action name is converted to camelCase in function names at both side
+- method: starts with `Get`: `GET`, start with `Add`: `PUT`, start with `Remove`: `DELETE`, others: `POST`
+- pathname: remove the `Get` prefix, and change PascalCase to hyphen separated
+- arguments `a1`, `a2,`, `a3`, `a4`: may be simple name or `name:type` format
+  - if argument name ends with `Id`, argument type is `id`
+  - should not use `id` as argument name
+  - for now if type is not provided, argument type is always `id`
+  - for now available argument types `id`, `guid`
+- `body` and `return` normally is custom complex type name, `body` is not allowed in `GET` actions
+- `public` use true for public api that does not require authentication,
+  full url for normal api is like `https://api.example.com/appname/v1/session?sessionId=123`,
+  full url for public api is like `https://api.example.com/appname/public/v1/session?sessionId=abcd`
+- action type field type can use `?` to indicate optional, result in typescript interface property optional
+- for now action type field types: `id`, `int`, `string`, `datetime` and other custom types or array of them
+  `id` and `int` use typescript type `number`, `string` and `datetime` use typescript type `string`, `datetime` is iso8601 format
+- database column allowed type `id`, `int`, `string`, `datetime`, `guid`, `text`
+  for now `id` use `INT` in database
+
+More about multi app structure and app server-core module communication detail see `multi-app.md`.

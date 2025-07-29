@@ -76,7 +76,7 @@ for reference
 the actual workflow implemented here
 
 1. An end user attempts to access a protected service.
-2. The application (app1.example.com) redirects end user to identity provider (id.example.come),
+2. The application (app1.example.com) redirects end user to identity provider (id.example.com),
    parameters only include `return=app1`, the return address will be calculated from this,
    no need to use state parameter because if I accidentally save information to another user, I can fix that in db
 3. The user authenticates with the identity provider
@@ -87,13 +87,13 @@ the actual workflow implemented here
 
 ### Design Principles
 
-- all server side authentication operations happens at api.example.com, same as before
-- the identity provider need ui, but api.example.com does not have ui,
-  so the ui is at id.example.com, no need to put ui at each application,
+- all server side authentication operations happens at `api.example.com`, same as before
+- the identity provider need ui, but `api.example.com` does not have ui,
+  so the ui is at `id.example.com`, no need to put ui at each application,
   this subdomain also looks better then auth.example.com or login.example.com
-- if id.example.com is opened with ?return, it will return when or after signed in,
-  if opened with no parameter, it is user management page
-- application may open with pathname, it should save the pathname or other state before redirection
+- if `id.example.com` is opened with ?return, it will return when or after signed in,
+  if opened with no parameter, it is a user management page
+- application may open with pathname and query, it should save the pathname or other state before redirection
   and recover after authenticated if need, this makes identity provider parameter looks better
 - no static password, only authenticator password (otp password),
   when you don't have normal fixed password, you don't have to remember that and cannot leak password
@@ -110,6 +110,7 @@ the actual workflow implemented here
 - still auto refresh access token at server side, eliminate the requirements to refresh token workflow
 - application's access token is stored in memory and not in localstorage or similar storage,
   open page will automatically require new access token, this token is stored in server memory not database
+- public api is served at `api.example.com/appname/public/v1/...`, public api have more strict rate limit
 
 ### Security Considerations
 
@@ -169,6 +170,9 @@ CREATE TABLE `UserSession` (
 ```
 
 ### API Reference
+
+TODO this api list is not complete and may contain outdated information,
+you may update this to a not this manual flavor format
 
 - `POST /api/signin`
   - allow origin id.example.com
