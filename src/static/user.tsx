@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { css } from '@emotion/react';
@@ -242,7 +242,27 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
     handleSetSessionName: (newSessionName: string) => void, 
     handleSignOutComplete: () => void,
 }) {
-    const styles = manageTabStyles;
+    const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 600px)').matches);
+    const styles = useMemo(() => createManageTabStyles(narrow), [narrow]);
+
+    useEffect(() => {
+        modalContainerElement.style.marginLeft = narrow ? '-32px' : '-80px';
+    }, [narrow]);
+    useEffect(() => {
+        let resizeTimer: any;
+        const handleResize = () => {
+            if (resizeTimer) { return; }
+            resizeTimer = setTimeout(() => {
+                setNarrow(window.matchMedia('(max-width: 600px)').matches);
+                resizeTimer = null;
+            }, 200);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            if (resizeTimer) { clearTimeout(resizeTimer); }
+        };
+    }, []);
 
     const [userName, setUserName] = useState<string>(user.name);
     const [userNameEditing, setUserNameEditing] = useState(false);
@@ -422,12 +442,14 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
             <div css={styles.modalContent1}>Are you sure to <b>GRANT ACCESS</b> to the application and redirect to</div>
             <div css={styles.modalContentLink}>{returnAddress}</div>
             <div css={styles.modalContent2}>You can REVOKE ACCESS later on this page.</div>
-            <button css={styles.modalButton} onClick={handleGrantConfirm}>CONFIRM</button>
-            <button css={styles.modalButton} onClick={handleGrantDecline}>DECLINE</button>
+            <div css={styles.modalButtonContainer}>
+                <button css={styles.modalButton} onClick={handleGrantConfirm}>CONFIRM</button>
+                <button css={styles.modalButton} onClick={handleGrantDecline}>DECLINE</button>
+            </div>
         </>, modalContainerElement)}
     </div>;
 }
-const manageTabStyles = {
+const createManageTabStyles = (_narrow: boolean) => ({
     modalTitle: css({
         fontWeight: '600',
     }),
@@ -443,12 +465,15 @@ const manageTabStyles = {
         marginTop: '8px',
         fontSize: '14px',
     }),
+    modalButtonContainer: css({
+        marginTop: '8px',
+        display: 'flex',
+        flexFlow: 'row-reverse',
+    }),
     modalButton: css(sharedStyles.button, {
         width: '80px',
         height: '28px',
         fontWeight: 'bold',
-        marginTop: '8px',
-        float: 'right',
     }),
     tab: css({
         paddingTop: '8px'
@@ -522,7 +547,7 @@ const manageTabStyles = {
             background: '#db6765',
         },
     }),
-};
+});
 
 // normally root component is App, but this is not an app, so Page
 function Page() {

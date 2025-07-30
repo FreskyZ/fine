@@ -437,17 +437,16 @@ export interface AdminInterfaceResponse {
 }
 // END SHARED TYPE AdminInterfaceCommand
 
-let adminInterfaceReconnectCount: number = 0;
-let adminInterfaceConnection: net.Socket = net.connect('/tmp/fine.socket');
+let adminInterfaceConnection: net.Socket;
 const adminInterfaceResponseWakers: Record<number, () => void> = {};
 function connectAdminInterface() {
-    if (adminInterfaceReconnectCount >= 3) {
-        logError('admin-interface', 'connect retry time >= 3, you may manually reconnect later');
+    try {
+        adminInterfaceConnection = net.connect('/tmp/fine.socket');
+    } catch (error) {
+        logInfo('admin-interface', `connect error`, error);
         return;
     }
-    adminInterfaceConnection = net.connect('/tmp/fine.socket');
     adminInterfaceConnection.on('connect', () => {
-        adminInterfaceReconnectCount = 0;
         logInfo('admin-interface', `connected`);
     });
     adminInterfaceConnection.on('data', data => {
@@ -470,23 +469,24 @@ function connectAdminInterface() {
     adminInterfaceConnection.on('error', error => {
         adminInterfaceConnection = null;
         logError('admin-interface', 'error: ', error);
-        adminInterfaceReconnectCount += 1;
-        connectAdminInterface();
     });
     adminInterfaceConnection.on('timeout', () => {
         adminInterfaceConnection.destroy(); // close is not auto called after this event
         adminInterfaceConnection = null;
         logError('admin-interface', 'timeout, abort connection');
-        adminInterfaceReconnectCount += 1;
-        connectAdminInterface();
+    });
+    adminInterfaceConnection.on('close', () => {
+        adminInterfaceConnection = null;
+        logInfo('admin-interface', 'connection closed');
     });
 }
 
 connectAdminInterface();
 let adminInterfaceCommandIdNext: number = 1;
 async function sendAdminCommand(command: AdminInterfaceCommand) {
-    if (!connectAdminInterface) {
+    if (!adminInterfaceConnection) {
         logError('admin-interface', "not connect, use 'connect admin interface' to connect");
+        return;
     }
     const commandId = adminInterfaceCommandIdNext;
     const commandWithId: AdminInterfaceCommand & HasId = { id: commandId, ...command };

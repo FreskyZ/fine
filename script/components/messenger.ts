@@ -69,8 +69,9 @@ export async function connectRemote(ecx: MessengerContext) {
                 resolve(await connectRemote(ecx));
             }
         });
-        websocket.addEventListener('error', async error => {
-            logInfo('tunnel', `websocket error:`, error);
+        websocket.addEventListener('error', async () => {
+            // this event have error parameter, but that does not have any meaningful property, so omit
+            logError('tunnel', `websocket error`);
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));

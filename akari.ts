@@ -2,7 +2,7 @@ import readline from 'node:readline/promises';
 // END IMPORT
 // components: minify, mypack, sftp, typescript, messenger, eslint, common
 // BEGIN LIBRARY
-import { createHash } from 'node:crypto';
+import crypto, { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Interface } from 'node:readline/promises';
@@ -995,8 +995,9 @@ async function connectRemote(ecx: MessengerContext) {
                 resolve(await connectRemote(ecx));
             }
         });
-        websocket.addEventListener('error', async error => {
-            logInfo('tunnel', `websocket error:`, error);
+        websocket.addEventListener('error', async () => {
+            // this event have error parameter, but that does not have any meaningful property, so omit
+            logError('tunnel', `websocket error`);
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));
@@ -1191,7 +1192,7 @@ async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsse
         }
     }));
 }
-// END LIBRARY bcaea0c95a90b7618cfa1db4a82093b1a67cb5ed6b68b6f506fa3e6d4f977a88
+// END LIBRARY 6214f2ac412ea20c8181d3ed393953579941d8952e16d71f36f992a3d36fb9a9
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
