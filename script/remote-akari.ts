@@ -587,6 +587,12 @@ for await (const raw of interactiveReader) {
     } else if (line == 'reload yala') {
         await sendAdminCommand({ kind: 'static-content:reload', key: 'yala' });
         interactiveReader.prompt();
+    } else if (line.startsWith('reload static ')) {
+        await sendAdminCommand({ kind: 'static-content:reload', key: line.substring(14).trim() });
+        interactiveReader.prompt();
+    } else if (line.startsWith('reload server ')) {
+        await sendAdminCommand({ kind: 'app:reload-server', name: line.substring(14).trim() });
+        interactiveReader.prompt();
     } else if (line == 'display application sessions') {
         await sendAdminCommand({ kind: 'access-control:display-application-sessions' });
         interactiveReader.prompt();

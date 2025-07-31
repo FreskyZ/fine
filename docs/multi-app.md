@@ -80,3 +80,14 @@ streaming response
    1. add empty implementations in index.ts
    2. make akari.ts run
    3. run remote akari.ts, run akari.ts with remote
+
+or not that major
+
+1. new folder small/smallapp
+2. hand written index.html and hand written inline javascript, copy startup function and small modification
+3. hand written index.js, copy class MyError, handle written dispatch function, handle parse ctx.path, return { body } or { error }
+4. copy mysql.createPool, implement db query
+5. add static content app.example.com: smallapp: static/smallapp.html
+6. add app: host: app.example.com, server: smallapp.js
+7. akari.ts upload index.html: static/smallapp/index.html, index.js: servers/smallapp.js
+8. restart server

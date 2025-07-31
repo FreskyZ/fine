@@ -239,6 +239,7 @@ function generateWebInterfaceTypes(config: CodeGenerationConfig): string {
                 'int': 'number',
                 'datetime': 'string',
                 'string': 'string',
+                'bool': 'boolean',
             }[field.type] ?? field.type;
             sb += `    ${field.name}${field.nullable ? '?' : ''}: ${type},\n`;
         }

@@ -1332,6 +1332,9 @@ async function dispatch(command: string[]) {
         await buildIdentityProvider();
     } else if (command[0] == 'core') {
         await buildCore();
+    } else if (command[0] == 'upload' && command[1] && command[2]) {
+        await deploy([{ data: await fs.readFile(command[1], 'utf-8'), remote: command[2] }]);
+        logInfo('akari', chalk`upload ${command[1]}`);
     } else if (command[0] == 'with' && command[1] == 'remote') {
         const ecx: MessengerContext = {
             readline: readline.createInterface({

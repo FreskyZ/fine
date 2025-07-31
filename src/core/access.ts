@@ -79,7 +79,17 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
     if (ctx.origin == 'https://id.example.com') {
         ctx.state.app = 'id'; // use id (identity provider) for id.example.com
     } else if (ctx.origin == 'https://app.example.com') {
-        ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
+        const referrer = ctx.get('Referer');
+        // - cannot validate against request path when requesting /user-credentials and /signin, referrer seems work
+        // - normal request (referrer-policy: strict-origin-when-cross-origin)
+        //   also have this beginning part in referer, need to be exactly longer than that
+        // - don't forget don't count this example.com string length,
+        //   that will be replaced at build time, amazingly terser will optimize that to be constant number
+        if (referrer && referrer.startsWith('https://app.example.com/') && referrer.length > 'https://app.example.com/'.length) {
+            ctx.state.app = new URL(referrer).pathname.substring(1).split('/')[0].trim();
+        } else {
+            ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
+        }
         // direct return and do not set access-control-* and let browser reject it
         if (!webapps.some(a => a.name == ctx.state.app && a.host == 'app.example.com')) { return; }
     } else {

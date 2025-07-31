@@ -441,7 +441,7 @@ Specification
   full url for normal api is like `https://api.example.com/appname/v1/session?sessionId=123`,
   full url for public api is like `https://api.example.com/appname/public/v1/session?sessionId=abcd`
 - action type field type can use `?` to indicate optional, result in typescript interface property optional
-- for now action type field types: `id`, `int`, `string`, `datetime` and other custom types or array of them
+- for now action type field types: `id`, `int`, `string`, `datetime`, `bool` and other custom types or array of them
   `id` and `int` use typescript type `number`, `string` and `datetime` use typescript type `string`, `datetime` is iso8601 format
 - database column allowed type `id`, `int`, `string`, `datetime`, `guid`, `text`
   for now `id` use `INT` in database
