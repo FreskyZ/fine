@@ -9,6 +9,7 @@ import net from 'node:net';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import zlib from 'node:zlib';
+import OSS from 'ali-oss';
 import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -74,6 +75,7 @@ class RateLimit {
 const config = JSON.parse(await fs.readFile('config', 'utf-8')) as {
     webroot: string,
     certificates: Record<string, { key: string, cert: string }>,
+    oss: { key: string, secret: string, endpoint: string, bucket: string },
 };
 
 const [domain, certificate] = Object.entries(config.certificates)[0];
@@ -107,15 +109,21 @@ export interface HasId {
 
 // received packet format
 // - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
+// - kind: 1 (file), host: u8 (1: ecs, 2: oss), path length: u8, path: not zero terminated, buffer length: u32le, buffer
 // - kind: 2 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
 //   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'file',
-    filename: string,
-    content: Buffer, // this is compressed
+    host: 'ecs' | 'oss',
+    // for ecs, relative/path/from/webroot
+    // for oss, path/to/file
+    path: string,
+    // for ecs, this is zstd compressed and will be decompressed and put on ecs local file system
+    // for oss, this is zstd compressed and will put compressed content on oss and set content-encoding to zstd
+    // TODO confirm although not documented, but I think zstd will work for aliyun oss
+    content: Buffer,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -140,8 +148,8 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // filename path is not in returned data but assigned at local side
-    filename?: string,
+    // this path is not in returned data but assigned at local side as `${targetMachine}:${remote}`
+    path?: string,
     // no error message in response, it is displayed here
     status: 'ok' | 'error' | 'nodiff',
 }
@@ -173,20 +181,22 @@ class BuildScriptMessageParser {
         | 'skip-to-next-magic'
         | 'packet-id'
         | 'packet-kind'
-        | 'deploy-filename-length'
-        | 'deploy-filename'
-        | 'deploy-filecontent-length'
-        | 'deploy-filecontent'
-        | 'command-kind'
-        | 'reload-static-key-length'
-        | 'reload-static-key'
-        | 'reload-server-app-length'
-        | 'reload-server-app' = 'magic';
+        | 'file-host'
+        | 'file-path-length'
+        | 'file-path'
+        | 'file-content-length'
+        | 'file-content'
+        | 'admin-command-kind'
+        | 'admin-static-content-key-length'
+        | 'admin-static-content-key'
+        | 'admin-reload-server-name-length'
+        | 'admin-reload-server-name' = 'magic';
     private packetId: number;
     private packetKind: number;
-    private deployFileNameLength: number;
-    private deployFileName: string;
-    private deployFileContentLength: number;
+    private fileHostKind: number;
+    private filePathLength: number;
+    private filePath: string;
+    private fileContentLength: number;
     private commandKind: number;
     private reloadStaticKeyLength: number;
     private reloadServerAppLength: number;
@@ -239,10 +249,10 @@ class BuildScriptMessageParser {
                 this.position += 1;
                 if (this.packetKind == 1) {
                     logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} file`);
-                    this.state = 'deploy-filename-length';
+                    this.state = 'file-host';
                 } else if (this.packetKind == 2) {
                     logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} admin`);
-                    this.state = 'command-kind';
+                    this.state = 'admin-command-kind';
                 } else if (this.packetKind == 3) {
                     logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} reload-browser`);
                     this.reset();
@@ -251,65 +261,79 @@ class BuildScriptMessageParser {
                     logError('parser', `state = ${this.state}, packet kind ${this.packetKind} invalid`);
                     this.state = 'skip-to-next-magic';
                 }
-            } else if (this.state == 'deploy-filename-length') {
+            } else if (this.state == 'file-host') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.deployFileNameLength = this.chunk.readUInt8(this.position);
+                this.fileHostKind = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file name length ${this.deployFileNameLength}`);
-                this.state = 'deploy-filename';
-            } else if (this.state == 'deploy-filename') {
-                if (!this.hasEnoughLength(this.deployFileNameLength)) { return null; }
-                this.deployFileName = this.chunk.toString('utf-8', this.position, this.position + this.deployFileNameLength);
-                this.position += this.deployFileNameLength;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file name ${this.deployFileName}`);
-                this.state = 'deploy-filecontent-length';
-            } else if (this.state == 'deploy-filecontent-length') {
+                if (this.fileHostKind == 1) {
+                    logInfo('parser', `state = ${this.state}, kind = file, host ${this.fileHostKind} ecs`);
+                    this.state = 'file-path-length';
+                } else if (this.fileHostKind == 2) {
+                    logInfo('parser', `state = ${this.state}, kind = file, host ${this.fileHostKind} oss`);
+                    this.state = 'file-path-length';
+                } else {
+                    logError('parser', `state = ${this.state}, kind = file, host ${this.fileHostKind} invalid`);
+                    this.state = 'skip-to-next-magic';
+                }
+            } else if (this.state == 'file-path-length') {
+                if (!this.hasEnoughLength(1)) { return null; }
+                this.filePathLength = this.chunk.readUInt8(this.position);
+                this.position += 1;
+                logInfo('parser', `state = ${this.state}, kind = file, file name length ${this.filePathLength}`);
+                this.state = 'file-path';
+            } else if (this.state == 'file-path') {
+                if (!this.hasEnoughLength(this.filePathLength)) { return null; }
+                this.filePath = this.chunk.toString('utf-8', this.position, this.position + this.filePathLength);
+                this.position += this.filePathLength;
+                logInfo('parser', `state = ${this.state}, kind = file, file name ${this.filePath}`);
+                this.state = 'file-content-length';
+            } else if (this.state == 'file-content-length') {
                 if (!this.hasEnoughLength(4)) { return null; }
-                this.deployFileContentLength = this.chunk.readUint32LE(this.position);
+                this.fileContentLength = this.chunk.readUint32LE(this.position);
                 this.position += 4;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file content length ${this.deployFileContentLength}`);
-                this.state = 'deploy-filecontent';
-            } else if (this.state == 'deploy-filecontent') {
-                if (!this.hasEnoughLength(this.deployFileContentLength)) { return null; }
-                const content = this.chunk.subarray(this.position, this.position + this.deployFileContentLength);
-                this.position += this.deployFileContentLength;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file content full filled`);
+                logInfo('parser', `state = ${this.state}, kind = file, file content length ${this.fileContentLength}`);
+                this.state = 'file-content';
+            } else if (this.state == 'file-content') {
+                if (!this.hasEnoughLength(this.fileContentLength)) { return null; }
+                const content = this.chunk.subarray(this.position, this.position + this.fileContentLength);
+                this.position += this.fileContentLength;
+                logInfo('parser', `state = ${this.state}, kind = file, file content full filled`);
                 this.reset();
-                return { id: this.packetId, kind: 'file', filename: this.deployFileName, content };
-            } else if (this.state == 'command-kind') {
+                return { id: this.packetId, kind: 'file', host: this.fileHostKind == 1 ? 'ecs' : 'oss', path: this.filePath, content };
+            } else if (this.state == 'admin-command-kind') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.commandKind = this.chunk.readUInt8(this.position);
                 this.position += 1;
                 if (this.commandKind == 1) {
                     logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.commandKind} static-content:reload`);
-                    this.state = 'reload-static-key-length';
+                    this.state = 'admin-static-content-key-length';
                 } else if (this.commandKind == 2) {
                     logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.commandKind} app:reload-server`);
-                    this.state = 'reload-server-app-length';
+                    this.state = 'admin-reload-server-name-length';
                 }else {
                     logError('parser', `state = ${this.state}, kind = admin, command kind ${this.packetKind} invalid`);
                     this.state = 'skip-to-next-magic';
                 }
-            } else if (this.state == 'reload-static-key-length') {
+            } else if (this.state == 'admin-static-content-key-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.reloadStaticKeyLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
                 logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key length ${this.reloadStaticKeyLength}`);
-                this.state = 'reload-static-key';
-            } else if (this.state == 'reload-static-key') {
+                this.state = 'admin-static-content-key';
+            } else if (this.state == 'admin-static-content-key') {
                 if (!this.hasEnoughLength(this.reloadStaticKeyLength)) { return null; }
                 const key = this.chunk.toString('utf-8', this.position, this.position + this.reloadStaticKeyLength);
                 this.position += this.reloadStaticKeyLength;
                 logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key ${key}`);
                 this.reset();
                 return { id: this.packetId, kind: 'admin', command: { kind: 'static-content:reload', key } };
-            } else if (this.state == 'reload-server-app-length') {
+            } else if (this.state == 'admin-reload-server-name-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.reloadServerAppLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
                 logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, app length ${this.reloadServerAppLength}`);
-                this.state = 'reload-server-app';
-            } else if (this.state == 'reload-server-app') {
+                this.state = 'admin-reload-server-name';
+            } else if (this.state == 'admin-reload-server-name') {
                 if (!this.hasEnoughLength(this.reloadServerAppLength)) { return null; }
                 const name = this.chunk.toString('utf-8', this.position, this.position + this.reloadServerAppLength);
                 this.position += this.reloadServerAppLength;
@@ -515,6 +539,32 @@ async function sendAdminCommand(command: AdminInterfaceCommand) {
     ]);
 }
 
+// if you forget
+// manage oss and buckets at https://oss.console.aliyun.com/
+// manage ram user, access key and permissions at https://ram.console.aliyun.com/
+// each action need be whitelisted in permission of the ram user, for now
+// - client.put need oss:PutObject https://help.aliyun.com/zh/oss/developer-reference/putobject
+// - client.listv2 need oss:ListObjects https://help.aliyun.com/zh/oss/developer-reference/listobjectsv2
+// - client.delete need oss:DeleteObject https://help.aliyun.com/zh/oss/developer-reference/deleteobject
+// - client.signatureUrlV4 use oss:GetObject https://help.aliyun.com/zh/oss/how-to-obtain-the-url-of-a-single-object-or-the-urls-of-multiple-objects
+//
+// // do I really need this? this is motivated by small/webocr, which need kind of large wasm and tessdata files that this cheap ecs cannot handle
+// // but if in future if I write assembly on my own, the result file should be very small and ok to serve directly.
+// // if in future I decided to remove the feature, this will be hard to remove
+// // do I really need this? will I really use the feature? this is motivated
+let ossclient: OSS;
+function getOSSClient(): OSS {
+    return ossclient ??= new OSS({
+        accessKeyId: config.oss.key,
+        accessKeySecret: config.oss.secret,
+        secure: true,
+        internal: false, // ATTENTION TEMP currently oss and ecs are in different region and cannot use internal
+        bucket: config.oss.bucket,
+        authorizationV4: true,
+        endpoint: config.oss.endpoint,
+    } as any);
+}
+
 buildScriptConnectionEventEmitter.addListener('message', async message => {
     const send = (response: BuildScriptMessageResponse) => {
         buildScriptConnection?.send(JSON.stringify({ id: message.id, ...response } as BuildScriptMessageResponse & HasId));
@@ -527,33 +577,50 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         if (browserWebsocketConnections.length) { logInfo('akari', 'forward reload-browser'); }
         send({ kind: 'reload-browser' });
     } else if (message.kind == 'file') {
-        logInfo('fs', `deploy ${message.filename}`);
-        const fullpath = path.join(config.webroot, message.filename);
-        if (!syncfs.existsSync(path.dirname(fullpath))) {
-            logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
-            send({ kind: 'file', status: 'error' });
-            return;
-        }
-        zlib.zstdDecompress(message.content, async (error, messageContent) => {
-            if (error) {
-                logError('fs', `message content decompress error`, error);
+        logInfo('fs', `deploy ${message.host}:${message.path}`);
+        if (message.host == 'ecs') {
+            const fullpath = path.join(config.webroot, message.path);
+            if (!syncfs.existsSync(path.dirname(fullpath))) {
+                logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
                 send({ kind: 'file', status: 'error' });
                 return;
             }
-            if (syncfs.existsSync(fullpath)) {
-                const originalContent = await fs.readFile(fullpath);
-                if (Buffer.compare(messageContent, originalContent) == 0) {
-                    logInfo('fs', `${fullpath} content same, no update`);
-                    send({ kind: 'file', status: 'nodiff' });
+            zlib.zstdDecompress(message.content, async (error, messageContent) => {
+                if (error) {
+                    logError('fs', `message content decompress error`, error);
+                    send({ kind: 'file', status: 'error' });
                     return;
                 }
+                if (syncfs.existsSync(fullpath)) {
+                    const originalContent = await fs.readFile(fullpath);
+                    if (Buffer.compare(messageContent, originalContent) == 0) {
+                        logInfo('fs', `${fullpath} content same, no update`);
+                        send({ kind: 'file', status: 'nodiff' });
+                        return;
+                    }
+                }
+                if (!syncfs.existsSync(path.dirname(fullpath))) {
+                    await fs.mkdir(path.dirname(fullpath), { recursive: true });
+                }
+                fs.writeFile(fullpath, messageContent);
+                send({ kind: 'file', status: 'ok' });
+            });
+        } else if (message.host == 'oss') {
+            try {
+                const result = await getOSSClient().put(message.path, message.content, { headers: {
+                    'x-oss-storage-class': 'Standard',
+                    'x-oss-object-acl': 'private',
+                    'cache-control': 'public',
+                    'content-encoding': 'zstd', // although not documented, this actually works
+                    'content-length': message.content.length.toString(),
+                } });
+                logInfo('fs', 'oss result', result);
+                send({ kind: 'file', status: result.res.status == 200 ? 'ok' : 'error' });
+            } catch (error) {
+                logError('fs', 'oss operation error', error);
+                send({ kind: 'file', status: 'error' });
             }
-            if (!syncfs.existsSync(path.dirname(fullpath))) {
-                await fs.mkdir(path.dirname(fullpath), { recursive: true });
-            }
-            fs.writeFile(fullpath, messageContent);
-            send({ kind: 'file', status: 'ok' });
-        });
+        }
     }
 });
 
@@ -575,7 +642,7 @@ for await (const raw of interactiveReader) {
         if (!adminInterfaceConnection) {
             connectAdminInterface();
         } else {
-            logInfo('shell', 'already connected, don\'t connect again');
+            logInfo('akari', 'already connected, don\'t connect again');
         }
         interactiveReader.prompt();
     } else if (line == 'reload config') {
@@ -599,6 +666,29 @@ for await (const raw of interactiveReader) {
     } else if (line == 'display rate limits') {
         await sendAdminCommand({ kind: 'access-control:display-rate-limits' });
         interactiveReader.prompt();
+    } else if (line.startsWith('display oss files')) {
+        try {
+            // fromEntries+entries: if you left the undefined in the properties, the signature is not correctly calculated
+            console.log(await getOSSClient().listV2(Object.fromEntries(Object.entries({
+                prefix: /key='(.+)'/.exec(line)?.[1],
+                'max-keys': /max=(\d+)/.exec(line)?.[1] ?? '100',
+            }).filter(e => !!e[1])), {}));
+        } catch (error) {
+            logError('akari', 'failed to list oss files', error);
+        }
+        interactiveReader.prompt();
+    } else if (line.startsWith('remove oss file ')) {
+        const filename = line.substring(16).trim();
+        if (filename) {
+            try {
+                console.log(await getOSSClient().delete(filename));
+            } catch (error) {
+                logError('akari', 'failed to remove oss file', error);
+            }
+        } else {
+            logError('akari', 'missing removing file name');
+        }
+        interactiveReader.prompt();
     } else if (line.startsWith('!')) {
         const shellCommand = line.slice(1);
         const child = spawn(shellCommand, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -614,5 +704,6 @@ for await (const raw of interactiveReader) {
         });
     } else {
         logError('interactive', `unknown command ${line}`);
+        interactiveReader.prompt();
     }
 }

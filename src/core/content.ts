@@ -2,6 +2,7 @@ import syncfs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import OSS from 'ali-oss';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
@@ -31,7 +32,8 @@ let DisableSourceMapTimer: NodeJS.Timeout;
 // monotonically nondecreasing now used for cache key
 function getnow(): string { return process.hrtime.bigint().toString(16); }
 // file extension to content type (as require('mime').lookup)
-const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json' };
+// .wasm files cannot be ecma imported but only fetch, which seems not respecting must-revalidate, but at least it compress
+const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json', '.wasm': 'wasm' };
 // compress encodings
 type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Promise<Buffer> }
 const encodingToEncoder: EncodingToEncoder = {
@@ -158,13 +160,36 @@ function getOrAddItem(items: Item[], realpath: string): Item {
     return item;
 }
 
+let ossclient: OSS;
+export interface OSSClientOptions {
+    key: string,
+    secret: string,
+    endpoint: string,
+    bucket: string,
+}
+export function setupOSSClient(options: OSSClientOptions) {
+    ossclient = new OSS({
+        accessKeyId: options.key,
+        accessKeySecret: options.secret,
+        secure: true,
+        internal: false, // ATTENTION TEMP currently oss and ecs are in different region and cannot use internal
+        bucket: options.bucket,
+        authorizationV4: true,
+        endpoint: options.endpoint,
+    } as any);
+}
+// this is simply config.oss-static-content
+let osscontentconfig: StaticContentConfig;
+const osscontentratelimit = new RateLimit('oss-content', 10, 1);
+
 // initialize, or reinitialize
-export async function setupStaticContent(webroot: string, config: StaticContentConfig) {
+export async function setupStaticContent(webroot: string, config: { 'static-content': StaticContentConfig, 'oss-static-content': StaticContentConfig}) {
     WEBROOT = webroot;
+    osscontentconfig = config['oss-static-content'];
     // NOTE this is reassigned for reinitialize
     contentcache = { items: [], virtualmap: {}, wildcardToWildcard: [], wildcardToNonWildcardMap: [] };
 
-    await Promise.all(Object.entries(config)
+    await Promise.all(Object.entries(config['static-content'])
         .flatMap(([host, mappings]) => Object.entries(mappings).map(([vpath, rpath]) => [host, vpath, rpath]))
         .map(async ([host, virtualpath, realpath]) =>
     {
@@ -222,7 +247,11 @@ interface ShortLinkCache {
 const shortlinkcache: ShortLinkCache = { items: [] };
 // rate limit the db operation
 const shortlinkratelimit = new RateLimit('shortlink', 10, 1);
-setInterval(() => shortlinkratelimit.cleanup(), 3600_000);
+
+setInterval(() => {
+    osscontentratelimit.cleanup();
+    shortlinkratelimit.cleanup();
+}, 3600_000);
 
 async function handleRequestShortLink(ctx: koa.Context) {
     const redirect = (location: string) => {
@@ -343,6 +372,12 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
                 return;
             }
         }
+    } else if (osscontentconfig[ctx.host] && osscontentconfig[ctx.host][ctx.path.substring(1)]) {
+        // ratelimit access to host+path over all ips
+        osscontentratelimit.request(`${ctx.host}${ctx.path}`);
+        // use as any)['sign because this stupid non official type is very incomplete
+        // directly return the url string
+        ctx.body = await (ossclient as any)['signatureUrlV4']('GET', 300, { headers: {} }, osscontentconfig[ctx.host][ctx.path.substring(1)]);
     } else {
         // when new domain/subdomain added and no included in static content config,
         // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
@@ -451,7 +486,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
     // reload static content config
     } else if (command.kind == 'static-content:reload-config') {
         // throw away all old cache
-        setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
+        setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8')));
         return { ok: true, log: 'complete reload static config' };
 
     // enable/disable source map

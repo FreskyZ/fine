@@ -27,7 +27,10 @@ Restart = on-failure
 RestartSec = 15
 User = fine
 Group = fine
+# https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#Environment=
 Environment = "NODE_ENV=production"
+# https://nodejs.org/api/cli.html#node_no_warnings1
+Environment = "NODE_NO_WARNINGS=1"
 
 [Install]
 WantedBy = multi-user.target

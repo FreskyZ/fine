@@ -11,8 +11,8 @@ import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../sh
 import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
-import type { StaticContentConfig, ShortLinkConfig } from './content.js';
-import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
+import type { StaticContentConfig, OSSClientOptions, ShortLinkConfig } from './content.js';
+import { setupStaticContent, setupOSSClient, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
 import { handleResponseCompression } from './content.js';
 import type { WebappConfig } from './access.js';
 import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
@@ -34,15 +34,18 @@ process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     webroot: string,
+    oss: OSSClientOptions,
     certificates: { [domain: string]: { key: string, cert: string } },
     database: PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
+    'oss-static-content': StaticContentConfig,
     webapps: WebappConfig,
 };
 setupDatabaseConnection(config.database);
+setupOSSClient(config.oss);
 setupShortLinkService(config['short-link']);
-await setupStaticContent(config.webroot, config['static-content']);
+await setupStaticContent(config.webroot, config);
 setupAccessControl(config.webapps);
 setupForwarding(config.webapps);
 

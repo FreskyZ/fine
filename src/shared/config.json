@@ -55,6 +55,12 @@
       ".": "anotherexample/index.html"
     }
   },
+  "oss-static-content": {
+    "example.com": {
+      "ocr/tesseract-core.wasm": "tesseract.js/tesseract-core.wasm",
+      "ocr/eng.traineddata": "tessdata/eng.traineddata"
+    }
+  },
   "webapps": {
     "note": {
       "host": "app.example.com",

@@ -1037,15 +1037,21 @@ interface HasId {
 
 // received packet format
 // - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
+// - kind: 1 (file), host: u8 (1: ecs, 2: oss), path length: u8, path: not zero terminated, buffer length: u32le, buffer
 // - kind: 2 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
 //   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'file',
-    filename: string,
-    content: Buffer, // this is compressed
+    host: 'ecs' | 'oss',
+    // for ecs, relative/path/from/webroot
+    // for oss, path/to/file
+    path: string,
+    // for ecs, this is zstd compressed and will be decompressed and put on ecs local file system
+    // for oss, this is zstd compressed and will put compressed content on oss and set content-encoding to zstd
+    // TODO confirm although not documented, but I think zstd will work for aliyun oss
+    content: Buffer,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -1070,8 +1076,8 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // filename path is not in returned data but assigned at local side
-    filename?: string,
+    // this path is not in returned data but assigned at local side as `${targetMachine}:${remote}`
+    path?: string,
     // no error message in response, it is displayed here
     status: 'ok' | 'error' | 'nodiff',
 }
@@ -1104,15 +1110,16 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
 
     let buffer: Buffer;
     if (message.kind == 'file') {
-        buffer = Buffer.alloc(12 + message.filename.length + message.content.length);
+        buffer = Buffer.alloc(13 + message.path.length + message.content.length);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(1, 6); // kind size 1
-        buffer.writeUInt8(message.filename.length, 7); // file name length size 1
-        buffer.write(message.filename, 8);
-        buffer.writeUInt32LE(message.content.length, message.filename.length + 8); // content length size 4
-        message.content.copy(buffer, 12 + message.filename.length, 0);
-        logInfo('tunnel', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
+        buffer.writeUint8(message.host == 'ecs' ? 1 : 2, 7); // host size 1
+        buffer.writeUInt8(message.path.length, 8); // path length size 1
+        buffer.write(message.path, 9);
+        buffer.writeUInt32LE(message.content.length, message.path.length + 9); // content length size 4
+        message.content.copy(buffer, 13 + message.path.length, 0);
+        logInfo('tunnel', `send #${messageId} file ${message.host}:${message.path} compress size ${message.content.length}`);
     } else if (message.kind == 'admin') {
         if (message.command.kind == 'static-content:reload') {
             buffer = Buffer.alloc(9 + message.command.key.length);
@@ -1147,7 +1154,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         ecx.wakers[messageId] = response => {
             if (timeout) { clearTimeout(timeout); }
             if (message.kind == 'file' && response.kind == 'file') {
-                response.filename = message.filename;
+                response.path = `${message.host}:${message.path}`;
             } else if (message.kind == 'admin' && response.kind == 'admin') {
                 response.command = message.command;
             }
@@ -1170,8 +1177,13 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
 // upload through websocket connection eliminate the time to establish tls connection and ssh connection
 // this also have centralized handling of example.com replacement
 // return item is null for not ok
-async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
-    // compare to the not know whether can parallel sftp, this is designed to be parallel
+async function deployWithRemoteConnect(
+    ecx: MessengerContext,
+    assets: UploadAsset[],
+    // deploy to oss is experimental, use default parameter to keep normal deploy working
+    host: BuildScriptMessageUploadFile['host'] = 'ecs',
+): Promise<BuildScriptMessageResponseUploadFile[]> {
+    // compare to the not-know-whether-can-parallel sftp, this is designed to be parallel
     return await Promise.all(assets.map(async asset => {
         // webroot base path and parent path mkdir is handled in remote akari
         if (!Buffer.isBuffer(asset.data)) {
@@ -1186,13 +1198,13 @@ async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsse
             }
         }));
         if (data) {
-            return await sendRemoteMessage(ecx, { kind: 'file', filename: asset.remote, content: data });
+            return await sendRemoteMessage(ecx, { kind: 'file', host, path: asset.remote, content: data });
         } else {
             return null;
         }
     }));
 }
-// END LIBRARY 6214f2ac412ea20c8181d3ed393953579941d8952e16d71f36f992a3d36fb9a9
+// END LIBRARY e002cd8c1cb9034118771fa7fda8a3c42006afdccfeceff63993f97376a2b420
 
 // in old days you need to deploy public files, if you forget
 async function uploadPublicAssets() {
@@ -1315,6 +1327,63 @@ async function buildCore(ecx?: MessengerContext) {
     logInfo('akari', chalk`build {cyan core} completed successfully`); return true;
 }
 
+async function startInteractiveShell() {
+    const ecx: MessengerContext = {
+        readline: readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            removeHistoryDuplicates: true,
+        }),
+    };
+    await connectRemote(ecx);
+    ecx.readline.on('SIGINT', () => process.exit(0));
+    ecx.readline.prompt();
+    for await (const raw of ecx.readline) {
+        const line = raw.trim();
+        if (line.length == 0) {
+            // nothing
+        } else if (line == 'exit') {
+            // it's complex to disconnect websocket with disabling auto reconnect, so use abort
+            process.exit(0);
+        } else if (line.startsWith('connect')) {
+            await connectRemote(ecx);
+        } else if (line == 'core') {
+            await buildCore(ecx);
+        } else if (line == 'user') {
+            await buildIdentityProvider(ecx);
+        } else if (line.startsWith('upload static ')) {
+            const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim());
+            if (!local || !remote) {
+                logError('akari', `missing path, expect 'upload static local:remote`);
+            } else {
+                // use utf-8 to apply example.com substitution for static content
+                await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local, 'utf-8'), remote }]);
+            }
+        } else if (line.startsWith('upload binary ')) {
+            const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim());
+            if (!local || !remote) {
+                logError('akari', `missing path, expect 'upload binary local:remote`);
+            } else {
+                // difference with upload static is this does not read string
+                await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local), remote }]);
+            }
+        } else if (line.startsWith('oss ')) {
+            const [local, remote] = line.substring(4).trim().split(':').map(x => x.trim());
+            if (!local || !remote) {
+                logError('akari', `missing path, expect 'oss local:remote`);
+            } else {
+                // this currently does not need example.com substitution
+                await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local), remote }], 'oss');
+            }
+        } else if (line.startsWith('download ')) {
+            // TODO download arbitrary file
+        } else {
+            logError('akari', `unknown command`);
+        }
+        ecx.readline.prompt();
+    }
+}
+
 async function dispatch(command: string[]) {
     if (command[0] == 'public') {
         await uploadPublicAssets();
@@ -1332,41 +1401,8 @@ async function dispatch(command: string[]) {
         await buildIdentityProvider();
     } else if (command[0] == 'core') {
         await buildCore();
-    } else if (command[0] == 'upload' && command[1] && command[2]) {
-        await deploy([{ data: await fs.readFile(command[1], 'utf-8'), remote: command[2] }]);
-        logInfo('akari', chalk`upload ${command[1]}`);
     } else if (command[0] == 'with' && command[1] == 'remote') {
-        const ecx: MessengerContext = {
-            readline: readline.createInterface({
-                input: process.stdin,
-                output: process.stdout,
-                removeHistoryDuplicates: true,
-            }),
-        };
-        await connectRemote(ecx);
-        ecx.readline.on('SIGINT', () => process.exit(0));
-        ecx.readline.prompt();
-        for await (const raw of ecx.readline) {
-            const line = raw.trim();
-            if (line.length == 0) {
-                // nothing
-            } else if (line == 'exit') {
-                // it's more complex to disable websocket auto reconnect
-                process.exit(0);
-            } else if (line.startsWith('connect')) {
-                await connectRemote(ecx);
-            } else if (line == 'core') {
-                // TODO reuse mcx
-                await buildCore(ecx);
-            } else if (line == 'user') {
-                await buildIdentityProvider(ecx);
-            } else if (line.startsWith('upload ')) {
-                // TODO upload arbitrary file
-            } else { // TODO download arbitrary file?
-                logError('akari', `unknown command`);
-            }
-            ecx.readline.prompt();
-        }
+        await startInteractiveShell();
     } else {
         logError('akari', 'unknown command');
     }

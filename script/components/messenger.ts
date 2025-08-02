@@ -111,15 +111,21 @@ export interface HasId {
 
 // received packet format
 // - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
+// - kind: 1 (file), host: u8 (1: ecs, 2: oss), path length: u8, path: not zero terminated, buffer length: u32le, buffer
 // - kind: 2 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
 //   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'file',
-    filename: string,
-    content: Buffer, // this is compressed
+    host: 'ecs' | 'oss',
+    // for ecs, relative/path/from/webroot
+    // for oss, path/to/file
+    path: string,
+    // for ecs, this is zstd compressed and will be decompressed and put on ecs local file system
+    // for oss, this is zstd compressed and will put compressed content on oss and set content-encoding to zstd
+    // TODO confirm although not documented, but I think zstd will work for aliyun oss
+    content: Buffer,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -144,8 +150,8 @@ type BuildScriptMessage =
 // - kind: 3 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
     kind: 'file',
-    // filename path is not in returned data but assigned at local side
-    filename?: string,
+    // this path is not in returned data but assigned at local side as `${targetMachine}:${remote}`
+    path?: string,
     // no error message in response, it is displayed here
     status: 'ok' | 'error' | 'nodiff',
 }
@@ -178,15 +184,16 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
 
     let buffer: Buffer;
     if (message.kind == 'file') {
-        buffer = Buffer.alloc(12 + message.filename.length + message.content.length);
+        buffer = Buffer.alloc(13 + message.path.length + message.content.length);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(1, 6); // kind size 1
-        buffer.writeUInt8(message.filename.length, 7); // file name length size 1
-        buffer.write(message.filename, 8);
-        buffer.writeUInt32LE(message.content.length, message.filename.length + 8); // content length size 4
-        message.content.copy(buffer, 12 + message.filename.length, 0);
-        logInfo('tunnel', `send #${messageId} file ${message.filename} compress size ${message.content.length}`);
+        buffer.writeUint8(message.host == 'ecs' ? 1 : 2, 7); // host size 1
+        buffer.writeUInt8(message.path.length, 8); // path length size 1
+        buffer.write(message.path, 9);
+        buffer.writeUInt32LE(message.content.length, message.path.length + 9); // content length size 4
+        message.content.copy(buffer, 13 + message.path.length, 0);
+        logInfo('tunnel', `send #${messageId} file ${message.host}:${message.path} compress size ${message.content.length}`);
     } else if (message.kind == 'admin') {
         if (message.command.kind == 'static-content:reload') {
             buffer = Buffer.alloc(9 + message.command.key.length);
@@ -221,7 +228,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         ecx.wakers[messageId] = response => {
             if (timeout) { clearTimeout(timeout); }
             if (message.kind == 'file' && response.kind == 'file') {
-                response.filename = message.filename;
+                response.path = `${message.host}:${message.path}`;
             } else if (message.kind == 'admin' && response.kind == 'admin') {
                 response.command = message.command;
             }
@@ -244,8 +251,13 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
 // upload through websocket connection eliminate the time to establish tls connection and ssh connection
 // this also have centralized handling of example.com replacement
 // return item is null for not ok
-export async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
-    // compare to the not know whether can parallel sftp, this is designed to be parallel
+export async function deployWithRemoteConnect(
+    ecx: MessengerContext,
+    assets: UploadAsset[],
+    // deploy to oss is experimental, use default parameter to keep normal deploy working
+    host: BuildScriptMessageUploadFile['host'] = 'ecs',
+): Promise<BuildScriptMessageResponseUploadFile[]> {
+    // compare to the not-know-whether-can-parallel sftp, this is designed to be parallel
     return await Promise.all(assets.map(async asset => {
         // webroot base path and parent path mkdir is handled in remote akari
         if (!Buffer.isBuffer(asset.data)) {
@@ -260,7 +272,7 @@ export async function deployWithRemoteConnect(ecx: MessengerContext, assets: Upl
             }
         }));
         if (data) {
-            return await sendRemoteMessage(ecx, { kind: 'file', filename: asset.remote, content: data });
+            return await sendRemoteMessage(ecx, { kind: 'file', host, path: asset.remote, content: data });
         } else {
             return null;
         }
