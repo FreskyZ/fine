@@ -2,6 +2,8 @@
 
 the systemd service description file is like this, copy it here incase I forget
 
+document https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html
+
 ```ini, /etc/systemd/system/file.socket
 [Unit]
 Description = fine http and https socket
@@ -28,6 +30,9 @@ RestartSec = 15
 User = fine
 Group = fine
 Environment = "NODE_ENV=production"
+# in case you have to use something that prints warning and don't want warning to ruin log
+# https://nodejs.org/api/cli.html#node_no_warnings1
+Environment = "NODE_NO_WARNINGS=1"
 
 [Install]
 WantedBy = multi-user.target

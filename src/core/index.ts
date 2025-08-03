@@ -142,6 +142,8 @@ httpServer.on('connection', socket => {
         // ignore them
         if (error.code == 'ECONNRESET' && error.syscall == 'read') {
             // ignore
+        } else if (error.code == 'ECONNRESET' && error.syscall == 'write') {
+            // now you have ECONNRESET + write?
         } else if (error.code == 'HPE_INVALID_METHOD') {
             // ignore
         } else {

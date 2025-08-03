@@ -457,11 +457,10 @@ export type AdminInterfaceCommand =
     | { kind: 'shutdown' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
+    | { kind: 'content-server:reload', name: string }
     | { kind: 'short-link:reload' }
     | { kind: 'access-control:display-application-sessions' } // with new response-ful design, you can get
     | { kind: 'access-control:revoke', sessionId: number }
-    | { kind: 'static-content:source-map:enable' }
-    | { kind: 'static-content:source-map:disable' }
     | { kind: 'access-control:user:enable', userId: number }
     | { kind: 'access-control:user:disable', userId: number }
     | { kind: 'access-control:signup:enable' }

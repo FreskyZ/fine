@@ -23,15 +23,11 @@ import { log } from './logger.js';
 // it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
 
 let WEBROOT: string;
-// if source map is enabled and source map name related js file exists, will try to find the source map file and compress and return
-let AllowSourceMap = false;
-// auto close source map after 2 hours in case akari (server) does not close it
-let DisableSourceMapTimer: NodeJS.Timeout;
-
 // monotonically nondecreasing now used for cache key
 function getnow(): string { return process.hrtime.bigint().toString(16); }
 // file extension to content type (as require('mime').lookup)
-const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.map': 'json' };
+// .wasm files cannot be ecma imported but only fetch, which seems not respecting must-revalidate, but at least it compress
+const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.wasm': 'wasm' };
 // compress encodings
 type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Promise<Buffer> }
 const encodingToEncoder: EncodingToEncoder = {
@@ -87,7 +83,7 @@ export class RateLimit {
 // host => path => realpath mapping
 // - host is the host in same origin policy, note that any text difference, e.g. example.com and www.example.com is not same host
 // - path can be "." which means empty
-// - real path must be one of html/js/css or source map's .js.map
+// - real path must be one of html/css/js/wasm
 // - last path can be a "*" point to a real path ends with "/*", like "real/path/*",
 //   which loads and maps file in webroot/static/real/path directory, not recursive
 export type StaticContentConfig = Record<string, Record<string, string>>;
@@ -200,6 +196,7 @@ export async function setupStaticContent(webroot: string, config: StaticContentC
     }));
 }
 
+// ATTENTION if you are hot reloading these, these need to be teardown
 // for now only domain is configured
 export interface ShortLinkConfig { domain: string }
 let shortLinkConfig: ShortLinkConfig;
@@ -225,6 +222,8 @@ const shortlinkratelimit = new RateLimit('shortlink', 10, 1);
 setInterval(() => shortlinkratelimit.cleanup(), 3600_000);
 
 async function handleRequestShortLink(ctx: koa.Context) {
+    if (ctx.host != shortLinkConfig.domain) { return false; }
+
     const redirect = (location: string) => {
         ctx.status = 307;
         ctx.type = 'text/plain';
@@ -265,6 +264,7 @@ async function handleRequestShortLink(ctx: koa.Context) {
         shortlinkcache.items.push(records[0]);
         redirect(records[0].Value);
     }
+    return true;
 }
 
 export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
@@ -280,18 +280,13 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     }
 
     const cacheKey = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
-    // when source map is disabled
-    if (cacheKey.endsWith('.map') && !AllowSourceMap) { ctx.status = 404; return; }
-
     const item = contentcache.virtualmap[cacheKey]
         ?? contentcache.wildcardToNonWildcardMap.find(m => cacheKey.startsWith(m.virtual))?.item;
     if (item) {
-
         if (item.content === null) {
             if (!syncfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
             item.content = await fs.readFile(item.absolutePath);
         }
-
         // https://www.rfc-editor.org/rfc/rfc7232#section-4.1
         // The server generating a 304 response MUST generate any of the
         // following header fields that would have been sent in a 200 (OK) response to the same request:
@@ -319,20 +314,17 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             ctx.status = 304;
             return;
         }
-
+        ctx.type = item.contentType;
         // this is not included in 304 required header list
         ctx.lastModified = item.lastModified;
 
-        ctx.type = item.contentType;
         if (item.content.length < 1024) {
             ctx.body = item.content;
             ctx.set('Content-Length', item.content.length.toString());
             return;
         }
-
-        // prefer brotli because it is smaller,
-        // prefer gzip for source map because it is more like a binary file
-        for (const encoding of item.realpath.endsWith('.map') ? ['gzip', 'deflate', 'br'] : ['br', 'gzip', 'deflate']) {
+        // prefer brotli because it is newer
+        for (const encoding of ['br', 'gzip', 'deflate']) {
             if (ctx.acceptsEncodings(encoding)) {
                 ctx.set('Content-Encoding', encoding);
                 if (!(encoding in item.encodedContent)) {
@@ -344,26 +336,31 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             }
         }
     } else {
-        // when new domain/subdomain added and no included in static content config,
-        // they goes to here, and make real a 'public/' and pass fs.exists, but cannot fs.readFile that
-        if (ctx.path == '/') { ctx.status = 404; return; }
-
-        const publicDirectory = path.join(WEBROOT, 'public');
-        const realpath = path.join(publicDirectory, ctx.path);
-        // this is a '..' (parent directory) attack
-        if (!realpath.startsWith(publicDirectory)) { ctx.status = 404; return; }
-        
-        const exists = syncfs.existsSync(realpath);
-        // short link records have lower priority then static files and public files
-        if (!exists && ctx.host == shortLinkConfig.domain) { await handleRequestShortLink(ctx); return; }
-        if (!exists) { ctx.status = 404; return; }
-
-        ctx.type = path.extname(ctx.path);
-        ctx.body = await fs.readFile(realpath);
-        ctx.set('Cache-Control', 'public');
-
-        // use default cache control
-        // image/video themselves are already compressed, while other not important text files are always small
+        // ignore query part
+        const pathname = ctx.URL.pathname;
+        // trim trailing slash
+        const trimmedPathName = pathname.endsWith('/') ? pathname.substring(0, pathname.length - 1) : pathname;
+        // when '.' is not configured for a host, it goes to here, which should result in not found
+        if (!trimmedPathName) { ctx.status = 404; return; }
+    
+        const realpath = path.join(path.join(WEBROOT, 'public'), trimmedPathName);
+        // do not allow access to parent folder
+        if (!realpath.startsWith(path.join(WEBROOT, 'public'))) { ctx.status = 404; return; }
+    
+        // only allow normal file, ignore rejection and regard as false
+        if (await fs.stat(realpath).then(s => s.isFile()).catch(() => false)) {
+            ctx.set('Cache-Control', 'public');
+            ctx.type = path.extname(realpath);
+            // no response compression here,
+            // image/video themselves are already compressed, while other not important text files should be small
+            ctx.body = await fs.readFile(realpath);
+        } else {
+            // content servers are after public file
+            // return true for handled, false for not handled
+            if (await handleRequestShortLink(ctx)) { return; }
+            // and the final 404 for not found anything
+            ctx.status = 404;
+        }
     }
 }
 
@@ -453,22 +450,6 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         // throw away all old cache
         setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
         return { ok: true, log: 'complete reload static config' };
-
-    // enable/disable source map
-    } else if (command.kind == 'static-content:source-map:enable') {
-        AllowSourceMap = true;
-        if (DisableSourceMapTimer) {
-            clearTimeout(DisableSourceMapTimer);
-        }
-        DisableSourceMapTimer = setTimeout(() => AllowSourceMap = false, 7200_000);
-        return { ok: true, log: 'complete enable source map' };
-    } else if (command.kind == 'static-content:source-map:disable') {
-        AllowSourceMap = false;
-        if (DisableSourceMapTimer) {
-            clearTimeout(DisableSourceMapTimer);
-            DisableSourceMapTimer = null;
-        }
-        return { ok: true, log: 'complete disable source map' };
 
     // reload short link cache
     } else if (command.kind == 'short-link:reload') {
