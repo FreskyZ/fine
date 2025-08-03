@@ -128,8 +128,10 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
                 topLevelNames.push(node.name.text);
             }
         } else if (ts.isClassDeclaration(node)) {
-            hasError = true;
-            logError('make', `${getLocation(node)} not support class for now, should be easy to implement`);
+            if (node.name) {
+                topLevelNames.push(node.name.text);
+                topLevelTypeNames.push(node.name.text);
+            }
         } else if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
             // type name is in another namespace
             topLevelTypeNames.push(node.name.text);

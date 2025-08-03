@@ -107,15 +107,20 @@ export interface HasId {
 
 // received packet format
 // - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), file name length: u8, filename: not zero terminated, buffer length: u32le, buffer
-// - kind: 2 (admin), command kind: u8
+// - kind: 1 (upload), path length: u8, path: not zero terminated, content length: u32le, content
+// - kind: 2 (download), path length: u8, path: not zero terminated
+// - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
 //   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
-// - kind: 3 (reload-browser)
+// - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
-    kind: 'file',
-    filename: string,
+    kind: 'upload',
+    path: string, // relative path from webroot
     content: Buffer, // this is compressed
+}
+interface BuildScriptMessageDownloadFile {
+    kind: 'download',
+    path: string, // relative path from webroot
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -130,38 +135,51 @@ interface BuildScriptMessageReloadBrowser {
 }
 type BuildScriptMessage =
     | BuildScriptMessageUploadFile
+    | BuildScriptMessageDownloadFile
     | BuildScriptMessageAdminInterfaceCommand
     | BuildScriptMessageReloadBrowser;
 
 // response packet format
 // - magic: NIRA, packet id: u16le, kind: u8
-// - kind: 1 (file), status: u8
-// - kind: 2 (admin)
-// - kind: 3 (reload-browser)
+// - kind: 1 (upload), status: u8 (1: ok, 2: error, 3: nodiff)
+// - kind: 2 (download), content length: u32le (maybe 0 for error or empty), content
+// - kind: 3 (admin), ok: u8 (0 not ok, 1 ok)
+// - kind: 4 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
-    kind: 'file',
-    // filename path is not in returned data but assigned at local side
-    filename?: string,
-    // no error message in response, it is displayed here
+    kind: 'upload',
+    // path is not in returned data but assigned at local side
+    path?: string,
+    // error message is not in returned data but displayed here
     status: 'ok' | 'error' | 'nodiff',
+}
+interface BuildScriptMessageResponseDownloadFile {
+    kind: 'download',
+    // path is not in returned data but assigned at local side
+    path?: string,
+    // this is compressed
+    // empty means error or empty
+    // error message is not in returned data but displayed here
+    content: Buffer,
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
+    // response log is not in returned data but displayed here
+    ok: boolean,
     // command is not in returned data but assigned at local side
     command?: BuildScriptMessageAdminInterfaceCommand['command'],
-    // response is not in returned data but displayed here
 }
 interface BuildScriptMessageResponseReloadBrowser {
     kind: 'reload-browser',
 }
 type BuildScriptMessageResponse =
     | BuildScriptMessageResponseUploadFile
+    | BuildScriptMessageResponseDownloadFile
     | BuildScriptMessageResponseAdminInterfaceCommand
     | BuildScriptMessageResponseReloadBrowser;
 // END SHARED TYPE BuildScriptMessage
 
+const DebugBuildScriptMessageParser = false;
 class BuildScriptMessageParser {
-
     private chunk: Buffer = Buffer.allocUnsafe(0); // working chunk
     public push(newChunk: Buffer) {
         this.chunk = Buffer.concat([this.chunk, newChunk]);
@@ -173,23 +191,26 @@ class BuildScriptMessageParser {
         | 'skip-to-next-magic'
         | 'packet-id'
         | 'packet-kind'
-        | 'deploy-filename-length'
-        | 'deploy-filename'
-        | 'deploy-filecontent-length'
-        | 'deploy-filecontent'
-        | 'command-kind'
-        | 'reload-static-key-length'
-        | 'reload-static-key'
-        | 'reload-server-app-length'
-        | 'reload-server-app' = 'magic';
+        | 'upload-path-length'
+        | 'upload-path'
+        | 'upload-content-length'
+        | 'upload-content'
+        | 'download-path-length'
+        | 'download-path'
+        | 'admin-command-kind'
+        | 'admin-static-content-key-length'
+        | 'admin-static-content-key'
+        | 'admin-reload-server-name-length'
+        | 'admin-reload-server-name' = 'magic';
     private packetId: number;
     private packetKind: number;
-    private deployFileNameLength: number;
-    private deployFileName: string;
-    private deployFileContentLength: number;
-    private commandKind: number;
+    private uploadPathLength: number;
+    private uploadPath: string;
+    private uploadContentLength: number;
+    private downloadPathLength: number;
+    private adminCommandKind: number;
     private reloadStaticKeyLength: number;
-    private reloadServerAppLength: number;
+    private reloadServerNameLength: number;
 
     private hasEnoughLength(expect: number) {
         return this.chunk.length - this.position >= expect;
@@ -219,11 +240,11 @@ class BuildScriptMessageParser {
                 const maybeIndex = this.chunk.indexOf('NIRA', this.position);
                 // NOTE this 0 happens when previous packet is completely skipped and next packet is correct
                 if (maybeIndex >= 0) {
-                    logInfo('parser', `state = ${this.state}, skip ${maybeIndex} bytes and find next magic`);
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, skip ${maybeIndex} bytes and find next magic`); }
                     this.position += maybeIndex + 4;
                     this.state = 'packet-id';
                 } else {
-                    logInfo('parser', `state = ${this.state}, skip ${this.chunk.length - this.position} bytes and still seeking next magic`);
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, skip ${this.chunk.length - this.position} bytes and still seeking next magic`); }
                     this.chunk = Buffer.allocUnsafe(0); // cleanup by the way
                     this.position = 0;
                 }
@@ -231,89 +252,105 @@ class BuildScriptMessageParser {
                 if (!this.hasEnoughLength(2)) { return null; }
                 this.packetId = this.chunk.readUInt16LE(this.position);
                 this.position += 2;
-                logInfo('parser', `state = ${this.state}, packet id ${this.packetId}`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet id ${this.packetId}`); }
                 this.state = 'packet-kind';
             } else if (this.state == 'packet-kind') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.packetKind = this.chunk.readUInt8(this.position);
                 this.position += 1;
                 if (this.packetKind == 1) {
-                    logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} file`);
-                    this.state = 'deploy-filename-length';
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} upload`); }
+                    this.state = 'upload-path-length';
                 } else if (this.packetKind == 2) {
-                    logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} admin`);
-                    this.state = 'command-kind';
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} download`); }
+                    this.state = 'download-path-length';
                 } else if (this.packetKind == 3) {
-                    logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} reload-browser`);
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} admin`); }
+                    this.state = 'admin-command-kind';
+                } else if (this.packetKind == 4) {
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} reload-browser`); }
                     this.reset();
                     return { id: this.packetId, kind: 'reload-browser' };
                 } else {
                     logError('parser', `state = ${this.state}, packet kind ${this.packetKind} invalid`);
                     this.state = 'skip-to-next-magic';
                 }
-            } else if (this.state == 'deploy-filename-length') {
+            } else if (this.state == 'upload-path-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.deployFileNameLength = this.chunk.readUInt8(this.position);
+                this.uploadPathLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file name length ${this.deployFileNameLength}`);
-                this.state = 'deploy-filename';
-            } else if (this.state == 'deploy-filename') {
-                if (!this.hasEnoughLength(this.deployFileNameLength)) { return null; }
-                this.deployFileName = this.chunk.toString('utf-8', this.position, this.position + this.deployFileNameLength);
-                this.position += this.deployFileNameLength;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file name ${this.deployFileName}`);
-                this.state = 'deploy-filecontent-length';
-            } else if (this.state == 'deploy-filecontent-length') {
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, path length ${this.uploadPathLength}`); }
+                this.state = 'upload-path';
+            } else if (this.state == 'upload-path') {
+                if (!this.hasEnoughLength(this.uploadPathLength)) { return null; }
+                this.uploadPath = this.chunk.toString('utf-8', this.position, this.position + this.uploadPathLength);
+                this.position += this.uploadPathLength;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, path ${this.uploadPath}`); }
+                this.state = 'upload-content-length';
+            } else if (this.state == 'upload-content-length') {
                 if (!this.hasEnoughLength(4)) { return null; }
-                this.deployFileContentLength = this.chunk.readUint32LE(this.position);
+                this.uploadContentLength = this.chunk.readUint32LE(this.position);
                 this.position += 4;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file content length ${this.deployFileContentLength}`);
-                this.state = 'deploy-filecontent';
-            } else if (this.state == 'deploy-filecontent') {
-                if (!this.hasEnoughLength(this.deployFileContentLength)) { return null; }
-                const content = this.chunk.subarray(this.position, this.position + this.deployFileContentLength);
-                this.position += this.deployFileContentLength;
-                logInfo('parser', `state = ${this.state}, kind = deploy, file content full filled`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, content length ${this.uploadContentLength}`); }
+                this.state = 'upload-content';
+            } else if (this.state == 'upload-content') {
+                if (!this.hasEnoughLength(this.uploadContentLength)) { return null; }
+                const content = this.chunk.subarray(this.position, this.position + this.uploadContentLength);
+                this.position += this.uploadContentLength;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, content full filled`); }
                 this.reset();
-                return { id: this.packetId, kind: 'file', filename: this.deployFileName, content };
-            } else if (this.state == 'command-kind') {
+                return { id: this.packetId, kind: 'upload', path: this.uploadPath, content }; 
+            } else if (this.state == 'download-path-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.commandKind = this.chunk.readUInt8(this.position);
+                this.downloadPathLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                if (this.commandKind == 1) {
-                    logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.commandKind} static-content:reload`);
-                    this.state = 'reload-static-key-length';
-                } else if (this.commandKind == 2) {
-                    logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.commandKind} app:reload-server`);
-                    this.state = 'reload-server-app-length';
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = download, path length ${this.downloadPathLength}`); }
+                this.state = 'download-path';
+            } else if (this.state == 'download-path') {
+                if (!this.hasEnoughLength(this.downloadPathLength)) { return null; }
+                const downloadPath = this.chunk.toString('utf-8', this.position, this.position + this.downloadPathLength);
+                this.position += this.downloadPathLength;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = download, path ${downloadPath}`); }
+                this.reset();
+                return { id: this.packetId, kind: 'download', path: downloadPath };
+            } else if (this.state == 'admin-command-kind') {
+                if (!this.hasEnoughLength(1)) { return null; }
+                this.adminCommandKind = this.chunk.readUInt8(this.position);
+                this.position += 1;
+                if (this.adminCommandKind == 1) {
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} static-content:reload`); }
+                    this.state = 'admin-static-content-key-length';
+                } else if (this.adminCommandKind == 2) {
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} app:reload-server`); }
+                    this.state = 'admin-reload-server-name-length';
                 }else {
                     logError('parser', `state = ${this.state}, kind = admin, command kind ${this.packetKind} invalid`);
                     this.state = 'skip-to-next-magic';
                 }
-            } else if (this.state == 'reload-static-key-length') {
+            } else if (this.state == 'admin-static-content-key-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.reloadStaticKeyLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key length ${this.reloadStaticKeyLength}`);
-                this.state = 'reload-static-key';
-            } else if (this.state == 'reload-static-key') {
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key length ${this.reloadStaticKeyLength}`); }
+                this.state = 'admin-static-content-key';
+            } else if (this.state == 'admin-static-content-key') {
                 if (!this.hasEnoughLength(this.reloadStaticKeyLength)) { return null; }
                 const key = this.chunk.toString('utf-8', this.position, this.position + this.reloadStaticKeyLength);
                 this.position += this.reloadStaticKeyLength;
-                logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key ${key}`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = static-content:reload, key ${key}`); }
                 this.reset();
                 return { id: this.packetId, kind: 'admin', command: { kind: 'static-content:reload', key } };
-            } else if (this.state == 'reload-server-app-length') {
+            } else if (this.state == 'admin-reload-server-name-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.reloadServerAppLength = this.chunk.readUInt8(this.position);
+                this.reloadServerNameLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, app length ${this.reloadServerAppLength}`);
-                this.state = 'reload-server-app';
-            } else if (this.state == 'reload-server-app') {
-                if (!this.hasEnoughLength(this.reloadServerAppLength)) { return null; }
-                const name = this.chunk.toString('utf-8', this.position, this.position + this.reloadServerAppLength);
-                this.position += this.reloadServerAppLength;
-                logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, app ${name}`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, name length ${this.reloadServerNameLength}`); }
+                this.state = 'admin-reload-server-name';
+            } else if (this.state == 'admin-reload-server-name') {
+                if (!this.hasEnoughLength(this.reloadServerNameLength)) { return null; }
+                const name = this.chunk.toString('utf-8', this.position, this.position + this.reloadServerNameLength);
+                this.position += this.reloadServerNameLength;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, name ${name}`); }
                 this.reset();
                 return { id: this.packetId, kind: 'admin', command: { kind: 'app:reload-server', name } };
             } else {
@@ -366,6 +403,11 @@ httpServer.on('upgrade', (request, socket, header) => {
                     websocket.close();
                     return;
                 }
+                if (buildScriptConnection) {
+                    logError('upgrade-for-build-script', 'other connection authenticated, abort this');
+                    websocket.close();
+                    return;
+                }
                 clearTimeout(timeout);
                 websocket.send('authenticated');
                 logInfo(`upgrade-for-build-script`, `authenticated`);
@@ -382,7 +424,6 @@ httpServer.on('upgrade', (request, socket, header) => {
                         const maybeMessage = buildScriptMessageParser.pull();
                         if (maybeMessage) { buildScriptConnectionEventEmitter.emit('message', maybeMessage); }
                     }
-                    
                 });
                 buildScriptConnection = websocket;
             });
@@ -438,7 +479,7 @@ export interface AdminInterfaceResponse {
 // END SHARED TYPE AdminInterfaceCommand
 
 let adminInterfaceConnection: net.Socket;
-const adminInterfaceResponseWakers: Record<number, () => void> = {};
+const adminInterfaceResponseWakers: Record<number, (response: AdminInterfaceResponse) => void> = {};
 function connectAdminInterface() {
     try {
         adminInterfaceConnection = net.connect('/tmp/fine.socket');
@@ -459,7 +500,7 @@ function connectAdminInterface() {
             } else if (!(response.id in adminInterfaceResponseWakers)) {
                 logError('admin-interface', `no waker found for received response, when will this happen?`);
             } else {
-                adminInterfaceResponseWakers[response.id]();
+                adminInterfaceResponseWakers[response.id](response);
                 delete adminInterfaceResponseWakers[response.id];
             }
         } catch (error) {
@@ -483,10 +524,10 @@ function connectAdminInterface() {
 
 connectAdminInterface();
 let adminInterfaceCommandIdNext: number = 1;
-async function sendAdminCommand(command: AdminInterfaceCommand) {
+async function sendAdminCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
     if (!adminInterfaceConnection) {
         logError('admin-interface', "not connect, use 'connect admin interface' to connect");
-        return;
+        return null;
     }
     const commandId = adminInterfaceCommandIdNext;
     const commandWithId: AdminInterfaceCommand & HasId = { id: commandId, ...command };
@@ -495,65 +536,122 @@ async function sendAdminCommand(command: AdminInterfaceCommand) {
     logInfo('admin-interface', `send ${serializedCommand}`);
 
     let timeout: any;
-    const responseReceived = new Promise<void>(resolve => {
-        adminInterfaceResponseWakers[commandId] = () => {
+    const responseReceived = new Promise<AdminInterfaceResponse>(resolve => {
+        adminInterfaceResponseWakers[commandId] = response => {
             if (timeout) { clearTimeout(timeout); }
-            resolve();
+            resolve(response);
         };
     });
     adminInterfaceConnection.write(serializedCommand);
 
     return await Promise.any([
         responseReceived,
-        new Promise<void>(resolve => {
+        new Promise<AdminInterfaceResponse>(resolve => {
             timeout = setTimeout(() => {
                 delete adminInterfaceResponseWakers[commandId];
                 logError('admin-interface', `command ${commandId} timeout`);
-                resolve();
+                resolve(null);
             }, 30_000);
         }),
     ]);
 }
 
+function sendBuildScriptMessageResponse(messageId: number, response: BuildScriptMessageResponse) {
+    let buffer: Buffer;
+    if (response.kind == 'upload') {
+        buffer = Buffer.alloc(8);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(1, 6); // kind size 1
+        buffer.writeUInt8(response.status == 'ok' ? 1 : response.status == 'error' ? 2 : 3, 7); // status size 1
+        logInfo('tunnel', `return #${messageId} upload status ${response.status}`);
+    } else if (response.kind == 'download') {
+        const contentLength = response.content?.length ?? 0;
+        buffer = Buffer.alloc(11 + contentLength);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(2, 6); // kind size 1
+        buffer.writeUInt32LE(contentLength, 7); // content length size 4
+        if (contentLength) { response.content.copy(buffer, 11, 0); }
+        logInfo('tunnel', `return #${messageId} download compress size ${contentLength}bytes`);
+    } else if (response.kind == 'admin') {
+        buffer = Buffer.alloc(8);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(3, 6); // kind size 1
+        buffer.writeUInt8(response.ok ? 1 : 0, 6); // ok size 1
+        logInfo('tunnel', `return #${messageId} admin response ${response.ok ? 'ok' : 'not ok'}`);
+    } else if (response.kind == 'reload-browser') {
+        buffer = Buffer.alloc(7);
+        buffer.write('NIRA', 0); // magic size 4
+        buffer.writeUInt16LE(messageId, 4); // packet id size 2
+        buffer.writeUInt8(4, 6); // kind size 1
+        logInfo('tunnel', `return #${messageId} reload browser`);
+    }
+    buildScriptConnection?.send(buffer);
+}
 buildScriptConnectionEventEmitter.addListener('message', async message => {
-    const send = (response: BuildScriptMessageResponse) => {
-        buildScriptConnection?.send(JSON.stringify({ id: message.id, ...response } as BuildScriptMessageResponse & HasId));
-    };
     if (message.kind == 'admin') {
-        await sendAdminCommand(message.command);
-        send({ kind: 'admin' });
+        const response = await sendAdminCommand(message.command);
+        sendBuildScriptMessageResponse(message.id, { kind: 'admin', ok: response?.ok });
     } else if (message.kind == 'reload-browser') {
         browserWebsocketConnections.forEach(c => c.send('reload'));
-        if (browserWebsocketConnections.length) { logInfo('akari', 'forward reload-browser'); }
-        send({ kind: 'reload-browser' });
-    } else if (message.kind == 'file') {
-        logInfo('fs', `deploy ${message.filename}`);
-        const fullpath = path.join(config.webroot, message.filename);
+        if (browserWebsocketConnections.length) {
+            logInfo('akari', 'forward reload-browser');
+        } else {
+            logInfo('akari', 'no browser websocket connection currently');
+        }
+        sendBuildScriptMessageResponse(message.id, { kind: 'reload-browser' });
+    } else if (message.kind == 'upload') {
+        logInfo('fs', `upload ${message.path}`);
+        const fullpath = path.join(config.webroot, message.path);
         if (!syncfs.existsSync(path.dirname(fullpath))) {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
-            send({ kind: 'file', status: 'error' });
-            return;
+            return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
         }
         zlib.zstdDecompress(message.content, async (error, messageContent) => {
             if (error) {
                 logError('fs', `message content decompress error`, error);
-                send({ kind: 'file', status: 'error' });
-                return;
+                return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
             }
-            if (syncfs.existsSync(fullpath)) {
-                const originalContent = await fs.readFile(fullpath);
-                if (Buffer.compare(messageContent, originalContent) == 0) {
-                    logInfo('fs', `${fullpath} content same, no update`);
-                    send({ kind: 'file', status: 'nodiff' });
-                    return;
+            try {
+                if (syncfs.existsSync(fullpath)) {
+                    const originalContent = await fs.readFile(fullpath);
+                    if (Buffer.compare(messageContent, originalContent) == 0) {
+                        logInfo('fs', `${fullpath} content same, no update`);
+                        return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'nodiff' });
+                    }
                 }
+                // if (!syncfs.existsSync(path.dirname(fullpath))) {
+                //     await fs.mkdir(path.dirname(fullpath), { recursive: true });
+                // }
+                await fs.writeFile(fullpath, messageContent);
+                sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'ok' });
+            } catch (error) {
+                logError('fs', `seems file system operation error`, error);
+                sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
             }
-            if (!syncfs.existsSync(path.dirname(fullpath))) {
-                await fs.mkdir(path.dirname(fullpath), { recursive: true });
-            }
-            fs.writeFile(fullpath, messageContent);
-            send({ kind: 'file', status: 'ok' });
         });
+    } else if (message.kind == 'download') {
+        logInfo('fs', `download ${message.path}`);
+        const fullpath = path.join(config.webroot, message.path);
+        if (!syncfs.existsSync(fullpath)) {
+            logError('fs', `requested path ${fullpath} not exist`);
+            return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
+        }
+        try {
+            const content = await fs.readFile(fullpath);
+            zlib.zstdCompress(content, async (error, compressedContent) => {
+                if (error) {
+                    logError('fs', `file content compress error`, error);
+                    return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
+                }
+                sendBuildScriptMessageResponse(message.id, { kind: 'download', content: compressedContent });
+            });
+        } catch (error) {
+            logError('fs', `seems file system operation error (2)`, error);
+            sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
+        }
     }
 });
 
@@ -614,5 +712,6 @@ for await (const raw of interactiveReader) {
         });
     } else {
         logError('interactive', `unknown command ${line}`);
+        interactiveReader.prompt();
     }
 }

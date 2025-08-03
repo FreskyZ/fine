@@ -44,6 +44,7 @@ export async function eslint(options: ESLintOptions): Promise<boolean> {
                     '@stylistic/indent': options.falsyRules ? ['error', 4] : 'off',
                     // why is this a separate rule with 2 space idention?
                     '@stylistic/indent-binary-ops': 'off',
+                    '@stylistic/lines-between-class-members': 'off',
                     // not sufficient option to follow my convention
                     '@stylistic/jsx-closing-bracket-location': 'off',
                     // not sufficient option to follow my convention, who invented the very strange default value?
