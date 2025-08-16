@@ -221,7 +221,7 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
 const serverFileContents: Record<string, Buffer> = {};
 export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
 
-    if (command.kind == 'app-server:reload') {
+    if (command.kind == 'application-server:reload') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {
             const newFileContent = await fs.readFile(app.server.substring(7));

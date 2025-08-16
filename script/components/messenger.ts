@@ -34,7 +34,8 @@ export interface HasId {
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
-//   - command kind: 2 (app:reload-server), app length: u8, app: not zero terminated
+//   - command kind: 2 (static-content:server:reload), name length: u8, name: not zero terminated
+//   - command kind: 3 (app-server:reload), name length: u8, name: not zero terminated
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
@@ -51,7 +52,8 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // this also explicitly limit local admin command range, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'app-server:reload', name: string },
+        | { kind: 'content-server:reload', name: string }
+        | { kind: 'application-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -212,7 +214,7 @@ class BuildScriptMessageResponseParser {
                 const commandStatus = this.chunk.readUInt8(this.position);
                 const commandStatusOk = commandStatus == 1;
                 this.position += 1;
-                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, status ${commandStatus} (${commandStatusOk}`); }
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, status ${commandStatus} (${commandStatusOk})`); }
                 this.reset();
                 return { id: this.packetId, kind: 'admin', ok: commandStatusOk };
             } else {
@@ -291,7 +293,7 @@ export async function connectRemote(ecx: MessengerContext) {
                     : event.data instanceof Blob ? [Buffer.from(await event.data.arrayBuffer())]
                     : [Buffer.from(event.data)];
                 for (const buffer of buffers) {
-                    logInfo(`tunnel`, `websocket received raw data ${buffer.length} bytes`);
+                    logInfo(`tunnel`, `receive raw data ${buffer.length} bytes`);
                     buildScriptMessageResponseParser.push(buffer);
                     const response = buildScriptMessageResponseParser.pull();
                     if (response) {
@@ -352,21 +354,30 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
             logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
-        } else if (message.command.kind == 'app-server:reload') {
+        } else if (message.command.kind == 'content-server:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
-            buffer.writeUInt8(4, 6); // kind size 1
+            buffer.writeUInt8(3, 6); // kind size 1
             buffer.writeUInt8(2, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} app:reload-server ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} content-server:reload ${message.command.name}`);
+        } else if (message.command.kind == 'application-server:reload') {
+            buffer = Buffer.alloc(9 + message.command.name.length);
+            buffer.write('NIRA', 0); // magic size 4
+            buffer.writeUInt16LE(messageId, 4); // packet id size 2
+            buffer.writeUInt8(3, 6); // kind size 1
+            buffer.writeUInt8(3, 7); // command kind size 1
+            buffer.writeUInt8(message.command.name.length, 8); // name length size 1
+            buffer.write(message.command.name, 9);
+            logInfo('tunnel', `send #${messageId} application-server:reload ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
-        buffer.writeUInt8(3, 6); // kind size 1
+        buffer.writeUInt8(4, 6); // kind size 1
         logInfo('tunnel', `send #${messageId} reload-browser`);
     }
 
@@ -377,15 +388,15 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             if (timeout) { clearTimeout(timeout); }
             if (message.kind == 'upload' && response.kind == 'upload') {
                 response.path = message.path;
-                logInfo('tunnel', `ack #${messageId} upload ${message.path} status ${response.status}`);
+                logInfo('tunnel', `receive #${messageId} upload ${message.path} status ${response.status}`);
             } else if (message.kind == 'download' && response.kind == 'download') {
                 response.path = message.path;
-                logInfo('tunnel', `ack #${messageId} download ${message.path} compress size ${response.content.length}`);
+                logInfo('tunnel', `receive #${messageId} download ${message.path} compress size ${response.content.length}`);
             } else if (message.kind == 'admin' && response.kind == 'admin') {
                 response.command = message.command;
-                logInfo('tunnel', `ack #${messageId} admin response ${response.ok ? 'ok' : 'not ok'}`);
+                logInfo('tunnel', `receive #${messageId} admin response ${response.ok ? 'ok' : 'not ok'}`);
             } else if (message.kind == 'reload-browser' && response.kind == 'reload-browser') {
-                logInfo('tunnel', `ack #${messageId} reload-browser`);
+                logInfo('tunnel', `receive #${messageId} reload-browser`);
             }
             resolve(response);
         };
@@ -429,7 +440,7 @@ export async function deployWithRemoteConnect(ecx: MessengerContext, assets: Upl
     }));
 }
 
-// return file path => file content
+// return matching file content, null for not ok
 export async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: string[]): Promise<Buffer[]> {
     return await Promise.all(filepaths.map(async filepath => {
         const response = await sendRemoteMessage(ecx, { kind: 'download', path: filepath });

@@ -413,7 +413,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         return { ok: true, log: 'complete reload static config' };
 
     // reload short link cache
-    } else if (command.kind == 'static-content:short-link:reload') {
+    } else if (command.kind == 'short-link-server:reload') {
         shortlinkcache.items.splice(0, shortlinkcache.items.length);
         return { ok: true, log: 'complete reload short link cache' };
     }

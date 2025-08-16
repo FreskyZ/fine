@@ -82,7 +82,8 @@ export async function eslint(options: ESLintOptions): Promise<boolean> {
                     // in old days I say it's not possible to enable on existing code base
                     // now I say it's not possible to enforcing overall code base
                     '@stylistic/quotes': 'off',
-                    '@stylistic/quote-props': ['error', 'consistent'],
+                    // when-I-use-I-really-need-to-use
+                    '@stylistic/quote-props': 'off', // ['error', 'consistent'],
                     '@stylistic/semi': ['error', 'always'],
                 },
             },
