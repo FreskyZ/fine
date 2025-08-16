@@ -11,6 +11,12 @@
 // it is not placed in src/core/index.ts because I'd prefer not import from './' in submodules,
 // and cannot find a submodule or worthy to create a new submodule to host the definition, so it is still here
 
+// // content server and api server are both application server,
+// // to distinguish content server and api server, and make their name aligned,
+// // api server is called action server, or actions server when need alignment,
+// // this name comes from my naming convetion of write database model in "data-config.xml" and write api http endpoints in "data-action.xml",
+// // the name of "action" is not too short and not too long and distinguishable comparing to "api", "interface", "endpoint", "function", "definition", etc.
+
 // BEGIN SHARED TYPE AdminInterfaceCommand
 export interface HasId {
     id: number,
@@ -20,8 +26,6 @@ export type AdminInterfaceCommand =
     | { kind: 'shutdown' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
-    | { kind: 'content-server:reload', name: string }
-    | { kind: 'short-link-server:reload' }
     | { kind: 'access-control:revoke', sessionId: number }
     | { kind: 'access-control:user:enable', userId: number }
     | { kind: 'access-control:user:disable', userId: number }
@@ -30,7 +34,9 @@ export type AdminInterfaceCommand =
     | { kind: 'access-control:display-rate-limits' }
     | { kind: 'access-control:display-user-sessions' } // with new responseful design, you can get
     | { kind: 'access-control:display-application-sessions' } // with new responseful design, you can get
-    | { kind: 'application-server:reload', name: string };
+    | { kind: 'content-server:reload', name: string }
+    | { kind: 'actions-server:reload', name: string }
+    | { kind: 'short-link-server:reload' };
 
 export interface AdminInterfaceResponse {
     ok: boolean,

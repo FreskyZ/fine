@@ -963,8 +963,8 @@ interface HasId {
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
-//   - command kind: 2 (static-content:server:reload), name length: u8, name: not zero terminated
-//   - command kind: 3 (app-server:reload), name length: u8, name: not zero terminated
+//   - command kind: 2 (content-server:reload), name length: u8, name: not zero terminated
+//   - command kind: 3 (actions-server:reload), name length: u8, name: not zero terminated
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
@@ -982,7 +982,7 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // this also explicitly limit local admin command range, which is ok
         | { kind: 'static-content:reload', key: string }
         | { kind: 'content-server:reload', name: string }
-        | { kind: 'application-server:reload', name: string },
+        | { kind: 'actions-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -1292,7 +1292,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
             logInfo('tunnel', `send #${messageId} content-server:reload ${message.command.name}`);
-        } else if (message.command.kind == 'application-server:reload') {
+        } else if (message.command.kind == 'actions-server:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
@@ -1300,7 +1300,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(3, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} application-server:reload ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} actions-server:reload ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
@@ -1386,7 +1386,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY ee1dff6e27aa965935b59382ae5832fc08e9c0acee4115ea4a13f75964ad6c3f
+// END LIBRARY f4ac3b6761b5fcd17479a16303b93ddbcfae7ace00f9e04ddd1d51fc522f1089
 
 dayjs.extend(utc);
 
@@ -1552,7 +1552,7 @@ async function startInteractiveShell() {
             }
         } else if (line.startsWith('upload core config')) {
             await deployWithRemoteConnect(ecx, [{ data: await fs.readFile('real-config.json'), remote: 'config' }]);
-        } else if (line.startsWith('download core error log')) {
+        } else if (line.startsWith('download error log')) {
             const filepath = `logs/${dayjs.utc().format('YYMMDD')}E.log`;
             const [content] = await downloadWithRemoteConnection(ecx, [filepath]);
             if (!content.length) {
@@ -1560,7 +1560,15 @@ async function startInteractiveShell() {
             } else {
                 const text = content.toString('utf-8');
                 logInfo('akari', `download error log ${filepath} received ${text.length} bytes`);
-                console.log(text);
+                const maybeLastLinesPart = line.substring(18).trim();
+                const lastLines = maybeLastLinesPart.startsWith(':-') ? parseInt(maybeLastLinesPart.substring(2)) : NaN;
+                if (isNaN(lastLines)) {
+                    console.log(text);
+                } else {
+                    const lines = text.split(/\r?\n/);
+                    const start = Math.max(0, lines.length - lastLines);
+                    console.log(lines.slice(start).join('\n'));
+                }
             }
         } else if (line.startsWith('download core config')) {
             const [content] = await downloadWithRemoteConnection(ecx, ['config']);

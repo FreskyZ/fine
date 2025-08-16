@@ -10,14 +10,12 @@ import mysql from 'mysql2/promise';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
-import type { StaticContentConfig, ShortLinkConfig } from './content.js';
-import { setupStaticContent, setupShortLinkService, setupDatabase2 } from './content.js';
-import { handleRequestContent, handleContentCommand } from './content.js';
-import { handleResponseCompression } from './content.js';
-import type { WebappConfig } from './access.js';
+import type { StaticContentConfig, ShortLinkConfig, ServerProviderConfig } from './content.js';
+import { setupWebroot, setupStaticContent, setupShortLinkService, setupDatabase2 } from './content.js';
+import { handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, setupDatabase } from './access.js';
 import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
-import { setupForwarding, handleRequestForward, handleForwardCommand } from './forward.js';
+import { setupInterProcessActionServers, handleRequestActionServer, handleActionCommand } from './action.js';
 
 const app = new koa();
 
@@ -27,7 +25,7 @@ app.use(handleRequestCrossOrigin);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
 app.use(handleResponseCompression);
-app.use(handleRequestForward);
+app.use(handleRequestActionServer);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
@@ -39,14 +37,15 @@ const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     database: mysql.PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
-    webapps: WebappConfig,
+    servers: ServerProviderConfig,
 };
+setupWebroot(config.webroot);
 setupDatabase2(config.database);
 setupShortLinkService(config['short-link']);
-await setupStaticContent(config.webroot, config['static-content']);
+await setupStaticContent(config['static-content']);
 setupDatabase(config.database);
-setupAccessControl(config.webapps);
-setupForwarding(config.webapps);
+setupAccessControl(config.servers);
+setupInterProcessActionServers(config.servers);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {
@@ -61,7 +60,7 @@ const handleSocketServerError = (error: Error) => {
 const adminInterfaceHandlers = [
     handleContentCommand,
     handleAccessCommand,
-    handleForwardCommand,
+    handleActionCommand,
 ];
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {

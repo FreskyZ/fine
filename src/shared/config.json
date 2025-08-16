@@ -55,22 +55,20 @@
       ".": "anotherexample/index.html"
     }
   },
-  "content-servers": {
+  "servers": {
     "short-link": {
-      "server": "./servers/short-link.js"
+      "content": "./servers/short-link.js"
     },
-    "s3": {
-      "server": "./servers/s3.js"
-    }
-  },
-  "webapps": {
+    "object-store-proxy": {
+      "content": "./servers/s3.js"
+    },
     "note": {
       "host": "app.example.com",
-      "server": "socket:/tmp/note.socket"
+      "actions": "socket:/tmp/mynote.socket"
     },
     "yala": {
       "host": "chat.example.com",
-      "server": "nodejs:./servers/yala.js"
+      "actions": "nodejs:./servers/yala.js"
     }
   }
 }

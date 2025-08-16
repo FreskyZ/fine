@@ -3,10 +3,13 @@ import net from 'node:net';
 import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { log } from './logger.js';
-import type { MyContext, WebappConfig } from './access.js';
-import { webapps } from './access.js';
+import type { ServerProviderConfig } from './content.js';
+import type { MyContext, ActionServerProvider } from './access.js';
+import { actionServerProviders } from './access.js';
 
-// forward api invocations to services, with pooled connections
+// communicate with action servers,
+// support in process server and separate process server in theory,
+// // but separate process server haven't been used for very long time
 
 interface PoolItem {
     connection: net.Socket,
@@ -31,8 +34,8 @@ const REQUEST_TIMEOUT = 60_000;
 
 // property key is app name (ctx.state.app)
 let socketPools: Record<string, Pool>;
-export function setupForwarding(config: WebappConfig) {
-    socketPools = Object.fromEntries<Pool>(Object.entries(config).filter(a => a[1].server.startsWith('socket:')).map(a => [a[0], {
+export function setupInterProcessActionServers(config: ServerProviderConfig) {
+    socketPools = Object.fromEntries<Pool>(Object.entries(config).filter(a => a[1].actions && a[1].actions.startsWith('socket:')).map(a => [a[0], {
         waits: [] as Pool['waits'],
         // need to fill air into the array or else the items are vaccum, then the map call maps nothing
         items: new Array<void>(POOL_SIZE).fill().map<PoolItem>(() => ({ state: 'uninit', connection: null })),
@@ -112,8 +115,9 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-// TODO temporary copy put it here, or else core module includes api-server.js
-interface ForwardContext {
+// TODO review the usage
+// TODO can this follow JSONRPC? https://www.jsonrpc.org/specification
+interface ActionServerContext {
     method: string,
     // GET api.domain.com/app1/v1/getsomething
     //           this part:   ^^^^^^^^^^^^^^^^
@@ -123,12 +127,12 @@ interface ForwardContext {
     status?: number,
     error?: MyError,
 }
-async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string) {
+async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requestPathAndQuery: string) {
 
     // pools and allowedOrigins initialized from same data source so must exist
     const pool = socketPools[ctx.state.app];
     const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
-    const connection = await acquire(app.server.substring(7), pool, requestDisplay);
+    const connection = await acquire(provider.server.substring(7), pool, requestDisplay);
 
     return new Promise<void>((resolve, reject) => {
         // timeout 1 min for normal request
@@ -142,7 +146,7 @@ async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathA
         connection.once('data', data => {
             clearTimeout(timeout);
             const dataString = data.toString();
-            let response: ForwardContext;
+            let response: ActionServerContext;
             try {
                 response = JSON.parse(data.toString());
             } catch (error) {
@@ -163,13 +167,13 @@ async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathA
         connection.write(JSON.stringify({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state }));
     });
 }
-async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string) {
+async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requestPathAndQuery: string) {
 
     let module: any;
     try {
-        module = await import(`${app.server.substring(7)}?version=${app.version}`);
+        module = await import(`${provider.server.substring(7)}?version=${provider.version}`);
     } catch (error) {
-        log.error({ message: 'failed to load module', server: app.server, version: app.version, error: error });
+        log.error({ message: 'failed to load module', server: provider.server, version: provider.version, error: error });
         throw new MyError('service-not-available'); // cannot connect to service is 503
     }
 
@@ -179,8 +183,7 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
         throw new MyError('service-not-available', 'invalid server');
     }
 
-    // TODO can this follow JSONRPC? https://www.jsonrpc.org/specification
-    let response: ForwardContext;
+    let response: ActionServerContext;
     try {
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
@@ -205,32 +208,31 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
     if (response.body) { ctx.body = response.body; }
 }
 
-export async function handleRequestForward(ctx: MyContext): Promise<void> {
+export async function handleRequestActionServer(ctx: MyContext): Promise<void> {
     // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
-    if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
+    if (!ctx.state.app || !actionServerProviders.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
 
+    const provider = actionServerProviders.find(a => a.name == ctx.state.app);
     const pathAndQuery = ctx.url.substring(ctx.state.app.length + 1);
-
-    const app = webapps.find(a => a.name == ctx.state.app);
-    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery);
+    await (provider.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, provider, pathAndQuery);
 }
 
 // do not reload server when file content is same
 // this was implemented in watch build in old build script, but that's kind of complex for now()
 // key is app name, the entries are lazy, it is loaded after first time reload command is executed
 const serverFileContents: Record<string, Buffer> = {};
-export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+export async function handleActionCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
 
-    if (command.kind == 'application-server:reload') {
-        const app = webapps.find(a => a.name == command.name);
-        if (app) {
-            const newFileContent = await fs.readFile(app.server.substring(7));
-            if (app.name in serverFileContents && Buffer.compare(serverFileContents[app.name], newFileContent) == 0) {
+    if (command.kind == 'actions-server:reload') {
+        const provider = actionServerProviders.find(a => a.name == command.name);
+        if (provider) {
+            const newFileContent = await fs.readFile(provider.server.substring(7));
+            if (provider.name in serverFileContents && Buffer.compare(serverFileContents[provider.name], newFileContent) == 0) {
                 return { ok: true, log: 'no update because content same' };
             } else {
-                app.version += 1;
-                serverFileContents[app.name] = newFileContent;
-                return { ok: true, log: 'update version', app };
+                provider.version += 1;
+                serverFileContents[provider.name] = newFileContent;
+                return { ok: true, log: 'update version', app: provider };
             }
         } else {
             return { ok: false, log: 'name not found' };

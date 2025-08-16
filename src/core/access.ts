@@ -10,6 +10,7 @@ import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/ad
 import type { QueryResult, ManipulateResult } from '../shared/database.js';
 import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
+import type { ServerProviderConfig } from './content.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
@@ -28,31 +29,23 @@ export type MyContext = koa.ParameterizedContext<{
     user: UserCredential,
 }>;
 
-export type WebappConfig = Record<string, {
-    // in format `appname.example.com` or `app.example.com`,
-    // no 'https://' prefix, no '/' postfix,
-    // `app.example.com` means this is on `https://app.example.com/appname`
-    host: string,
-    // in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
-    server: string,
-}>;
-interface WebappRuntimeConfig {
+export interface ActionServerProvider {
     name: string,
     host: string,
     server: string,
     version: number, // appended to dynamic import url to hot reload
 }
-export let webapps: WebappRuntimeConfig[];
-export function setupAccessControl(config: WebappConfig) {
-    webapps = Object.entries(config).map(c => ({
+export let actionServerProviders: ActionServerProvider[];
+export function setupAccessControl(config: ServerProviderConfig) {
+    actionServerProviders = Object.entries(config).filter(a => a[1].actions).map(c => ({
         name: c[0],
         host: c[1].host,
-        server: c[1].server,
+        server: c[1].actions,
         version: 0,
     }));
-    ratelimits.apps = Object.fromEntries(webapps.map(a => [a.name, new RateLimit('access-control:apps', 10, 1)]));
+    ratelimits.apps = Object.fromEntries(actionServerProviders.map(a => [a.name, new RateLimit('access-control:apps', 10, 1)]));
     // fullamount=2: generate-authorization-code and application's signin are both using this, if 1 then /signin will fail
-    ratelimits.appSignIn = Object.fromEntries(webapps.map(a => [a.name, new RateLimit('access-control:app-signin', 2, 1)]));
+    ratelimits.appSignIn = Object.fromEntries(actionServerProviders.map(a => [a.name, new RateLimit('access-control:app-signin', 2, 1)]));
 }
 
 // rate limit various aspects
@@ -96,9 +89,9 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
             ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
         }
         // direct return and do not set access-control-* and let browser reject it
-        if (!webapps.some(a => a.name == ctx.state.app && a.host == 'app.example.com')) { return; }
+        if (!actionServerProviders.some(a => a.name == ctx.state.app && a.host == 'app.example.com')) { return; }
     } else {
-        ctx.state.app = webapps.find(a => ctx.origin == `https://${a.host}`)?.name;
+        ctx.state.app = actionServerProviders.find(a => ctx.origin == `https://${a.host}`)?.name;
         // direct return and do not set access-control-* and let browser reject it
         if (!ctx.state.app) { return; }
     }
@@ -379,7 +372,7 @@ async function handleGenerateAuthorizationCode(ctx) {
     const returnAddress = (ctx.request.body as { return: string })?.return;
     if (!returnAddress) { throw new MyError('common', 'invalid return address'); }
 
-    const app = webapps.find(a =>
+    const app = actionServerProviders.find(a =>
         returnAddress.startsWith(a.host == 'app.example.com' ? `https://${a.host}/${a.name}` : `https://${a.host}`))?.name;
     if (!app) { throw new MyError('common', 'invalid return address'); }
 

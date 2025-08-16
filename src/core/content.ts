@@ -24,7 +24,22 @@ import { log } from './logger.js';
 // for the get part, while the actual 301/307 is not going to be supported in concrete apps,
 // it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
 
-let WEBROOT: string;
+let webroot: string;
+export function setupWebroot(value: string) { webroot = value; }
+
+// content and access both use this config item, put it here because first used here
+export type ServerProviderConfig = Record<string, {
+    // in format `appname.example.com` or `app.example.com`,
+    // no 'https://' prefix, no '/' postfix,
+    // `app.example.com` means this is on `https://app.example.com/appname`
+    // actions server will validate origin or referrer, content server does not use this
+    host: string,
+    // content server provider, nodejs script path
+    content: string,
+    // actions server provider, in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
+    actions: string,
+}>;
+
 // monotonically nondecreasing now used for cache key
 function getnow(): string { return process.hrtime.bigint().toString(16); }
 // file extension to content type (as require('mime').lookup)
@@ -94,14 +109,14 @@ interface StaticContentCache {
     // also, this allows 'chat.example.com': { 'share/*': 'chat/share.html', '*': 'chat/index.html' }
     readonly wildcardToNonWildcardMap: { virtual: string, item: Item }[],
 }
-let contentcache: StaticContentCache;
 
+let contentcache: StaticContentCache;
 function getOrAddItem(items: Item[], realpath: string): Item {
     let item = items.find(f => f.realpath == realpath);
     if (typeof item == 'undefined') {
         item = {
             realpath,
-            absolutePath: path.join(WEBROOT, 'static', realpath),
+            absolutePath: path.join(webroot, 'static', realpath),
             contentType: extensionToContentType[path.extname(realpath)],
             cacheKey: getnow(),
             lastModified: new Date(),
@@ -114,8 +129,7 @@ function getOrAddItem(items: Item[], realpath: string): Item {
 }
 
 // initialize, or reinitialize
-export async function setupStaticContent(webroot: string, config: StaticContentConfig) {
-    WEBROOT = webroot;
+export async function setupStaticContent(config: StaticContentConfig) {
     // NOTE this is reassigned for reinitialize
     contentcache = { items: [], virtualmap: {}, wildcardToWildcard: [], wildcardToNonWildcardMap: [] };
 
@@ -131,7 +145,7 @@ export async function setupStaticContent(webroot: string, config: StaticContentC
             }
         } else if (realpath.endsWith('/*')) {
             const realdir = realpath.slice(0, realpath.length - 2);
-            const absoluteDirectory = path.join(WEBROOT, 'static', realdir);
+            const absoluteDirectory = path.join(webroot, 'static', realdir);
             if (!syncfs.existsSync(absoluteDirectory)) {
                 log.info(`content: realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
                 return;
@@ -306,9 +320,9 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         // when '.' is not configured for a host, it goes to here, which should result in not found
         if (!trimmedPathName) { ctx.status = 404; return; }
     
-        const realpath = path.join(path.join(WEBROOT, 'public'), trimmedPathName);
+        const realpath = path.join(path.join(webroot, 'public'), trimmedPathName);
         // do not allow access to parent folder
-        if (!realpath.startsWith(path.join(WEBROOT, 'public'))) { ctx.status = 404; return; }
+        if (!realpath.startsWith(path.join(webroot, 'public'))) { ctx.status = 404; return; }
     
         // only allow normal file, ignore rejection and regard as false
         if (await fs.stat(realpath).then(s => s.isFile()).catch(() => false)) {
@@ -384,7 +398,7 @@ async function handleReload(key: string): Promise<AdminInterfaceResponse> {
     }
 
     for (const { host, realdir } of contentcache.wildcardToWildcard.filter(w => w.realdir.startsWith(key))) {
-        const absolutedir = path.join(WEBROOT, 'static', realdir);
+        const absolutedir = path.join(webroot, 'static', realdir);
         if (!syncfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
             log.info(`content: configured realpath not exist: ${host} => * => ${realdir}`);
@@ -409,7 +423,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
     // reload static content config
     } else if (command.kind == 'static-content:reload-config') {
         // throw away all old cache
-        setupStaticContent(WEBROOT, JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
+        setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
         return { ok: true, log: 'complete reload static config' };
 
     // reload short link cache
