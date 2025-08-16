@@ -18,16 +18,16 @@ dayjs.extend(utc);
 
 function logInfo(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
+        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
+        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
     }
 }
 function logError(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
+        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     }
 }
 
@@ -40,7 +40,7 @@ function generateRandomText(length: number) {
     return result;
 }
 
-// this is copied from content.ts
+// this is copied from content.ts and modified to fit in node:http instead of koa
 class RateLimit {
 
     public readonly maxCount: number;
@@ -128,7 +128,7 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // this also explicitly limit local admin command range, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'app:reload-server', name: string },
+        | { kind: 'app-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -352,7 +352,7 @@ class BuildScriptMessageParser {
                 this.position += this.reloadServerNameLength;
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = app:reload-server, name ${name}`); }
                 this.reset();
-                return { id: this.packetId, kind: 'admin', command: { kind: 'app:reload-server', name } };
+                return { id: this.packetId, kind: 'admin', command: { kind: 'app-server:reload', name } };
             } else {
                 logError('parser', `invalid state? ${this.state}`);
             }
@@ -457,18 +457,17 @@ export type AdminInterfaceCommand =
     | { kind: 'shutdown' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
-    | { kind: 'content-server:reload', name: string }
-    | { kind: 'short-link:reload' }
-    | { kind: 'access-control:display-application-sessions' } // with new response-ful design, you can get
+    | { kind: 'static-content:server:reload', name: string }
+    | { kind: 'static-content:short-link:reload' }
     | { kind: 'access-control:revoke', sessionId: number }
     | { kind: 'access-control:user:enable', userId: number }
     | { kind: 'access-control:user:disable', userId: number }
     | { kind: 'access-control:signup:enable' }
     | { kind: 'access-control:signup:disable' }
     | { kind: 'access-control:display-rate-limits' } // guess will be interesting
-    | { kind: 'app:reload-domain' }
-    | { kind: 'app:reload-server', name: string }
-    | { kind: 'app:reload-client', name: string };
+    | { kind: 'access-control:display-user-sessions' } // with new response-ful design, you can get
+    | { kind: 'access-control:display-application-sessions' } // with new response-ful design, you can get
+    | { kind: 'app-server:reload', name: string };
 
 export interface AdminInterfaceResponse {
     ok: boolean,
@@ -688,7 +687,7 @@ for await (const raw of interactiveReader) {
         await sendAdminCommand({ kind: 'static-content:reload', key: line.substring(14).trim() });
         interactiveReader.prompt();
     } else if (line.startsWith('reload server ')) {
-        await sendAdminCommand({ kind: 'app:reload-server', name: line.substring(14).trim() });
+        await sendAdminCommand({ kind: 'app-server:reload', name: line.substring(14).trim() });
         interactiveReader.prompt();
     } else if (line == 'display application sessions') {
         await sendAdminCommand({ kind: 'access-control:display-application-sessions' });

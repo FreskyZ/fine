@@ -185,7 +185,7 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
         log.error({ message: 'error ' + error.toString(),  error: error });
-        if (error.name != 'FineError') {
+        if (error.name != 'MyError') {
             throw new MyError('bad-gateway', 'error raised');
         } else {
             // seems no rethrow in javascript
@@ -221,7 +221,7 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
 const serverFileContents: Record<string, Buffer> = {};
 export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
 
-    if (command.kind == 'app:reload-server') {
+    if (command.kind == 'app-server:reload') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {
             const newFileContent = await fs.readFile(app.server.substring(7));

@@ -6,16 +6,17 @@ import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
-import type { PoolOptions } from 'mysql2';
+import mysql from 'mysql2/promise';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
-import { setupDatabaseConnection } from '../adk/database.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ShortLinkConfig } from './content.js';
-import { setupStaticContent, setupShortLinkService, handleRequestContent, handleContentCommand } from './content.js';
+import { setupStaticContent, setupShortLinkService, setupDatabase2 } from './content.js';
+import { handleRequestContent, handleContentCommand } from './content.js';
 import { handleResponseCompression } from './content.js';
 import type { WebappConfig } from './access.js';
-import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
+import { setupAccessControl, setupDatabase } from './access.js';
+import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
 import { setupForwarding, handleRequestForward, handleForwardCommand } from './forward.js';
 
 const app = new koa();
@@ -35,14 +36,15 @@ process.on('unhandledRejection', handleProcessRejection);
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     webroot: string,
     certificates: { [domain: string]: { key: string, cert: string } },
-    database: PoolOptions,
+    database: mysql.PoolOptions,
     'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
     webapps: WebappConfig,
 };
-setupDatabaseConnection(config.database);
+setupDatabase2(config.database);
 setupShortLinkService(config['short-link']);
 await setupStaticContent(config.webroot, config['static-content']);
+setupDatabase(config.database);
 setupAccessControl(config.webapps);
 setupForwarding(config.webapps);
 
@@ -93,12 +95,17 @@ adminServer.on('connection', connection => {
             return;
         }
         for (const handler of adminInterfaceHandlers) {
-            const response = await handler(command) as AdminInterfaceResponse & HasId;
-            if (response) {
-                response.id = command.id;
-                log.info({ type: 'admin interface response', response });
-                connection.write(JSON.stringify(response));
-                return;
+            try {
+                const response = await handler(command) as AdminInterfaceResponse & HasId;
+                if (response) {
+                    response.id = command.id;
+                    log.info({ type: 'admin interface response', response });
+                    connection.write(JSON.stringify(response));
+                    return;
+                }
+            } catch (error) {
+                log.error({ type: 'admin interface handler error', payload, error });
+                connection.write(JSON.stringify({ id: command.id, ok: false, error }));
             }
         }
         log.info({ type: 'admin interface unhandled command', payload });

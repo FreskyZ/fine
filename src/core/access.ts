@@ -1,18 +1,23 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import dayjs from 'dayjs';
 import koa from 'koa';
+import mysql from 'mysql2/promise';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
 import { MyError } from '../shared/error.js';
 import type { UserSession, UserCredential } from '../shared/access.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
-import type { QueryResult, ManipulateResult } from '../adk/database.js';
-import { pool, QueryDateTimeFormat } from '../adk/database.js';
-import { RateLimit } from './content.js';
+import type { QueryResult, ManipulateResult } from '../shared/database.js';
+import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
+import { RateLimit } from '../shared/ratelimit.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
+
+let pool: mysql.Pool;
+export function setupDatabase(config: mysql.PoolOptions) {
+    pool = mysql.createPool({ ...config, typeCast: databaseTypeCast });
+}
 
 // context and ctx.state used in this program,
 // they are assigned and used in this step or after this step, so put it here
@@ -142,7 +147,7 @@ interface UserSessionData {
     UserId: number,
     Name: string,
     AccessToken: string,
-    LastAccessTime: string,
+    LastAccessTime: dayjs.Dayjs,
     LastAccessAddress: string,
 }
 // cache database data, entries will not expire,
@@ -234,12 +239,12 @@ async function createUserSession(ctx: MyContext, userId: number): Promise<{ acce
         UserId: userId,
         Name: '<unnamed>',
         AccessToken: accessToken,
-        LastAccessTime: ctx.state.now.format(QueryDateTimeFormat.datetime),
+        LastAccessTime: ctx.state.now,
         LastAccessAddress: ctx.socket.remoteAddress,
     };
     const [result] = await pool.execute<ManipulateResult>(
         'INSERT INTO `UserSession` (`UserId`, `Name`, `AccessToken`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?)',
-        [session.UserId, session.Name, session.AccessToken, session.LastAccessTime, session.LastAccessAddress]);
+        [session.UserId, session.Name, session.AccessToken, formatDatabaseDateTime(ctx.state.now), session.LastAccessAddress]);
     session.Id = result.insertId;
     userSessionStorage.push(session);
 
@@ -446,11 +451,11 @@ async function handleGetUserSessions(ctx) {
     ctx.body = idSessions.map<UserSession>(d => ({
         id: d.Id,
         name: d.Name,
-        lastAccessTime: dayjs.utc(d.LastAccessTime, QueryDateTimeFormat.datetime).toISOString(),
+        lastAccessTime: toISOString(d.LastAccessTime),
         lastAccessAddress: d.LastAccessAddress,
     })).concat(applicationSessionStorage.map<UserSession>(a => ({
         app: a.app,
-        lastAccessTime: a.lastAccessTime.toISOString(),
+        lastAccessTime: toISOString(a.lastAccessTime),
     })));
 }],
 
@@ -568,7 +573,7 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         userSessionStorage.push(rows[0]);
     }
 
-    if (dayjs.utc(session.LastAccessTime).add(30, 'day').isBefore(ctx.state.now)) {
+    if (session.LastAccessTime.add(30, 'day').isBefore(ctx.state.now)) {
         // check expires or update last access time
         await pool.execute('DELETE FROM `UserSession` WHERE `Id` = ? ', [session.Id]);
         userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == session.Id), 1);
@@ -581,11 +586,11 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         throw new MyError('auth', 'authorization inactive');
     }
 
-    session.LastAccessTime = ctx.state.now.format(QueryDateTimeFormat.datetime);
+    session.LastAccessTime = ctx.state.now;
     session.LastAccessAddress = ctx.ip || 'unknown';
     await pool.query(
         'UPDATE `UserSession` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
-        [session.LastAccessTime, session.LastAccessAddress, session.Id]);
+        [formatDatabaseDateTime(session.LastAccessTime), session.LastAccessAddress, session.Id]);
 
     ctx.state.user = { id: user.Id, name: user.Name, sessionId: session.Id, sessionName: session.Name };
 }
@@ -600,7 +605,7 @@ async function authenticateApplication(ctx: MyContext) {
         throw new MyError('auth', 'unauthorized');
     }
     // NOTE application access token lifetime 1 hour
-    if (dayjs.utc(session.lastAccessTime).add(1, 'hour').isBefore(ctx.state.now)) {
+    if (session.lastAccessTime.add(1, 'hour').isBefore(ctx.state.now)) {
         applicationSessionStorage.splice(applicationSessionStorage.findIndex(d => d.accessToken == accessToken), 1);
         throw new MyError('auth', 'authorization expired');
     }
@@ -733,6 +738,10 @@ export async function handleAccessCommand(command: AdminInterfaceCommand): Promi
     // revoke session (id.example.com user session)
     if (command.kind == 'access-control:revoke') {
         return await handleRevoke(command.sessionId);
+    
+    // display
+    } else if (command.kind == 'access-control:display-user-sessions') {
+        return { ok: true, log: 'get', userSessionStorage };
     } else if (command.kind == 'access-control:display-application-sessions') {
         return { ok: true, log: 'get', applicationSessionStorage };
     } else if (command.kind == 'access-control:display-rate-limits') {
@@ -740,20 +749,6 @@ export async function handleAccessCommand(command: AdminInterfaceCommand): Promi
             all: ratelimits.all.buckets,
             apps: Object.fromEntries(Object.entries(ratelimits.apps).map(([k, v]) => [k, v.buckets])),
         } };
-
-    // change domain of app (from app.example.com to appname.example.com)
-    // this does not add or remove app
-    } else if (command.kind == 'app:reload-domain') {
-        let operationLog = '';
-        const config = await fs.readFile('config', 'utf-8');
-        Object.entries(JSON.parse(config)).map(c => {
-            const app = webapps.find(a => a.name == c[0]);
-            if (app.host != (c[1] as any).host) {
-                app.host = (c[1] as any).host;
-                operationLog += `${app.name} changed domain to ${(c[1] as any).host};`;
-            }
-        });
-        return { ok: true, log: operationLog, webapps };
 
     // activate/inactivate user
     } else if (command.kind == 'access-control:user:enable') {

@@ -5,11 +5,13 @@ import { promisify } from 'node:util';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
-import type { RowDataPacket } from 'mysql2';
+import mysql from 'mysql2/promise';
 import zlib from 'zlib';
 import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
-import { pool } from '../adk/database.js';
+import type { QueryResult } from '../shared/database.js';
+import { databaseTypeCast } from '../shared/database.js';
+import { RateLimit } from '../shared/ratelimit.js';
 import { log } from './logger.js';
 
 // see also file-structure.md and server-routing.md
@@ -36,49 +38,6 @@ const encodingToEncoder: EncodingToEncoder = {
     'br': promisify(zlib.brotliCompress),
     // 'zstd': promisify(zlib.zstdCompress), // this is experimental, use this when complete experiment
 };
-
-// no common module in this library, put it here for now
-export class RateLimit {
-    public readonly buckets: Record<string, {
-        amount: number, // remining token amount
-        updateTime: dayjs.Dayjs, // amount change time, refill based on this
-    }> = {};
-    public constructor(
-        private readonly name: string,
-        private readonly fullAmount: number, // max tokens
-        private readonly refillRate: number, // refill count per second
-    ) {}
-
-    public cleanup() {
-        for (const [key, bucket] of Object.entries(this.buckets)) {
-            const elapsed = dayjs.utc().diff(bucket.updateTime, 'second');
-            bucket.amount = Math.min(this.fullAmount, bucket.amount + elapsed * this.refillRate);
-            if (bucket.amount == this.fullAmount && bucket.updateTime.add(1, 'hour').isBefore(dayjs.utc())) {
-                delete this.buckets[key];
-            } else {
-                bucket.updateTime = dayjs.utc();
-            }
-        }
-    }
-
-    public request(key: string) {
-        let bucket = this.buckets[key];
-        if (!bucket) {
-            bucket = { amount: this.fullAmount, updateTime: dayjs.utc() };
-            this.buckets[key] = bucket;
-        } else {
-            const elapsed = dayjs.utc().diff(bucket.updateTime, 'second');
-            bucket.amount = Math.min(this.fullAmount, bucket.amount + elapsed * this.refillRate);
-            bucket.updateTime = dayjs.utc();
-        }
-        // interestingly, if you send too many (like Promise.all() with length 500),
-        // this will become very negative and need long time to recover, and furthur request still increase the negativity
-        bucket.amount -= 1;
-        if (bucket.amount < 0) {
-            throw new MyError('rate-limit', undefined, this.name);
-        }
-    }
-}
 
 // host => path => realpath mapping
 // - host is the host in same origin policy, note that any text difference, e.g. example.com and www.example.com is not same host
@@ -209,9 +168,8 @@ interface ShortLinkData {
     // the value to be in Location header, should be a url
     Value: string,
     // absolute expiration time utc
-    ExpireTime: string,
+    ExpireTime: dayjs.Dayjs,
 }
-type ShortLinkDataPacket = ShortLinkData & RowDataPacket;
 interface ShortLinkCache {
     // short link records
     readonly items: ShortLinkData[],
@@ -221,6 +179,11 @@ const shortlinkcache: ShortLinkCache = { items: [] };
 const shortlinkratelimit = new RateLimit('shortlink', 10, 1);
 setInterval(() => shortlinkratelimit.cleanup(), 3600_000);
 
+// TODO this will not be in same compilation unit after move to separate content server
+let pool2: mysql.Pool;
+export function setupDatabase2(config: mysql.PoolOptions) {
+    pool2 = mysql.createPool({ ...config, typeCast: databaseTypeCast });
+}
 async function handleRequestShortLink(ctx: koa.Context) {
     if (ctx.host != shortLinkConfig.domain) { return false; }
 
@@ -242,7 +205,7 @@ async function handleRequestShortLink(ctx: koa.Context) {
     const name = ctx.path.substring(1); // ctx.path == '/' is already checked
     const cacheItem = shortlinkcache.items.find(i => i.Name == name);
     if (cacheItem) {
-        if (dayjs.utc(cacheItem.ExpireTime).isBefore(dayjs.utc())) {
+        if (cacheItem.ExpireTime.isBefore(dayjs.utc())) {
             redirect(cacheItem.Value);
         } else {
             const index = shortlinkcache.items.findIndex(i => i.Name == name);
@@ -254,11 +217,11 @@ async function handleRequestShortLink(ctx: koa.Context) {
     // rate limit before invoking db
     shortlinkratelimit.request(ctx.ip || 'unknown');
 
-    const [records] = await pool.query<ShortLinkDataPacket[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
+    const [records] = await pool2.query<QueryResult<ShortLinkData>[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
     if (!Array.isArray(records) || records.length == 0) {
         notfound();
-    } else if (dayjs.utc(records[0].ExpireTime).isBefore(dayjs.utc())) {
-        await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
+    } else if (records[0].ExpireTime.isBefore(dayjs.utc())) {
+        await pool2.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
         notfound();
     } else {
         shortlinkcache.items.push(records[0]);
@@ -442,8 +405,6 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
     // reload static content
     if (command.kind == 'static-content:reload') {
         return await handleReload(command.key);
-    } else if (command.kind == 'app:reload-client') {
-        return await handleReload(command.name);
 
     // reload static content config
     } else if (command.kind == 'static-content:reload-config') {
@@ -452,7 +413,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         return { ok: true, log: 'complete reload static config' };
 
     // reload short link cache
-    } else if (command.kind == 'short-link:reload') {
+    } else if (command.kind == 'static-content:short-link:reload') {
         shortlinkcache.items.splice(0, shortlinkcache.items.length);
         return { ok: true, log: 'complete reload short link cache' };
     }

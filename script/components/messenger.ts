@@ -51,7 +51,7 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // this also explicitly limit local admin command range, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'app:reload-server', name: string },
+        | { kind: 'app-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -352,7 +352,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
             logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
-        } else if (message.command.kind == 'app:reload-server') {
+        } else if (message.command.kind == 'app-server:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
