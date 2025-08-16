@@ -1264,7 +1264,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         buffer.write(message.path, 8);
         buffer.writeUInt32LE(message.content.length, message.path.length + 8); // content length size 4
         message.content.copy(buffer, 12 + message.path.length, 0);
-        logInfo('tunnel', `send #${messageId} upload ${message.path} compress size ${message.content.length}bytes`);
+        logInfo('tunnel', `send #${messageId} upload ${message.path} compress size ${message.content.length} bytes`);
     } else if (message.kind == 'download') {
         buffer = Buffer.alloc(8 + message.path.length);
         buffer.write('NIRA', 0); // magic size 4
@@ -1386,7 +1386,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY e83f7003949c5798a4ccd892048078b0aa2f89ab7795eb8bde6447c42bd5336e
+// END LIBRARY ee1dff6e27aa965935b59382ae5832fc08e9c0acee4115ea4a13f75964ad6c3f
 
 dayjs.extend(utc);
 
@@ -1472,7 +1472,7 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
             logInfo('akari', chalk`build {cyan user page} completed with no change`); return;
         } else {
             const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
-            if (!reloadResult.ok) { logError('akari', chalk`{cyan user page} failed at reload`); return false; }
+            if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan user page} failed at reload`); return false; }
         }
     } else {
         const uploadResult = await deploy(assets);
@@ -1550,6 +1550,8 @@ async function startInteractiveShell() {
                 // difference with upload static is this does not read string
                 await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local), remote }]);
             }
+        } else if (line.startsWith('upload core config')) {
+            await deployWithRemoteConnect(ecx, [{ data: await fs.readFile('real-config.json'), remote: 'config' }]);
         } else if (line.startsWith('download core error log')) {
             const filepath = `logs/${dayjs.utc().format('YYMMDD')}E.log`;
             const [content] = await downloadWithRemoteConnection(ecx, [filepath]);
@@ -1559,6 +1561,25 @@ async function startInteractiveShell() {
                 const text = content.toString('utf-8');
                 logInfo('akari', `download error log ${filepath} received ${text.length} bytes`);
                 console.log(text);
+            }
+        } else if (line.startsWith('download core config')) {
+            const [content] = await downloadWithRemoteConnection(ecx, ['config']);
+            if (!content.length) {
+                logInfo('akari', `download config received empty`);
+            } else {
+                try {
+                    await fs.writeFile('real-config.json', content);
+                    logInfo('akari', `download config to local real-config.json`);
+                } catch (error) {
+                    logError('akari', `download config failed to write file real-config.json`, error);
+                }
+                if (process.env['AKARI_CORE_CONFIG_BACKUP_PATH']) {
+                    try {
+                        await fs.writeFile(process.env['AKARI_CORE_CONFIG_BACKUP_PATH'], content);
+                    } catch (error) {
+                        logError('akari', `failed to back real-config.json to ${process.env['AKARI_CORE_CONFIG_BACKUP_PATH']}`, error);
+                    }
+                }
             }
         } else if (line.startsWith('download ')) {
             const [remote, local] = line.substring(9).trim().split(':').map(x => x.trim()).filter(x => x);

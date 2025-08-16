@@ -335,7 +335,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         buffer.write(message.path, 8);
         buffer.writeUInt32LE(message.content.length, message.path.length + 8); // content length size 4
         message.content.copy(buffer, 12 + message.path.length, 0);
-        logInfo('tunnel', `send #${messageId} upload ${message.path} compress size ${message.content.length}bytes`);
+        logInfo('tunnel', `send #${messageId} upload ${message.path} compress size ${message.content.length} bytes`);
     } else if (message.kind == 'download') {
         buffer = Buffer.alloc(8 + message.path.length);
         buffer.write('NIRA', 0); // magic size 4

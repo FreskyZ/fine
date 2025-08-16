@@ -55,6 +55,14 @@
       ".": "anotherexample/index.html"
     }
   },
+  "content-servers": {
+    "short-link": {
+      "server": "./servers/short-link.js"
+    },
+    "s3": {
+      "server": "./servers/s3.js"
+    }
+  },
   "webapps": {
     "note": {
       "host": "app.example.com",
