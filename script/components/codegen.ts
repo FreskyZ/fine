@@ -282,9 +282,7 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     sb += '/* eslint-disable @stylistic/lines-between-class-members */\n';
     sb += '\n';
     sb += `class MyError extends Error {
-    // fine error middleware need this to know this is known error type
-    public readonly name: string = 'FineError';
-    public constructor(public readonly kind: MyErrorKind, message?: string) { super(message); }
+    public constructor(public readonly kind: MyErrorKind, message?: string) { super(message); this.name = 'MyError'; }
 }\n`;
     sb += `class ParameterValidator {
     public constructor(private readonly parameters: URLSearchParams) {}

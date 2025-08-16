@@ -1,19 +1,10 @@
 import type * as koa from 'koa';
-import type { FineErrorKind } from '../adk/error.ts';
+import { MyError, type MyErrorKind } from '../shared/error.js';
 import { log } from './logger.js';
 
-// contains request and process unexpected error handlers
+// this module contains request and process unexpected error handlers
 
-// TODO review use of constructor parameter and distinguish between user message and internal log message
-export class MyError extends Error {
-    constructor(public readonly kind: FineErrorKind, message?: string, public readonly additionalInfo?: string) {
-        super(message);
-        this.name = 'MyError';
-    }
-}
-
-// catch all request exceptions and continue
-const ErrorCodes: { [errorType in FineErrorKind]: number } = { 
+const ErrorCodes: { [errorType in MyErrorKind]: number } = { 
     'common': 400,
     'auth': 401,
     'not-found': 404,
@@ -32,12 +23,14 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
         await next();
     } catch (error) {
         const request = `${ctx.method} ${ctx.host}${ctx.url}`;
-        // NOTE: app response error is json parsed and will not have prototype MyError, check .name instead
-        if (error instanceof MyError || error.name == 'FineError') {
+        // NOTE: content and api servers have duplicate class definition or is cross process, cannot use instanceof but only .name==MyError
+        if (error instanceof MyError || error.name == 'MyError') {
             const myerror = error as MyError;
-            const message = myerror.kind == 'unreachable' ? 'unreachable code reached'
+            const message =
+                myerror.kind == 'unreachable' ? 'unreachable code reached'
                 : myerror.kind == 'method-not-allowed' ? 'method not allowed' 
-                : myerror.kind == 'service-not-available' ? 'service not available' : myerror.message;
+                : myerror.kind == 'service-not-available' ? 'service not available'
+                : myerror.kind == 'auth' ? 'authentication failed' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
             log.error({ type: myerror.kind, request,

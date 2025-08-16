@@ -7,9 +7,9 @@ import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
 import type { RowDataPacket } from 'mysql2';
 import zlib from 'zlib';
+import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { pool } from '../adk/database.js';
-import { MyError } from './error.js';
 import { log } from './logger.js';
 
 // see also file-structure.md and server-routing.md

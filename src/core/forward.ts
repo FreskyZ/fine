@@ -1,8 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
-import type { ForwardContext } from '../adk/api-server.js';
+import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
-import { MyError } from './error.js';
 import { log } from './logger.js';
 import type { MyContext, WebappConfig } from './access.js';
 import { webapps } from './access.js';
@@ -113,10 +112,22 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string, requestDisplay: string) {
+// TODO temporary copy put it here, or else core module includes api-server.js
+interface ForwardContext {
+    method: string,
+    // GET api.domain.com/app1/v1/getsomething
+    //           this part:   ^^^^^^^^^^^^^^^^
+    path: string,
+    body: any,
+    state: MyContext['state'],
+    status?: number,
+    error?: MyError,
+}
+async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string) {
 
     // pools and allowedOrigins initialized from same data source so must exist
     const pool = socketPools[ctx.state.app];
+    const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
     const connection = await acquire(app.server.substring(7), pool, requestDisplay);
 
     return new Promise<void>((resolve, reject) => {
@@ -152,13 +163,13 @@ async function invokeSocket(ctx: MyContext, app: typeof webapps[0], requestPathA
         connection.write(JSON.stringify({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state }));
     });
 }
-async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string, requestDisplay: string) {
+async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathAndQuery: string) {
 
     let module: any;
     try {
         module = await import(`${app.server.substring(7)}?version=${app.version}`);
     } catch (error) {
-        log.error({ message: 'failed to load module', request: requestDisplay, server: app.server, version: app.version, error: error });
+        log.error({ message: 'failed to load module', server: app.server, version: app.version, error: error });
         throw new MyError('service-not-available'); // cannot connect to service is 503
     }
 
@@ -173,7 +184,7 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
     try {
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
-        log.error({ message: 'error ' + error.toString(), request: requestDisplay, error: error });
+        log.error({ message: 'error ' + error.toString(),  error: error });
         if (error.name != 'FineError') {
             throw new MyError('bad-gateway', 'error raised');
         } else {
@@ -183,10 +194,10 @@ async function invokeScript(ctx: MyContext, app: typeof webapps[0], requestPathA
     }
     // this reject 0 or false, but should be ok
     if (!response || typeof response != 'object') {
-        log.error({ message: 'no response', request: requestDisplay });
+        log.error({ message: 'no response' });
         throw new MyError('bad-gateway', 'no response');
     } else if (response.error) {
-        log.error({ message: 'error returned', request: requestDisplay, error: response.error });
+        log.error({ message: 'error returned', error: response.error });
         throw response.error;
     }
 
@@ -199,10 +210,9 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
     if (!ctx.state.app || !webapps.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
 
     const pathAndQuery = ctx.url.substring(ctx.state.app.length + 1);
-    const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
 
     const app = webapps.find(a => a.name == ctx.state.app);
-    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery, requestDisplay);
+    await (app.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, app, pathAndQuery);
 }
 
 // do not reload server when file content is same
@@ -210,7 +220,7 @@ export async function handleRequestForward(ctx: MyContext): Promise<void> {
 // key is app name, the entries are lazy, it is loaded after first time reload command is executed
 const serverFileContents: Record<string, Buffer> = {};
 export async function handleForwardCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
-    
+
     if (command.kind == 'app:reload-server') {
         const app = webapps.find(a => a.name == command.name);
         if (app) {

@@ -4,11 +4,11 @@ import dayjs from 'dayjs';
 import koa from 'koa';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
+import { MyError } from '../shared/error.js';
 import type { UserSession, UserCredential } from '../shared/access.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import type { QueryResult, ManipulateResult } from '../adk/database.js';
 import { pool, QueryDateTimeFormat } from '../adk/database.js';
-import { MyError } from './error.js';
 import { RateLimit } from './content.js';
 
 // see docs/authentication.md
