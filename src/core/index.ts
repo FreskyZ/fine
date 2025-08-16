@@ -10,8 +10,8 @@ import mysql from 'mysql2/promise';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
-import type { StaticContentConfig, ShortLinkConfig, ServerProviderConfig } from './content.js';
-import { setupWebroot, setupStaticContent, setupShortLinkService, setupDatabase2 } from './content.js';
+import type { StaticContentConfig, ServerProviderConfig } from './content.js';
+import { setupWebroot, setupStaticContent, setupContentServers } from './content.js';
 import { handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, setupDatabase } from './access.js';
 import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
@@ -35,14 +35,12 @@ const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     webroot: string,
     certificates: { [domain: string]: { key: string, cert: string } },
     database: mysql.PoolOptions,
-    'short-link': ShortLinkConfig,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
 };
 setupWebroot(config.webroot);
-setupDatabase2(config.database);
-setupShortLinkService(config['short-link']);
 await setupStaticContent(config['static-content']);
+await setupContentServers(config.servers);
 setupDatabase(config.database);
 setupAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);

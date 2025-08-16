@@ -1510,6 +1510,35 @@ async function buildCore(ecx?: MessengerContext) {
     logInfo('akari', chalk`build {cyan core} completed successfully`); return true;
 }
 
+async function buildShortLinkServer(ecx?: MessengerContext) {
+    logInfo('akari', chalk`build {cyan short}`);
+
+    const tcx = transpile({ entry: 'src/servers/short-link.ts', target: 'node' });
+    if (!tcx.success) { logError('akari', chalk`{cyan short}  failed at transpile`); return; }
+    const mcx = await mypack({ entry: '/vbuild/servers/short-link.js' }, tcx);
+    if (!mcx.success) { logError('akari', chalk`{cyan short} failed at pack`); return; }
+    
+    if (!await eslint({ files: 'src/servers/short-link.ts' })) { /* return; */ }
+
+    const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'servers/short-link.js' }];
+    if (ecx) {
+        const [uploadResult] = await deployWithRemoteConnect(ecx, assets);
+        if (!uploadResult || uploadResult.status == 'error') {
+            logError('akari', chalk`{cyan short} failed at upload`); return;
+        } else if (uploadResult.status == 'nodiff') {
+            logInfo('akari', chalk`build {cyan short} completed with no change`); return;
+        } else {
+            const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'content-server:reload', name: 'short-link' } });
+            if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan short} failed at reload`); return false; }
+        }
+    } else {
+        const uploadResult = await deploy(assets);
+        if (!uploadResult) { logError('akari', chalk`{cyan short} failed at upload`); return false; }
+    }
+
+    logInfo('akari', chalk`build {cyan short} completed successfully`); return true;
+}
+
 async function startInteractiveShell() {
     const ecx: MessengerContext = {
         readline: readline.createInterface({
@@ -1534,6 +1563,8 @@ async function startInteractiveShell() {
             await buildCore(ecx);
         } else if (line == 'user') {
             await buildIdentityProvider(ecx);
+        } else if (line == 'short') {
+            await buildShortLinkServer(ecx);
         } else if (line.startsWith('upload static ')) {
             const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim()).filter(x => x);
             if (!local || !remote) {
@@ -1630,6 +1661,8 @@ async function dispatch(command: string[]) {
         await buildIdentityProvider();
     } else if (command[0] == 'core') {
         await buildCore();
+    } else if (command[0] == 'short') {
+        await buildShortLinkServer();
     } else if (!command[0] || (command[0] == 'with' && command[1] == 'remote')) {
         await startInteractiveShell();
     } else {

@@ -2,16 +2,11 @@ import syncfs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import dayjs from 'dayjs';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
-import mysql from 'mysql2/promise';
 import zlib from 'zlib';
 import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
-import type { QueryResult } from '../shared/database.js';
-import { databaseTypeCast } from '../shared/database.js';
-import { RateLimit } from '../shared/ratelimit.js';
 import { log } from './logger.js';
 
 // see also file-structure.md and server-routing.md
@@ -169,79 +164,72 @@ export async function setupStaticContent(config: StaticContentConfig) {
     }));
 }
 
-// ATTENTION if you are hot reloading these, these need to be teardown
-// for now only domain is configured
-export interface ShortLinkConfig { domain: string }
-let shortLinkConfig: ShortLinkConfig;
-export function setupShortLinkService(config: ShortLinkConfig) { shortLinkConfig = config; }
-
-interface ShortLinkData {
-    Id: number,
-    // path without leading slash, e.g. 'abc' in shortexample.com/abc
-    Name: string,
-    // the value to be in Location header, should be a url
-    Value: string,
-    // absolute expiration time utc
-    ExpireTime: dayjs.Dayjs,
+interface ContentServerProvider {
+    name: string,
+    server: string,
+    version: number,
+    // setup this when load version
+    handleRequest?: (ctx: koa.Context) => Promise<boolean>,
+    handleCleanup?: () => Promise<void>,
+    handleAdminCommand?: (command: AdminInterfaceCommand) => Promise<AdminInterfaceResponse>,
 }
-interface ShortLinkCache {
-    // short link records
-    readonly items: ShortLinkData[],
-}
-const shortlinkcache: ShortLinkCache = { items: [] };
-// rate limit the db operation
-const shortlinkratelimit = new RateLimit('shortlink', 10, 1);
-setInterval(() => shortlinkratelimit.cleanup(), 3600_000);
+let contentservers: ContentServerProvider[];
 
-// TODO this will not be in same compilation unit after move to separate content server
-let pool2: mysql.Pool;
-export function setupDatabase2(config: mysql.PoolOptions) {
-    pool2 = mysql.createPool({ ...config, typeCast: databaseTypeCast });
-}
-async function handleRequestShortLink(ctx: koa.Context) {
-    if (ctx.host != shortLinkConfig.domain) { return false; }
+async function setupContentServer(provider: ContentServerProvider, response?: AdminInterfaceResponse): Promise<ContentServerProvider> {
 
-    const redirect = (location: string) => {
-        ctx.status = 307;
-        ctx.type = 'text/plain';
-        ctx.body = 'Redirecting...';
-        ctx.set('Location', location);
-    }
-    const notfound = () => {
-        if (!(`${ctx.host}/404` in contentcache.virtualmap)) {
-            // need to prevent infinite redirection if not configured
-            ctx.status = 404;
-        } else {
-            redirect(`https://${shortLinkConfig.domain}/404`);
+    response ??= { ok: true, log: '' };
+    if (typeof provider.handleCleanup == 'function') {
+        try {
+            await provider.handleCleanup();
+        } catch (error) {
+            response.ok = false;
+            response.log += `failed to cleanup previous version\n${error}\n`;
+            log.error({ message: 'failed to cleanup previous version', contentServer: provider.name, version: provider.version, error });
+            // not return here
         }
     }
+    let module: any;
+    provider.version += 1;
+    response['version'] = provider.version;
+    try {
+        module = await import(`${provider.server}?v=${provider.version}`);
+    } catch (error) {
+        response.ok = false;
+        response.log += `failed to load server\n${error}\n`;
+        log.error({ message: 'failed to load server', contentServer: provider.name, version: provider.version, error });
+        return provider;
+    }
 
-    const name = ctx.path.substring(1); // ctx.path == '/' is already checked
-    const cacheItem = shortlinkcache.items.find(i => i.Name == name);
-    if (cacheItem) {
-        if (cacheItem.ExpireTime.isBefore(dayjs.utc())) {
-            redirect(cacheItem.Value);
+    if (!module.handleRequest || typeof module.handleRequest != 'function') {
+        response.ok = false;
+        response.log += `missing handleRequest ${module.handleRequest}\n`;
+        log.error({ message: 'handleRequest is not a function', contentServer: provider.name, version: provider.version });
+        return provider;
+    }
+    provider.handleRequest = module.handleRequest;
+
+    if (module.handleCleanup) {
+        if (typeof module.handleCleanup == 'function') {
+            provider.handleCleanup = module.handleCleanup;
         } else {
-            const index = shortlinkcache.items.findIndex(i => i.Name == name);
-            shortlinkcache.items.splice(index, 1);
-            // and goto normal load from db
+            response.ok = false;
+            response.log += `handleCleanup is not a function ${module.handleCleanup}\n`;
+            log.error({ message: 'handleCleanup is not a function', contentServer: provider.name, version: provider.version });
         }
     }
-
-    // rate limit before invoking db
-    shortlinkratelimit.request(ctx.ip || 'unknown');
-
-    const [records] = await pool2.query<QueryResult<ShortLinkData>[]>('SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
-    if (!Array.isArray(records) || records.length == 0) {
-        notfound();
-    } else if (records[0].ExpireTime.isBefore(dayjs.utc())) {
-        await pool2.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
-        notfound();
-    } else {
-        shortlinkcache.items.push(records[0]);
-        redirect(records[0].Value);
+    if (module.handleAdminCommand) {
+        if (typeof module.handleAdminCommand == 'function') {
+            provider.handleAdminCommand = module.handleAdminCommand;
+        } else {
+            response.ok = false;
+            response.log += `handleAdminCommand is not a function ${module.handleAdminCommand}\n`;
+            log.error({ message: 'handleAdminCommand is not a function', contentServer: provider.name, version: provider.version });
+        }
     }
-    return true;
+    return provider;
+}
+export async function setupContentServers(config: ServerProviderConfig) {
+    contentservers = await Promise.all(Object.entries(config).map(s => setupContentServer({ name: s[0], server: s[1].content, version: 0 })));
 }
 
 export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
@@ -333,8 +321,9 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             ctx.body = await fs.readFile(realpath);
         } else {
             // content servers are after public file
-            // return true for handled, false for not handled
-            if (await handleRequestShortLink(ctx)) { return; }
+            for (const provider of contentservers) {
+                if (await provider.handleRequest(ctx)) { return; }
+            }
             // and the final 404 for not found anything
             ctx.status = 404;
         }
@@ -426,10 +415,23 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
         return { ok: true, log: 'complete reload static config' };
 
-    // reload short link cache
-    } else if (command.kind == 'short-link-server:reload') {
-        shortlinkcache.items.splice(0, shortlinkcache.items.length);
-        return { ok: true, log: 'complete reload short link cache' };
+    } else if (command.kind == 'content-server:reload') {
+        const provider = contentservers.find(s => s.name == command.name);
+        if (provider) {
+            const response: AdminInterfaceResponse = { ok: true, log: '' };
+            await setupContentServer(provider, response);
+            if (response.ok) { response.log = 'reloaded content server'; };
+            return response;
+        } else {
+            return { ok: false, log: 'content server not found' };
+        }
+    }
+
+    for (const provider of contentservers) {
+        if (provider.handleAdminCommand) {
+            const response = provider.handleAdminCommand(command);
+            if (response) { return response; } // else continue to next content server
+        }
     }
     return null;
 }

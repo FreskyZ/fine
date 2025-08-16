@@ -598,7 +598,7 @@ function sendBuildScriptMessageResponse(messageId: number, response: BuildScript
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(3, 6); // kind size 1
-        buffer.writeUInt8(response.ok ? 1 : 0, 6); // ok size 1
+        buffer.writeUInt8(response.ok ? 1 : 0, 7); // ok size 1
         logInfo('websocket', `return #${messageId} admin response ${response.ok ? 'ok' : 'not ok'}`);
     } else if (response.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
