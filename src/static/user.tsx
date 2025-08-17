@@ -573,7 +573,7 @@ function Page() {
 
     // header subtitle is not in react root, control by side effect
     useEffect(() => {
-        titleElement.innerText = user ? 'User Info' : signIn ? 'Sign In' : 'Sign Up';
+        titleElement.innerText = initialLoading ? 'Loading...' : user ? 'User Info' : signIn ? 'Sign In' : 'Sign Up';
     }, [user, signIn]);
 
     if (initialLoading) {

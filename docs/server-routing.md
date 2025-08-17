@@ -24,3 +24,11 @@ Worth-noting routes
 - `note.example.com` is the new note taking app `https://github.com/FreskyZ/small/blob/main/thenote`
 - `drive.example.com` is the another file stroage app
 - `ai.example.com` is ?
+
+## Content Server
+
+The content server feature allow applications to respond to content request other than normal static file.
+
+Currently short link service is a content server that respond 307 to recognized requests.
+
+It is also motivated by the requirement to serve object storage files from a normal-static-content-like url.

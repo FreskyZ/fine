@@ -7,6 +7,7 @@ import { log } from './logger.js';
 const ErrorCodes: { [errorType in MyError['kind']]: number } = {
     'common': 400,
     'auth': 401,
+    'access-control': 403,
     'not-found': 404,
     'method-not-allowed': 405,
     'rate-limit': 429,
@@ -30,7 +31,8 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
                 = myerror.kind == 'unreachable' ? 'unreachable code reached'
                 : myerror.kind == 'method-not-allowed' ? 'method not allowed'
                 : myerror.kind == 'service-not-available' ? 'service not available'
-                : myerror.kind == 'auth' ? 'authentication failed' : myerror.message;
+                : myerror.kind == 'auth' ? 'authentication failed'
+                : myerror.kind == 'access-control' ? 'access denied' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];
             ctx.body = { message };
             log.error({ type: myerror.kind, request,

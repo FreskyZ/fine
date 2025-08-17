@@ -3,6 +3,7 @@ export type MyErrorKind =
     | 'common'
     | 'not-found'
     | 'auth'
+    | 'access-control'
     | 'unreachable'
     | 'rate-limit'
     | 'method-not-allowed'

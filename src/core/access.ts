@@ -200,11 +200,11 @@ function getBasicAuthorization(ctx: MyContext) {
 // get normal bearer access token from request header
 function getBearerAuthorization(ctx: MyContext) {
     const raw = ctx.get('authorization');
-    if (!raw) { throw new MyError('auth', 'unauthorized'); }
-    if (!raw.startsWith('Bearer ')) { throw new MyError('auth', 'unauthorized'); }
+    if (!raw) { throw new MyError('auth', undefined, 'missing authorization header'); }
+    if (!raw.startsWith('Bearer ')) { throw new MyError('auth', undefined, 'invalid authorization header'); }
 
     const accessToken = raw.substring(7);
-    if (!accessToken) { throw new MyError('auth', 'unauthorized'); }
+    if (!accessToken) { throw new MyError('auth', undefined, 'invalid access token'); }
     return accessToken;
 }
 
@@ -279,7 +279,7 @@ async function handleSignIn(ctx) {
     }
 
     if (!user.Active) {
-        throw new MyError('common', 'user is not active');
+        throw new MyError('common', 'invalid user name or password');
     }
     if (!authenticator.check(password, user.Secret)) {
         throw new MyError('common', 'invalid user name or password');
@@ -297,7 +297,7 @@ async function handleGetAllowSignUp(ctx) {
 
 [{ kind: 'id-before', method: 'GET', path: /^\/signup\?name=(?<username>\w+)$/ },
 async function handleGetAuthenticatorSecret(ctx, parameters) {
-    if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
+    if (!AllowSignUp) { throw new MyError('not-found', 'action not found'); } // makes it look like normal unknown api
 
     const username = parameters['username'];
     if (!username) {
@@ -324,7 +324,7 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
 
 [{ kind: 'id-before', method: 'POST', path: /^\/signup/ },
 async function handleSignUp(ctx) {
-    if (!AllowSignUp) { throw new MyError('not-found', 'invalid invocation'); } // makes it look like normal unknown api
+    if (!AllowSignUp) { throw new MyError('not-found', 'action not found'); } // makes it look like normal unknown api
 
     // it's ok to allow client side provide secret, as long as secret and password match
     const [username, secret, password] = getBasicAuthorization(ctx);
@@ -344,10 +344,10 @@ async function handleSignUp(ctx) {
     }
 
     if (!secret || !password) {
-        throw new MyError('common', 'invalid password');
+        throw new MyError('common', 'invalid user name or password');
     }
     if (!authenticator.check(password, secret)) {
-        throw new MyError('common', 'invalid password');
+        throw new MyError('common', 'invalid user name or password');
     }
 
     const [result] = await pool.execute<ManipulateResult>(
@@ -380,10 +380,10 @@ async function handleGenerateAuthorizationCode(ctx) {
 
     const user = await getUserById(ctx.state.user.id);
     if (!user.Active) {
-        throw new MyError('common', 'inactive user');
+        throw new MyError('common', 'invalid user');
     }
     if (user.Id != 1 && !user.Apps.split(',').includes(app)) {
-        throw new MyError('common', 'app not allowed');
+        throw new MyError('access-control');
     }
 
     const code = generateRandomText(64);
@@ -458,13 +458,16 @@ async function handleUpdateSessionName(ctx, parameters) {
     const sessionId = parseInt(parameters['session_id']);
     if (isNaN(sessionId) || sessionId == 0) { throw new MyError('common', 'invalid session id'); }
 
+    const session = userSessionStorage.find(d => d.Id == sessionId);
+    if (!session) {
+        throw new MyError('common', 'invalid session id');
+    }
+    if (session.UserId != ctx.state.user.id) {
+        throw new MyError('common', 'invalid session id');
+    }
+
     const newSessionName = (ctx.request.body as any)?.name;
     if (!newSessionName) { throw new MyError('common', 'invalid new session name'); }
-
-    const session = userSessionStorage.find(d => d.Id == sessionId);
-    if (session.UserId != ctx.state.user.id) {
-        throw new MyError('common', 'not my session');
-    }
 
     session.Name = newSessionName;
     await pool.execute('UPDATE `UserSession` SET `Name` = ? WHERE `Id` = ?', [newSessionName, sessionId]);
@@ -483,7 +486,7 @@ async function handleRemoveSession(ctx, parameters) {
         throw new MyError('common', 'invalid session id');
     }
     if (session.UserId != ctx.state.user.id) {
-        throw new MyError('common', 'not my session');
+        throw new MyError('common', 'invalid session id');
     }
 
     userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == sessionId), 1);
@@ -499,25 +502,25 @@ async function handleApplicationSignIn(ctx) {
     const code = getBearerAuthorization(ctx);
 
     const data = authorizationCodeStorage.find(c => c.value == code);
-    if (!data) { throw new MyError('auth', 'invalid authorization code'); }
+    if (!data) { throw new MyError('auth', undefined, 'invalid authorization code'); }
     // always remove from valid authorization codes
     authorizationCodeStorage.splice(authorizationCodeStorage.findIndex(c => c.value == code), 1);
 
     if (ctx.state.app != data.app || ctx.state.now.isAfter(data.expireTime)) {
-        throw new MyError('auth', 'invalid authorization code');
+        throw new MyError('auth', undefined, 'invalid authorization code');
     }
 
     ratelimits.appSignIn[data.app].request(ctx.ip);
 
     const user = await getUserById(data.userId);
     if (!user.Active) {
-        throw new MyError('auth', 'user is not active');
+        throw new MyError('auth', undefined, 'user is not active');
     }
     if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
-        throw new MyError('auth', 'app not allowed');
+        throw new MyError('auth', undefined, 'app not allowed');
     }
     if (!userSessionStorage.some(s => s.Id == data.sessionId)) {
-        throw new MyError('auth', 'invalid session id');
+        throw new MyError('auth', undefined, 'invalid session id');
     }
 
     const accessToken = generateRandomText(42);
@@ -560,7 +563,7 @@ async function authenticateIdentityProvider(ctx: MyContext) {
             'SELECT `Id`, `Name`, `AccessToken`, `UserId`, `LastAccessTime`, '
             + '`LastAccessAddress` FROM `UserSession` WHERE `AccessToken` = ?', [accessToken]);
         if (!Array.isArray(rows) || rows.length == 0) {
-            throw new MyError('auth', 'unauthorized');
+            throw new MyError('auth', undefined, 'invalid access token');
         }
         session = rows[0];
         userSessionStorage.push(rows[0]);
@@ -570,13 +573,13 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         // check expires or update last access time
         await pool.execute('DELETE FROM `UserSession` WHERE `Id` = ? ', [session.Id]);
         userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == session.Id), 1);
-        throw new MyError('auth', 'authorization expired');
+        throw new MyError('auth', undefined, 'authorization expired');
     }
 
     // this means ctx.state.user.id must be in userStorage after pass authentication
     const user = await getUserById(session.UserId);
     if (!user.Active) {
-        throw new MyError('auth', 'authorization inactive');
+        throw new MyError('auth', undefined, 'authorization inactive');
     }
 
     session.LastAccessTime = ctx.state.now;
@@ -592,26 +595,26 @@ async function authenticateApplication(ctx: MyContext) {
     const accessToken = getBearerAuthorization(ctx);
 
     const session = applicationSessionStorage.find(d => d.accessToken == accessToken);
-    if (!session) { throw new MyError('auth', 'unauthorized'); }
+    if (!session) { throw new MyError('auth', undefined, 'invalid access token'); }
 
     if (session.app != ctx.state.app) {
-        throw new MyError('auth', 'unauthorized');
+        throw new MyError('auth', undefined, 'app mismatch');
     }
     // NOTE application access token lifetime 1 hour
     if (session.lastAccessTime.add(1, 'hour').isBefore(ctx.state.now)) {
         applicationSessionStorage.splice(applicationSessionStorage.findIndex(d => d.accessToken == accessToken), 1);
-        throw new MyError('auth', 'authorization expired');
+        throw new MyError('auth', undefined, 'session expired');
     }
 
     const user = await getUserById(session.userId);
     if (!user.Active) {
-        throw new MyError('auth', 'authorization inactive');
-    }
-    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
-        throw new MyError('auth', 'unauthorized');
+        throw new MyError('auth', undefined, 'user inactive');
     }
     if (!userSessionStorage.some(s => s.Id == session.sessionId)) {
-        throw new MyError('auth', 'unauthorized');
+        throw new MyError('auth', undefined, 'user session not found, when will this happen?');
+    }
+    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
+        throw new MyError('access-control');
     }
 
     session.lastAccessTime = ctx.state.now;
@@ -634,7 +637,7 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
             const match = path.exec(ctx.url);
             if (method == ctx.method && match) { await handler(ctx, match.groups); return; }
         }
-        throw new MyError('not-found', 'invalid invocation'); // id.example.com api invocation should end here
+        throw new MyError('not-found', 'action not found'); // id.example.com api invocation should end here
     } else {
         ratelimits.apps[ctx.state.app].request(ctx.ip || 'unknown');
 
@@ -654,7 +657,7 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
 
         // NOTE need the trailing /, if you want to call any path, the trailing / is always needed
         if (!ctx.path.startsWith(`/${ctx.state.app}/`)) {
-            throw new MyError('not-found', 'invalid-invocation');
+            throw new MyError('not-found', 'action not found');
         }
         // also need the trailing /
         ctx.state.public = ctx.path.startsWith(`/${ctx.state.app}/public/`);

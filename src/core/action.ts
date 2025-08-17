@@ -138,7 +138,7 @@ async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requ
         // timeout 1 min for normal request
         const timeout = setTimeout(() => {
             log.error(`${requestDisplay} timeout`);
-            reject(new MyError('gateway-timeout', 'service timeout'));
+            reject(new MyError('gateway-timeout'));
             connection.removeAllListeners('data');
             release(pool, connection);
         }, REQUEST_TIMEOUT);
@@ -151,7 +151,7 @@ async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requ
                 response = JSON.parse(data.toString());
             } catch (error) {
                 log.error(`failed to parse response: ${error}: ${dataString}`);
-                reject(new MyError('bad-gateway', 'failed to parse response'));
+                reject(new MyError('bad-gateway'));
                 return;
             }
             if (response.error) {
@@ -180,7 +180,7 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
     if (!module.dispatch || typeof module.dispatch != 'function') {
         // 502 bad gateway is invalid response,
         // so this invalid shape is considered as 'correct service not available'
-        throw new MyError('service-not-available', 'invalid server');
+        throw new MyError('service-not-available');
     }
 
     let response: ActionServerContext;
@@ -189,7 +189,7 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
     } catch (error) {
         log.error({ message: 'error ' + error.toString(), error: error });
         if (error.name != 'MyError') {
-            throw new MyError('bad-gateway', 'error raised');
+            throw new MyError('bad-gateway');
         } else {
             // seems no rethrow in javascript
             throw error;
@@ -198,7 +198,7 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
     // this reject 0 or false, but should be ok
     if (!response || typeof response != 'object') {
         log.error({ message: 'no response' });
-        throw new MyError('bad-gateway', 'no response');
+        throw new MyError('bad-gateway');
     } else if (response.error) {
         log.error({ message: 'error returned', error: response.error });
         throw response.error;
