@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
-import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
+import type { ActionServerRequest, ActionServerResponse } from '../shared/action-types.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 import type { ServerProviderConfig } from './content.js';
@@ -115,19 +116,7 @@ function release(pool: Pool, connection: net.Socket) {
     item.state = 'available';
 }
 
-// TODO review the usage
-// TODO can this follow JSONRPC? https://www.jsonrpc.org/specification
-interface ActionServerContext {
-    method: string,
-    // GET api.domain.com/app1/v1/getsomething
-    //           this part:   ^^^^^^^^^^^^^^^^
-    path: string,
-    body: any,
-    state: MyContext['state'],
-    status?: number,
-    error?: MyError,
-}
-async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requestPathAndQuery: string) {
+async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, request: ActionServerRequest) {
 
     // pools and allowedOrigins initialized from same data source so must exist
     const pool = socketPools[ctx.state.app];
@@ -146,7 +135,7 @@ async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requ
         connection.once('data', data => {
             clearTimeout(timeout);
             const dataString = data.toString();
-            let response: ActionServerContext;
+            let response: ActionServerResponse;
             try {
                 response = JSON.parse(data.toString());
             } catch (error) {
@@ -158,16 +147,15 @@ async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, requ
                 reject(response.error);
                 return;
             }
-            ctx.status = response.status || 200;
+            // ctx.status = response.status || 200;
             if (response.body) { ctx.body = response.body; }
             resolve();
             release(pool, connection);
         });
-
-        connection.write(JSON.stringify({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state }));
+        connection.write(JSON.stringify(request));
     });
 }
-async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requestPathAndQuery: string) {
+async function invokeScript(ctx: MyContext, provider: ActionServerProvider, request: ActionServerRequest) {
 
     let module: any;
     try {
@@ -183,38 +171,43 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
         throw new MyError('service-not-available');
     }
 
-    let response: ActionServerContext;
+    let response: ActionServerResponse;
     try {
-        response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
+        response = await module.dispatch(request);
     } catch (error) {
-        log.error({ message: 'error ' + error.toString(), error: error });
+        log.error({ cat: 'action server', kind: 'dispatch error', error });
         if (error.name != 'MyError') {
             throw new MyError('bad-gateway');
         } else {
-            // seems no rethrow in javascript
-            throw error;
+            throw error; // seems no rethrow in javascript?
         }
     }
     // this reject 0 or false, but should be ok
     if (!response || typeof response != 'object') {
-        log.error({ message: 'no response' });
+        log.error({ cat: 'action server', kind: 'no response', response });
         throw new MyError('bad-gateway');
     } else if (response.error) {
-        log.error({ message: 'error returned', error: response.error });
+        log.error({ cat: 'action server', kind: 'resposne error', response });
         throw response.error;
     }
 
-    ctx.status = response.status || 200;
     if (response.body) { ctx.body = response.body; }
 }
 
 export async function handleRequestActionServer(ctx: MyContext): Promise<void> {
     // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
-    if (!ctx.state.app || !actionServerProviders.some(a => a.name == ctx.state.app)) { throw new MyError('unreachable'); }
+    if (!ctx.state.app || !actionServerProviders.some(a => a.name == ctx.state.app)) {
+        throw new MyError('unreachable', undefined, 'request action server');
+    }
 
+    const request = {
+        method: ctx.method,
+        path: ctx.url.substring(ctx.state.app.length + 1),
+        state: ctx.state,
+        body: ctx.request.body,
+    } as ActionServerRequest;
     const provider = actionServerProviders.find(a => a.name == ctx.state.app);
-    const pathAndQuery = ctx.url.substring(ctx.state.app.length + 1);
-    await (provider.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, provider, pathAndQuery);
+    await (provider.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, provider, request);
 }
 
 // do not reload server when file content is same

@@ -7,7 +7,7 @@ import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import mysql from 'mysql2/promise';
-import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
+import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ServerProviderConfig } from './content.js';

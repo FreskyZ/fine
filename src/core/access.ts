@@ -4,8 +4,9 @@ import koa from 'koa';
 import mysql from 'mysql2/promise';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
-import type { UserSession, UserCredential } from '../shared/access.js';
-import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
+import type { UserSession } from '../shared/access-types.js';
+import type { RequestState } from '../shared/action-types.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import type { QueryResult, ManipulateResult } from '../shared/database.js';
 import { MyError } from '../shared/error.js';
 import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
@@ -22,12 +23,7 @@ export function setupDatabase(config: mysql.PoolOptions) {
 
 // context and ctx.state used in this program,
 // they are assigned and used in this step or after this step, so put it here
-export type MyContext = koa.ParameterizedContext<{
-    now: dayjs.Dayjs,
-    app: string,
-    public: boolean,
-    user: UserCredential,
-}>;
+export type MyContext = koa.ParameterizedContext<RequestState>;
 
 export interface ActionServerProvider {
     readonly name: string,

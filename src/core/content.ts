@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
 import zlib from 'zlib';
-import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 
