@@ -82,7 +82,7 @@ async function acquire(socketPath: string, pool: Pool, requestDisplay: string): 
                     cleanupItem(item);
                 });
             });
-    
+
             // this once error is initial connection error
             // normally caused by service not start: ENOENT (file not exist)
             item.connection.once('error', error => {
@@ -90,19 +90,19 @@ async function acquire(socketPath: string, pool: Pool, requestDisplay: string): 
                 cleanupItem(item);
                 reject(new MyError('service-not-available'));
             });
-    
+
             item.connection.setTimeout(IDLE_TIMEOUT);
             item.connection.on('timeout', () => {
                 item.connection.destroy();
                 cleanupItem(item);
             });
-    
+
             // will this happen when previous 2 events handled?
             item.connection.on('close', () => {
                 cleanupItem(item);
             });
             item.connection.connect(socketPath);
-        })
+        });
     }
 }
 function release(pool: Pool, connection: net.Socket) {
@@ -187,7 +187,7 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
     try {
         response = await module.dispatch({ method: ctx.method, path: requestPathAndQuery, body: ctx.request.body, state: ctx.state });
     } catch (error) {
-        log.error({ message: 'error ' + error.toString(),  error: error });
+        log.error({ message: 'error ' + error.toString(), error: error });
         if (error.name != 'MyError') {
             throw new MyError('bad-gateway', 'error raised');
         } else {

@@ -4,10 +4,10 @@ import koa from 'koa';
 import mysql from 'mysql2/promise';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
-import { MyError } from '../shared/error.js';
 import type { UserSession, UserCredential } from '../shared/access.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import type { QueryResult, ManipulateResult } from '../shared/database.js';
+import { MyError } from '../shared/error.js';
 import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 import type { ServerProviderConfig } from './content.js';
@@ -30,9 +30,9 @@ export type MyContext = koa.ParameterizedContext<{
 }>;
 
 export interface ActionServerProvider {
-    name: string,
-    host: string,
-    server: string,
+    readonly name: string,
+    readonly host: string,
+    readonly server: string,
     version: number, // appended to dynamic import url to hot reload
 }
 export let actionServerProviders: ActionServerProvider[];
@@ -331,7 +331,7 @@ async function handleSignUp(ctx) {
     if (!username) {
         throw new MyError('common', 'user name cannot be empty');
     }
-    
+
     if (userStorage.some(u => !collator.compare(u.Name, username))) {
         throw new MyError('common', 'user name already exists');
     } else {
@@ -528,7 +528,7 @@ async function handleApplicationSignIn(ctx) {
         accessToken,
         lastAccessTime: ctx.state.now,
     });
-    
+
     ctx.status = 200;
     ctx.body = { accessToken };
 }],
@@ -591,7 +591,7 @@ async function authenticateIdentityProvider(ctx: MyContext) {
 async function authenticateApplication(ctx: MyContext) {
     const accessToken = getBearerAuthorization(ctx);
 
-    let session = applicationSessionStorage.find(d => d.accessToken == accessToken);
+    const session = applicationSessionStorage.find(d => d.accessToken == accessToken);
     if (!session) { throw new MyError('auth', 'unauthorized'); }
 
     if (session.app != ctx.state.app) {
@@ -621,7 +621,7 @@ async function authenticateApplication(ctx: MyContext) {
 export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next): Promise<any> {
     ratelimits.all.request('');
     ctx.state.now = dayjs.utc();
-    
+
     if (ctx.origin == 'https://id.example.com') {
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'id-before')) {
             const match = path.exec(ctx.url);
@@ -645,7 +645,7 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
         }
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'app-after')) {
             const match = path.exec(ctx.url);
-            if (method == ctx.method && match) { 
+            if (method == ctx.method && match) {
                 await authenticateApplication(ctx);
                 await handler(ctx, match.groups);
                 return;
@@ -681,7 +681,7 @@ async function handleRevoke(sessionId: number): Promise<AdminInterfaceResponse> 
     return { ok: true, log: `delete from database, remove from cache`, manipulateResult, cacheRecord };
 }
 async function handleActivateUser(userId: number, newActive: boolean): Promise<AdminInterfaceResponse> {
-    let manipulateResults: ManipulateResult[] = [];
+    const manipulateResults: ManipulateResult[] = [];
     if (newActive) {
         try {
             const [updateResult] = await pool
@@ -712,7 +712,7 @@ async function handleActivateUser(userId: number, newActive: boolean): Promise<A
         }
         const userCacheRecord = userStorage.find(u => u.Id == userId);
         if (userCacheRecord) { userCacheRecord.Active = false; }
-        
+
         const removedSessionCacheRecords = userSessionStorage.filter(s => s.UserId == userId);
         userSessionStorage.splice(0, userSessionStorage.length, ...userSessionStorage.filter(s => s.UserId != userId));
 
@@ -731,7 +731,7 @@ export async function handleAccessCommand(command: AdminInterfaceCommand): Promi
     // revoke session (id.example.com user session)
     if (command.kind == 'access-control:revoke') {
         return await handleRevoke(command.sessionId);
-    
+
     // display
     } else if (command.kind == 'access-control:display-user-sessions') {
         return { ok: true, log: 'get', userSessionStorage };

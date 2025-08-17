@@ -28,8 +28,8 @@ export interface HasId {
     id: number,
 }
 
-// received packet format
-// - magic: NIRA, packet id: u16le, kind: u8
+// local to remote packet format
+// - magic: b'NIRA', packet id: u16le, kind: u8
 // - kind: 1 (upload), path length: u8, path: not zero terminated, content length: u32le, content
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
@@ -50,7 +50,7 @@ interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
     command:
         // remote-akari knows AdminInterfaceCommand type, local akari don't
-        // this also explicitly limit local admin command range, which is ok
+        // explicitly write these kinds also explicitly limit local admin command kinds, which is ok
         | { kind: 'static-content:reload', key: string }
         | { kind: 'content-server:reload', name: string }
         | { kind: 'actions-server:reload', name: string },
@@ -64,8 +64,8 @@ type BuildScriptMessage =
     | BuildScriptMessageAdminInterfaceCommand
     | BuildScriptMessageReloadBrowser;
 
-// response packet format
-// - magic: NIRA, packet id: u16le, kind: u8
+// remote to local packet format
+// - magic: b'NIRA', packet id: u16le, kind: u8
 // - kind: 1 (upload), status: u8 (1: ok, 2: error, 3: nodiff)
 // - kind: 2 (download), content length: u32le (maybe 0 for error or empty), content
 // - kind: 3 (admin), ok: u8 (0 not ok, 1 ok)

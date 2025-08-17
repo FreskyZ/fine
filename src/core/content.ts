@@ -5,8 +5,8 @@ import { promisify } from 'node:util';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
 import zlib from 'zlib';
-import { MyError } from '../shared/error.js';
 import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
+import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 
 // see also file-structure.md and server-routing.md
@@ -41,7 +41,7 @@ function getnow(): string { return process.hrtime.bigint().toString(16); }
 // .wasm files cannot be ecma imported but only fetch, which seems not respecting must-revalidate, but at least it compress
 const extensionToContentType: { [ext: string]: string } = { '.html': 'html', '.js': 'js', '.css': 'css', '.wasm': 'wasm' };
 // compress encodings
-type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Promise<Buffer> }
+type EncodingToEncoder = { [encoding: string]: (input: Buffer) => Promise<Buffer> };
 const encodingToEncoder: EncodingToEncoder = {
     'gzip': promisify(zlib.gzip),
     'deflate': promisify(zlib.deflate),
@@ -91,13 +91,13 @@ interface Item {
 
 interface StaticContentCache {
     // identifier is realpath
-    readonly items: Item[];
+    readonly items: Item[],
     // ${host}/${path} to cache item
-    readonly virtualmap: { [virtual: string]: Item };
+    readonly virtualmap: { [virtual: string]: Item },
     // wildcard configs, this is saved for reloading,
     // the path mapping is readdir'd and stored in virtualmap,
     // realdir is relative directory path after 'static/' and without ending '/*'
-    readonly wildcardToWildcard: { host: string, realdir: string }[];
+    readonly wildcardToWildcard: { host: string, realdir: string }[],
     // ${host}/${path} to cache item, for html5 browser history web apps,
     // e.g. a1.example.com/* => static/a1/index.html store as ['a1.example.com', 'a1/index.html']
     // e.g. app.example.com/a1/* => static/a1/index.html store as ['app.example.com/a1', 'a1/index.html']
@@ -149,7 +149,7 @@ export async function setupStaticContent(config: StaticContentConfig) {
                 if (path.extname(entry.name) in extensionToContentType) {
                     contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
                 } else {
-                    log.info(`content: realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`)
+                    log.info(`content: realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`);
                 }
             }
             contentcache.wildcardToWildcard.push({ host, realdir });
@@ -165,8 +165,8 @@ export async function setupStaticContent(config: StaticContentConfig) {
 }
 
 interface ContentServerProvider {
-    name: string,
-    server: string,
+    readonly name: string,
+    readonly server: string,
     version: number,
     // setup this when load version
     handleRequest?: (ctx: koa.Context) => Promise<boolean>,
@@ -229,7 +229,8 @@ async function setupContentServer(provider: ContentServerProvider, response?: Ad
     return provider;
 }
 export async function setupContentServers(config: ServerProviderConfig) {
-    contentservers = await Promise.all(Object.entries(config).map(s => setupContentServer({ name: s[0], server: s[1].content, version: 0 })));
+    contentservers = await Promise.all(Object.entries(config)
+        .filter(s => s[1].content).map(s => setupContentServer({ name: s[0], server: s[1].content, version: 0 })));
 }
 
 export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
@@ -307,12 +308,12 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         const trimmedPathName = pathname.endsWith('/') ? pathname.substring(0, pathname.length - 1) : pathname;
         // when '.' is not configured for a host, it goes to here, which should result in not found
         if (!trimmedPathName) { ctx.status = 404; return; }
-    
+
         const realpath = path.join(path.join(webroot, 'public'), trimmedPathName);
         // do not allow access to parent folder
         if (!realpath.startsWith(path.join(webroot, 'public'))) { ctx.status = 404; return; }
-    
-        // only allow normal file, ignore rejection and regard as false
+
+        // only allow normal file, ignore rejection and regard as not normal file
         if (await fs.stat(realpath).then(s => s.isFile()).catch(() => false)) {
             ctx.set('Cache-Control', 'public');
             ctx.type = path.extname(realpath);
@@ -324,7 +325,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             for (const provider of contentservers) {
                 if (await provider.handleRequest(ctx)) { return; }
             }
-            // and the final 404 for not found anything
+            // and the final 404 for not find anything
             ctx.status = 404;
         }
     }
@@ -376,7 +377,7 @@ async function handleReload(key: string): Promise<AdminInterfaceResponse> {
             if (Buffer.compare(item.content, newContent)) {
                 operationLog += `content not same, update`;
                 item.cacheKey = getnow();
-                item.lastModified = new Date(),
+                item.lastModified = new Date();
                 item.content = newContent;
                 item.encodedContent = {};
             } else {
@@ -397,7 +398,7 @@ async function handleReload(key: string): Promise<AdminInterfaceResponse> {
             if (path.extname(entry.name) in extensionToContentType) {
                 contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
             } else {
-                log.info(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`)
+                log.info(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`);
             }
         }
     }
@@ -415,6 +416,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
         return { ok: true, log: 'complete reload static config' };
 
+    // reload content server provider
     } else if (command.kind == 'content-server:reload') {
         const provider = contentservers.find(s => s.name == command.name);
         if (provider) {
@@ -427,6 +429,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand): Prom
         }
     }
 
+    // send to content server's command handler
     for (const provider of contentservers) {
         if (provider.handleAdminCommand) {
             const response = provider.handleAdminCommand(command);

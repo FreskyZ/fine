@@ -110,12 +110,12 @@ const levels: Record<Level, LoggerOptions> = {
 };
 
 // @ts-ignore ts does not understand object.entries, actually it does not understand reduce<>(..., {}), too
-const loggers: Record<Level, Logger> =
-    Object.fromEntries(Object.entries(levels).map(([level, options]) => [level, new Logger(options)]));
+const loggers: Record<Level, Logger>
+    = Object.fromEntries(Object.entries(levels).map(([level, options]) => [level, new Logger(options)]));
 
 // @ts-ignore again
 export const log: Record<Level, (content: string | object) => void> = Object.fromEntries(Object.entries(loggers)
-    .map(([level, logger]) => [level, level == 'debug' && !('FINE_DEBUG' in process.env) ? (() => {}) : logger.write.bind(logger)]));
+    .map(([level, logger]) => [level, level == 'debug' && !('FINE_DEBUG' in process.env) ? () => {} : logger.write.bind(logger)]));
 
 // try cleanup outdated logs per hour
 setInterval(() => Object.entries(loggers).map(([_, logger]) => logger.cleanup()), 3600_000).unref();

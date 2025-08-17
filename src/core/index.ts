@@ -47,7 +47,7 @@ setupInterProcessActionServers(config.servers);
 
 // admin interface
 if (syncfs.existsSync('/tmp/fine.socket')) {
-    syncfs.unlinkSync('/tmp/fine.socket');
+    await fs.unlink('/tmp/fine.socket');
 }
 
 const adminServer = net.createServer();
@@ -222,7 +222,7 @@ Promise.all([
 
 let shuttingdown = false;
 function shutdown() {
-    if (shuttingdown) return; 
+    if (shuttingdown) { return; }
     shuttingdown = true; // prevent reentry
 
     setTimeout(() => {

@@ -1,10 +1,10 @@
 import type * as koa from 'koa';
-import { MyError, type MyErrorKind } from '../shared/error.js';
+import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 
 // this module contains request and process unexpected error handlers
 
-const ErrorCodes: { [errorType in MyErrorKind]: number } = { 
+const ErrorCodes: { [errorType in MyError['kind']]: number } = {
     'common': 400,
     'auth': 401,
     'not-found': 404,
@@ -23,12 +23,12 @@ export async function handleRequestError(ctx: koa.Context, next: koa.Next): Prom
         await next();
     } catch (error) {
         const request = `${ctx.method} ${ctx.host}${ctx.url}`;
-        // NOTE: content and api servers have duplicate class definition or is cross process, cannot use instanceof but only .name==MyError
+        // servers have duplicate class definition or is cross process, cannot use instanceof and need to use .name
         if (error instanceof MyError || error.name == 'MyError') {
             const myerror = error as MyError;
-            const message =
-                myerror.kind == 'unreachable' ? 'unreachable code reached'
-                : myerror.kind == 'method-not-allowed' ? 'method not allowed' 
+            const message
+                = myerror.kind == 'unreachable' ? 'unreachable code reached'
+                : myerror.kind == 'method-not-allowed' ? 'method not allowed'
                 : myerror.kind == 'service-not-available' ? 'service not available'
                 : myerror.kind == 'auth' ? 'authentication failed' : myerror.message;
             ctx.status = ErrorCodes[myerror.kind];

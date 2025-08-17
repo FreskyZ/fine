@@ -43,7 +43,7 @@ export async function handleRequest(ctx: koa.Context): Promise<boolean> {
     const name = ctx.path.substring(1);
     const cacheItem = cache.items.find(i => i.Name == name);
     if (cacheItem) {
-        if (dayjs.utc(cacheItem.ExpireTime).isAfter(dayjs.utc())) {
+        if (cacheItem.ExpireTime.isAfter(dayjs.utc())) {
             redirect(cacheItem.Value);
         } else {
             const index = cache.items.findIndex(i => i.Name == name);
@@ -59,7 +59,7 @@ export async function handleRequest(ctx: koa.Context): Promise<boolean> {
         'SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
     if (!Array.isArray(records) || records.length == 0) {
         notfound();
-    } else if (dayjs.utc(records[0].ExpireTime).isBefore(dayjs.utc())) {
+    } else if (records[0].ExpireTime.isBefore(dayjs.utc())) {
         await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
         notfound();
     } else {
@@ -79,7 +79,7 @@ export async function cleanup() {
 export async function handleContentCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
     if (command.kind == 'short-link-server:reload') {
         cache.items = [];
-        return { ok: true, log: 'reload short link' };
+        return { ok: true, log: 'reload short link cache' };
     }
     return null;
 }
