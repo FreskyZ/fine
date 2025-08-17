@@ -313,6 +313,9 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
                 return;
             }
         }
+        // if no accept encoding, send original
+        ctx.body = item.content;
+        ctx.set('Content-Length', item.content.length.toString());
     } else {
         // ignore query part
         const pathname = ctx.URL.pathname;

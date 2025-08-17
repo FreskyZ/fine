@@ -1415,11 +1415,25 @@ async function uploadPackageJson() {
 // but now it means the pure static pages home, short, 404, 418
 async function uploadStaticAssets() {
     logInfo('akari', chalk`deploy {cyan static}`);
+
+    if (process.env['AKARIN_DOWNLOAD_RESETCSS']) {
+        // TODO network not very ok, test later
+        const response = await fetch('https://raw.githubusercontent.com/ant-design/ant-design/refs/heads/master/components/style/reset.css');
+        if (response.ok) {
+            logError('akari', 'download response not ok, skip', response);
+        } else {
+            const content = await response.text();
+            await fs.writeFile('src/static/reset.css', content);
+            logInfo('akari', `download and save reset.css ${content.length} bytes`);
+        }
+    }
+
     const assets = await Promise.all([
         ['src/static/home.html', 'static/home.html'],
         ['src/static/short.html', 'static/short.html'],
         ['src/static/404.html', 'static/404.html'],
         ['src/static/418.html', 'static/418.html'],
+        ['src/static/reset.css', 'static/reset.css'],
     ].map(async ([local, remote]) => ({ data: await fs.readFile(local), remote })));
     await deploy(assets);
     logInfo('akari', chalk`deploy {cyan static} complete`);
