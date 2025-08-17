@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { css } from '@emotion/react';
-import type { UserCredential, UserSession } from '../shared/access.js';
+import type { UserCredential, UserSession } from '../shared/access-types.js';
 
 // // this was only for last access time display, add back if have more usage
 // import dayjs from 'dayjs';

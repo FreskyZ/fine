@@ -644,6 +644,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
     mcx.externalRequests = [];
     for (const module of mcx.modules) {
         for (const moduleImport of module.requests.filter(d => !d.moduleName.startsWith('.'))) {
+            // if (mcx.logheader == 'mypack-mainclient' && moduleImport.moduleName == '@emotion/react/jsx-runtime') { console.log(moduleImport); }
             const mergedImport = mcx.externalRequests.find(m => m.moduleName == moduleImport.moduleName);
             if (!mergedImport) {
                 // deep clone, currently modify original object does not cause error, but don't do that
@@ -662,7 +663,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     logError(mcx.logheader, `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (mergedImport.namedNames.some(n => n.alias == moduleImport.defaultName)) {
                     hasError = true;
-                    logError(mcx.logheader, `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: default import ${moduleImport.defaultName} from '${moduleImport.moduleName}' has appeared in previous named imports from this module, when will this happen?`);
                 } else if (!moduleImport.defaultName) {
                     mergedImport.defaultName = moduleImport.defaultName;
                 }
@@ -678,7 +679,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     logError(mcx.logheader, `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared in other import declarations from other modules`);
                 } else if (mergedImport.namedNames.some(n => n.alias == moduleImport.namespaceName)) {
                     hasError = true;
-                    logError(mcx.logheader, `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared previous named imports from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: namespace import ${moduleImport.namespaceName} from '${moduleImport.moduleName}' has appeared in previous named imports from this module, when will this happen?`);
                 } else if (!moduleImport.namespaceName) {
                     mergedImport.namespaceName = moduleImport.namespaceName;
                 }
@@ -691,7 +692,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                     logError(mcx.logheader, `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared in other import declarations`);
                 } else if (mergedImport.namespaceName == namedName.alias || mergedImport.defaultName == namedName.alias) {
                     hasError = true;
-                    logError(mcx.logheader, `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared previous namespace import or default import from this module, when will this happen?`);
+                    logError(mcx.logheader, `${module.path}: import ${namedName.alias} from '${moduleImport.moduleName}' has appeared in previous namespace import or default import from this module, when will this happen?`);
                 } else if (mergedImport.namedNames.some(e => e.name != namedName.name && e.alias == namedName.alias)) {
                     hasError = true;
                     const previous = mergedImport.namedNames.find(e => e.name != namedName.name && e.alias == namedName.alias);
@@ -702,7 +703,7 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
                 // name == name and alias != alias: same name can be imported as different alias
                 // name == name and alias == alias: normal same name import
                 // so add record by finding alias is enough
-                if (!mergedImport.namedNames.some(e => e.alias != namedName.alias)) {
+                if (!mergedImport.namedNames.some(e => e.alias == namedName.alias)) {
                     mergedImport.namedNames.push(namedName);
                 }
             }
@@ -722,10 +723,12 @@ function validateModuleDependencies(mcx: MyPackContext): boolean {
         return lhs.moduleName.localeCompare(rhs.moduleName);
     });
 
-    // console.log('final external references: ');
-    // for (const declaration of externalRequests) {
-    //     console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
-    //         || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.names.join(',')}`);
+    // if (mcx.logheader == 'mypack-mainclient') {
+    //     console.log(`final external references:`);
+    //     for (const declaration of mcx.externalRequests) {
+    //         console.log(`   from: ${declaration.moduleName}, default: ${declaration.defaultName
+    //             || ''}, namespace: ${declaration.namespaceName || ''}, names: ${declaration.namedNames.join(',')}`);
+    //     }
     // }
 
     // https://nodejs.org/api/esm.html#resolution-algorithm
@@ -1381,7 +1384,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 9ff841603ca6f0aaf478adfc82e9d7dfc73c859b8d95b5ec772858aef7f729b5
+// END LIBRARY cb4b5adc53d1685ef6d729d9b7f351d0520cc78f3cd20629406fe7f8c1555fba
 
 dayjs.extend(utc);
 

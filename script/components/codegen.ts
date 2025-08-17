@@ -302,20 +302,18 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     const hash = crypto.hash('sha256', sb);
     return `${manualContent}// AUTOGEN ${hash}\n${sb}`;
 }
-// index.tsx, return null for not ok
-function generateWebInterfaceClient(config: CodeGenerationConfig, originalContent: string): string {
+// api.ts, return null for not ok
+function generateWebInterfaceClient(config: CodeGenerationConfig): string {
 
-    const manualContent = checkPartialGeneratedContentHash(config, 'actions-client', originalContent);
-    if (!manualContent) { return null; }
     let sb = '';
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
-
-    // NOTE this is hardcode replaced in make-akari.ts
-    sb += `template-client.tsx`.replaceAll('api.example.com/example', `api.example.com/${config.appname}`);
-
-    sb += 'const api = {\n';
+    sb += '\n';
+    sb += `import type { startup } from './startup.js';\n`;
+    sb += `import type * as I from '../shared/api-types.js';\n`;
+    sb += '\n';
+    sb += 'export const makeapi = (sendRequest: Parameters<Parameters<typeof startup>[5]>[0]) => ({\n';
     // for now now action.key only used here
     for (const action of config.actions.filter(a => a.key == 'main')) {
         const functionName = action.name.charAt(0).toLowerCase() + action.name.substring(1);
@@ -353,10 +351,8 @@ function generateWebInterfaceClient(config: CodeGenerationConfig, originalConten
         }
         sb = sb.substring(0, sb.length - 2) + '),\n';
     }
-    sb += '};\n';
-
-    const hash = crypto.hash('sha256', sb);
-    return `${manualContent}// AUTOGEN ${hash}\n${sb}`;
+    sb += `});\n`;
+    return sb;
 }
 
 interface CodeGenerationOptions {
@@ -398,8 +394,8 @@ export async function generateCode(config: CodeGenerationConfig): Promise<boolea
         { kind: 'server', name: 'database-types.d.ts', run: createTask('src/server/database-types.d.ts', generateDatabaseTypes) },
         { kind: 'server', name: 'database.sql', run: createTask('src/database.sql', generateDatabaseSchema) },
         { kind: 'client,server', name: 'api.d.ts', run: createTask('src/shared/api-types.d.ts', generateWebInterfaceTypes) },
+        { kind: 'client', name: 'index.tsx', run: createTask('src/client/api.ts', generateWebInterfaceClient) },
         { kind: 'server', name: 'index.ts', run: createPartialTask('src/server/index.ts', generateWebInterfaceServer) },
-        { kind: 'client', name: 'index.tsx', run: createPartialTask('src/client/index.tsx', generateWebInterfaceClient) },
     ].filter(t => (config.options.client && t.kind.includes('client')) || (config.options.server && t.kind.includes('server')));
     // console.log('scheduled tasks', tasks);
     await Promise.all(tasks.map(t => t.run()));

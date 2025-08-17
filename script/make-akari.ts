@@ -51,9 +51,9 @@ const adknames = [
     'error.ts',
     'database.ts',
     'validate.ts',
-    'ipcserver.ts',
+    'ipc-server.ts',
     'notification.ts',
-    'request.tsx',
+    'client-startup.tsx',
 ];
 for (const name of adknames) {
     if (!syncfs.existsSync(path.join('src', 'shared', name))) {
@@ -378,14 +378,6 @@ for (const moduleName of sortedModuleNames.filter(m => requestedComponents.inclu
     for (let line of moduleContent.split('\n')) {
         if (line.trim().startsWith('import ')) { continue; }
         if (line.trimStart().startsWith('export ')) { line = line.trimStart().substring(7); }
-        if (line.includes('template-client.tsx')) {
-            const rawTemplateContent = await fs.readFile('script/components/template-client.tsx', 'utf-8');
-            const beginTempltateIndex = rawTemplateContent.indexOf('// BEGIN TEMPLATE\n');
-            const templateContent = rawTemplateContent.substring(beginTempltateIndex + 18);
-            // ATTENTION for now you can simply replaceall
-            // if there are other $ symbol or non string template '`' then you need to lexical parse the content
-            line = line.replace('template-client.tsx', templateContent.replaceAll('`', '\\`').replaceAll('${', '\\${'));
-        }
         sb += line + '\n';
     }
 }
