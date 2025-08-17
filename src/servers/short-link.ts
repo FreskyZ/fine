@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import mysql from 'mysql2/promise';
 import {} from 'dayjs/plugin/utc.js'; // need empty include to add type
 import type * as koa from 'koa';
-import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
 import { databaseTypeCast, type QueryResult } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 
@@ -76,10 +76,10 @@ export async function cleanup() {
     clearInterval(cleanupInterval);
 }
 
-export async function handleContentCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+export async function handleAdminCommand(command: AdminInterfaceCommand, result: AdminInterfaceResult): Promise<void> {
     if (command.kind == 'short-link-server:reload') {
         cache.items = [];
-        return { ok: true, log: 'reload short link cache' };
+        result.status = 'ok';
+        result.logs.push('clear short link cache');
     }
-    return null;
 }

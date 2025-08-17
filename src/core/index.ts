@@ -7,7 +7,7 @@ import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import mysql from 'mysql2/promise';
-import type { HasId, AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
+import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ServerProviderConfig } from './content.js';
@@ -15,7 +15,7 @@ import { setupWebroot, setupStaticContent, setupContentServers } from './content
 import { handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, setupDatabase } from './access.js';
 import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
-import { setupInterProcessActionServers, handleRequestActionServer, handleActionCommand } from './action.js';
+import { setupInterProcessActionServers, handleRequestActionServer, handleActionsCommand } from './action.js';
 
 const app = new koa();
 
@@ -52,17 +52,18 @@ if (syncfs.existsSync('/tmp/fine.socket')) {
 
 const adminServer = net.createServer();
 const handleSocketServerError = (error: Error) => {
-    console.log(`admin server error: ${error.message}`);
+    log.error({ cat: 'admin interface', message: 'admin interface socket server error', error });
 };
 
 const adminInterfaceHandlers = [
     handleContentCommand,
     handleAccessCommand,
-    handleActionCommand,
+    handleActionsCommand,
 ];
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
     adminInterfaceConnections.push(connection);
+    const sendResponse = (id: number, result: AdminInterfaceResult) => { connection.write(JSON.stringify({ id, ...result })); };
 
     connection.on('close', () => {
         adminInterfaceConnections.splice(adminInterfaceConnections.indexOf(connection), 1);
@@ -77,36 +78,34 @@ adminServer.on('connection', connection => {
         try {
             command = JSON.parse(payload);
         } catch {
-            log.error({ type: 'admin interface payload parse failed', payload });
-            connection.write(JSON.stringify({ ok: false, log: 'invalid payload ' + payload }));
+            log.error({ cat: 'admin interface', message: 'invalid payload', payload });
+            sendResponse(0, { status: 'error', logs: ['invalid payload ' + payload] });
             return;
         }
 
         if (command.kind == 'ping') {
-            connection.write(JSON.stringify({ id: command.id, ok: true, log: 'pong' }));
-            return;
+            return sendResponse(command.id, { status: 'ok', logs: ['pong'] });
         } else if (command.kind == 'shutdown') {
-            log.info({ type: 'received shutdown request from admin interface' });
-            connection.write(JSON.stringify({ id: command.id, ok: true, log: 'scheduling shutdown' }));
+            log.info({ cat: 'admin interface', kind: 'shutdown request' });
+            sendResponse(command.id, { status: 'ok', logs: ['scheduling shutdown'] });
             shutdown();
             return;
         }
         for (const handler of adminInterfaceHandlers) {
             try {
-                const response = await handler(command) as AdminInterfaceResponse & HasId;
-                if (response) {
-                    response.id = command.id;
-                    log.info({ type: 'admin interface response', response });
-                    connection.write(JSON.stringify(response));
-                    return;
+                const result: AdminInterfaceResult = { status: 'unhandled', logs: [] };
+                await handler(command, result);
+                if (result.status != 'unhandled') {
+                    log.info({ cat: 'admin interface', kind: 'normal result', result });
+                    return sendResponse(command.id, result);
                 }
             } catch (error) {
-                log.error({ type: 'admin interface handler error', payload, error });
-                connection.write(JSON.stringify({ id: command.id, ok: false, error }));
+                log.error({ cat: 'admin interface', kind: 'handler error', command, error });
+                return sendResponse(command.id, { status: 'error', logs: [error] });
             }
         }
-        log.info({ type: 'admin interface unhandled command', payload });
-        connection.write(JSON.stringify({ id: command.id, ok: false, log: 'unhandled command' }));
+        log.error({ cat: 'admin interface', kind: 'unhandled', command });
+        return sendResponse(command.id, { status: 'unhandled', logs: [] });
     });
 });
 

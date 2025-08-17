@@ -10,6 +10,8 @@ import utc from 'dayjs/plugin/utc.js'; // why does this need .js?
 //    log.error(some error);
 //    log.error({ type: 'request error', error });
 //    log.debug(event); // debug log is only enabled by environment variable
+// TODO try normalize invocation to
+//    log.level({ cat: 'category name', kind: 'message kind' or message: 'message content', additional properties });
 
 // because initialize require utc, while index do not use dayjs, so put it here
 dayjs.extend(utc);

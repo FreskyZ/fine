@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
 import { MyError } from '../shared/error.js';
-import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
 import { log } from './logger.js';
 import type { ServerProviderConfig } from './content.js';
 import type { MyContext, ActionServerProvider } from './access.js';
@@ -221,22 +221,23 @@ export async function handleRequestActionServer(ctx: MyContext): Promise<void> {
 // this was implemented in watch build in old build script, but that's kind of complex for now()
 // key is app name, the entries are lazy, it is loaded after first time reload command is executed
 const serverFileContents: Record<string, Buffer> = {};
-export async function handleActionCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
-
+export async function handleActionsCommand(command: AdminInterfaceCommand, result: AdminInterfaceResult): Promise<void> {
     if (command.kind == 'actions-server:reload') {
         const provider = actionServerProviders.find(a => a.name == command.name);
         if (provider) {
             const newFileContent = await fs.readFile(provider.server.substring(7));
             if (provider.name in serverFileContents && Buffer.compare(serverFileContents[provider.name], newFileContent) == 0) {
-                return { ok: true, log: 'no update because content same' };
+                result.status = 'ok';
+                result.logs.push('nodiff');
             } else {
                 provider.version += 1;
                 serverFileContents[provider.name] = newFileContent;
-                return { ok: true, log: 'update version', app: provider };
+                result.status = 'ok';
+                result.logs.push('update action server', provider);
             }
         } else {
-            return { ok: false, log: 'name not found' };
+            result.status = 'error';
+            result.logs.push('server name not found');
         }
     }
-    return null;
 }

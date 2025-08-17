@@ -5,7 +5,7 @@ import mysql from 'mysql2/promise';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
 import type { UserSession, UserCredential } from '../shared/access.js';
-import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
 import type { QueryResult, ManipulateResult } from '../shared/database.js';
 import { MyError } from '../shared/error.js';
 import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
@@ -666,99 +666,113 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
     }
 }
 
-async function handleRevoke(sessionId: number): Promise<AdminInterfaceResponse> {
-    let manipulateResult: ManipulateResult;
+async function handleRevoke(sessionId: number, result: AdminInterfaceResult): Promise<void> {
     try {
         const [deleteResult] = await pool
             .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `Id` = ?', [sessionId]);
-        manipulateResult = deleteResult;
+        result.status = 'ok'; // remove from cache will not error, so this is ok
+        result.logs.push(`delete from database usersession`, deleteResult);
     } catch (error) {
-        manipulateResult = error; // ?
+        result.status = 'error';
+        result.logs.push(`delete from database usersession error`, error);
     }
-
     const index = userSessionStorage.findIndex(d => d.Id == sessionId);
-    const cacheRecord = index >= 0 ? userSessionStorage.splice(index, 1) : null;
-    return { ok: true, log: `delete from database, remove from cache`, manipulateResult, cacheRecord };
+    if (index >= 0) {
+        result.logs.push(`remove from cache`, userSessionStorage.splice(index, 1));
+    } else {
+        result.logs.push('not in cache?');
+    }
 }
-async function handleActivateUser(userId: number, newActive: boolean): Promise<AdminInterfaceResponse> {
-    const manipulateResults: ManipulateResult[] = [];
+async function handleActivateUser(userId: number, newActive: boolean, result: AdminInterfaceResult): Promise<void> {
     if (newActive) {
         try {
             const [updateResult] = await pool
                 .execute<ManipulateResult>('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', userId);
-            manipulateResults.push(updateResult);
+            result.status = 'ok'; // remove from cache will not error, so this is ok
+            result.logs.push('update database user', updateResult);
         } catch (error) {
-            manipulateResults.push(error); // ?
+            result.status = 'error';
+            result.logs.push('update database user error', error);
         }
         const cacheRecord = userStorage.find(u => u.Id == userId);
-        if (cacheRecord) { cacheRecord.Active = true; }
-        return { ok: true, log: `update database, update cache`, manipulateResults, cacheRecord };
-
+        if (cacheRecord) {
+            cacheRecord.Active = true;
+            result.logs.push('update cache', cacheRecord);
+        } else {
+            result.logs.push('not in cache');
+        }
     } else {
+        result.status = 'ok'; // default to ok, may change to error later
         try {
             const [updateResult] = await pool
                 .execute<ManipulateResult>('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', userId);
-            manipulateResults.push(updateResult);
+            result.logs.push('update database user', updateResult);
         } catch (error) {
-            manipulateResults.push(error); // ?
+            result.status = 'error';
+            result.logs.push('update database user error', error);
         }
         // also remove all sessions
         try {
             const [deleteResult] = await pool
                 .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `UserId` = ?', userId);
-            manipulateResults.push(deleteResult);
+            result.logs.push('delete from database usersssion', deleteResult);
         } catch (error) {
-            manipulateResults.push(error); // ?
+            result.status = 'error';
+            result.logs.push('delete from database usersession error', error);
         }
         const userCacheRecord = userStorage.find(u => u.Id == userId);
-        if (userCacheRecord) { userCacheRecord.Active = false; }
+        if (userCacheRecord) {
+            userCacheRecord.Active = false;
+            result.logs.push(`update user cache`, userCacheRecord);
+        } else {
+            result.logs.push('not in user cache');
+        }
 
         const removedSessionCacheRecords = userSessionStorage.filter(s => s.UserId == userId);
         userSessionStorage.splice(0, userSessionStorage.length, ...userSessionStorage.filter(s => s.UserId != userId));
-
-        return {
-            ok: true,
-            log: 'update and delete from database, update and remove from cache',
-            manipulateResults,
-            userCacheRecord,
-            removedSessionCacheRecords,
-        };
+        if (removedSessionCacheRecords.length) {
+            result.logs.push('remove from user session cache', removedSessionCacheRecords);
+        }
     }
 }
 
-export async function handleAccessCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+export async function handleAccessCommand(command: AdminInterfaceCommand, result: AdminInterfaceResult): Promise<void> {
 
     // revoke session (id.example.com user session)
     if (command.kind == 'access-control:revoke') {
-        return await handleRevoke(command.sessionId);
-
-    // display
-    } else if (command.kind == 'access-control:display-user-sessions') {
-        return { ok: true, log: 'get', userSessionStorage };
-    } else if (command.kind == 'access-control:display-application-sessions') {
-        return { ok: true, log: 'get', applicationSessionStorage };
-    } else if (command.kind == 'access-control:display-rate-limits') {
-        return { ok: true, log: 'get', ratelimits: {
-            all: ratelimits.all.buckets,
-            apps: Object.fromEntries(Object.entries(ratelimits.apps).map(([k, v]) => [k, v.buckets])),
-        } };
+        return await handleRevoke(command.sessionId, result);
 
     // activate/inactivate user
     } else if (command.kind == 'access-control:user:enable') {
-        return await handleActivateUser(command.userId, true);
+        return await handleActivateUser(command.userId, true, result);
     } else if (command.kind == 'access-control:user:disable') {
-        return await handleActivateUser(command.userId, false);
+        return await handleActivateUser(command.userId, false, result);
 
     // enable/disable signup
     } else if (command.kind == 'access-control:signup:enable') {
         AllowSignUp = true;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
         AllowSignUpTimer = setTimeout(() => AllowSignUp = false, 43200_000);
-        return { ok: true, log: 'complete enable signup' };
+        result.status = 'ok';
+        result.logs.push('enable sign up');
     } else if (command.kind == 'access-control:signup:disable') {
         AllowSignUp = false;
         if (AllowSignUpTimer) { clearTimeout(AllowSignUpTimer); }
-        return { ok: true, log: 'complete disable signup' };
+        result.status = 'ok';
+        result.logs.push('disable sign up');
+
+    // display
+    } else if (command.kind == 'access-control:display-user-sessions') {
+        result.status = 'ok';
+        result.logs.push(userSessionStorage);
+    } else if (command.kind == 'access-control:display-application-sessions') {
+        result.status = 'ok';
+        result.logs.push(applicationSessionStorage);
+    } else if (command.kind == 'access-control:display-rate-limits') {
+        result.status = 'ok';
+        result.logs.push({
+            all: ratelimits.all.buckets,
+            apps: Object.fromEntries(Object.entries(ratelimits.apps).map(([k, v]) => [k, v.buckets])),
+        });
     }
-    return null;
 }

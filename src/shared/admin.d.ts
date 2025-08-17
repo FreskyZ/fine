@@ -38,9 +38,8 @@ export type AdminInterfaceCommand =
     | { kind: 'actions-server:reload', name: string }
     | { kind: 'short-link-server:reload' };
 
-export interface AdminInterfaceResponse {
-    ok: boolean,
-    log: string,
-    [p: string]: any,
+export interface AdminInterfaceResult {
+    status: 'unhandled' | 'ok' | 'error',
+    logs: any[], // put object should be ok
 }
 // END SHARED TYPE AdminInterfaceCommand

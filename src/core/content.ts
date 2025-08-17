@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import koa from 'koa';
 import type { DefaultState, DefaultContext } from 'koa';
 import zlib from 'zlib';
-import type { AdminInterfaceCommand, AdminInterfaceResponse } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 
@@ -123,8 +123,9 @@ function getOrAddItem(items: Item[], realpath: string): Item {
     return item;
 }
 
-// initialize, or reinitialize
-export async function setupStaticContent(config: StaticContentConfig) {
+async function setupStaticContentImpl(config: StaticContentConfig, result: AdminInterfaceResult): Promise<void> {
+    // partial errors in static content loading does not make this result be regarded as error
+    result.status = 'ok';
     // NOTE this is reassigned for reinitialize
     contentcache = { items: [], virtualmap: {}, wildcardToWildcard: [], wildcardToNonWildcardMap: [] };
 
@@ -136,20 +137,20 @@ export async function setupStaticContent(config: StaticContentConfig) {
             if (path.extname(realpath) in extensionToContentType) {
                 contentcache.virtualmap[path.join(host, virtualpath)] = getOrAddItem(contentcache.items, realpath);
             } else {
-                log.info(`content: realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
+                result.logs.push(`realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
             }
         } else if (realpath.endsWith('/*')) {
             const realdir = realpath.slice(0, realpath.length - 2);
             const absoluteDirectory = path.join(webroot, 'static', realdir);
             if (!syncfs.existsSync(absoluteDirectory)) {
-                log.info(`content: realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
+                result.logs.push(`realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
                 return;
             }
             for (const entry of (await fs.readdir(absoluteDirectory, { withFileTypes: true })).filter(e => e.isFile())) {
                 if (path.extname(entry.name) in extensionToContentType) {
                     contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
                 } else {
-                    log.info(`content: realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`);
+                    result.logs.push(`realpath ${host} + ${virtualpath} => ${realpath} file ${entry.name} not allowed`);
                 }
             }
             contentcache.wildcardToWildcard.push({ host, realdir });
@@ -158,10 +159,18 @@ export async function setupStaticContent(config: StaticContentConfig) {
                 const key = path.join(host, virtualpath == '*' ? '' : virtualpath.substring(0, virtualpath.length - 2));
                 contentcache.wildcardToNonWildcardMap.push({ virtual: key, item: getOrAddItem(contentcache.items, realpath) });
             } else {
-                log.info(`content: realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
+                result.logs.push(`realpath not allowed: ${host} + ${virtualpath} => ${realpath}`);
             }
         }
     }));
+}
+// initial setup static content called by startup process
+export async function setupStaticContent(config: StaticContentConfig) {
+    const result: AdminInterfaceResult = { status: 'ok', logs: [] };
+    await setupStaticContentImpl(config, result);
+    for (const item in result.logs) {
+        log.info({ cat: 'static content', kind: 'setup static content', item });
+    }
 }
 
 interface ContentServerProvider {
@@ -171,40 +180,39 @@ interface ContentServerProvider {
     // setup this when load version
     handleRequest?: (ctx: koa.Context) => Promise<boolean>,
     handleCleanup?: () => Promise<void>,
-    handleAdminCommand?: (command: AdminInterfaceCommand) => Promise<AdminInterfaceResponse>,
+    handleAdminCommand?: (command: AdminInterfaceCommand, result: AdminInterfaceResult) => Promise<void>,
 }
 let contentservers: ContentServerProvider[];
 
-async function setupContentServer(provider: ContentServerProvider, response?: AdminInterfaceResponse): Promise<ContentServerProvider> {
+async function setupContentServer(provider: ContentServerProvider, result: AdminInterfaceResult): Promise<ContentServerProvider> {
+    result.status = 'ok'; // default to ok, later may change to error
 
-    response ??= { ok: true, log: '' };
     if (typeof provider.handleCleanup == 'function') {
         try {
             await provider.handleCleanup();
         } catch (error) {
-            response.ok = false;
-            response.log += `failed to cleanup previous version\n${error}\n`;
-            log.error({ message: 'failed to cleanup previous version', contentServer: provider.name, version: provider.version, error });
+            result.status = 'error';
+            result.logs.push(`failed to cleanup previous version`, error);
             // not return here
         }
     }
     let module: any;
     provider.version += 1;
-    response['version'] = provider.version;
+    result.logs.push(`new version ${provider.version}`);
     try {
         module = await import(`${provider.server}?v=${provider.version}`);
     } catch (error) {
-        response.ok = false;
-        response.log += `failed to load server\n${error}\n`;
-        log.error({ message: 'failed to load server', contentServer: provider.name, version: provider.version, error });
-        return provider;
+        result.status = 'error';
+        result.logs.push(`failed to load module ${provider.server}`, error);
+        // don't include mismatched handlers
+        return { name: provider.name, server: provider.server, version: provider.version };
     }
 
     if (!module.handleRequest || typeof module.handleRequest != 'function') {
-        response.ok = false;
-        response.log += `missing handleRequest ${module.handleRequest}\n`;
-        log.error({ message: 'handleRequest is not a function', contentServer: provider.name, version: provider.version });
-        return provider;
+        result.status = 'error';
+        result.logs.push(`missing handleRequest or is not function`);
+        // don't include mismatched handlers
+        return { name: provider.name, server: provider.server, version: provider.version };
     }
     provider.handleRequest = module.handleRequest;
 
@@ -212,25 +220,29 @@ async function setupContentServer(provider: ContentServerProvider, response?: Ad
         if (typeof module.handleCleanup == 'function') {
             provider.handleCleanup = module.handleCleanup;
         } else {
-            response.ok = false;
-            response.log += `handleCleanup is not a function ${module.handleCleanup}\n`;
-            log.error({ message: 'handleCleanup is not a function', contentServer: provider.name, version: provider.version });
+            result.logs.push(`handleCleanup is exported but is not a function?`);
         }
     }
     if (module.handleAdminCommand) {
         if (typeof module.handleAdminCommand == 'function') {
             provider.handleAdminCommand = module.handleAdminCommand;
         } else {
-            response.ok = false;
-            response.log += `handleAdminCommand is not a function ${module.handleAdminCommand}\n`;
-            log.error({ message: 'handleAdminCommand is not a function', contentServer: provider.name, version: provider.version });
+            result.logs.push(`handleAdminCommand is exported but is not a function?`);
         }
+    }
+
+    if (result.logs.length == 0) {
+        result.logs.push('complete setup content server');
     }
     return provider;
 }
 export async function setupContentServers(config: ServerProviderConfig) {
-    contentservers = await Promise.all(Object.entries(config)
-        .filter(s => s[1].content).map(s => setupContentServer({ name: s[0], server: s[1].content, version: 0 })));
+    contentservers = await Promise.all(Object.entries(config).filter(s => s[1].content).map(async s => {
+        const result: AdminInterfaceResult = { status: 'unhandled', logs: [] };
+        const provider = await setupContentServer({ name: s[0], server: s[1].content, version: 0 }, result);
+        for (const item in result.logs) { log.error({ cat: 'content', kind: 'setup content server', provider, item }); }
+        return provider;
+    }));
 }
 
 export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
@@ -323,7 +335,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         } else {
             // content servers are after public file
             for (const provider of contentservers) {
-                if (await provider.handleRequest(ctx)) { return; }
+                if (typeof provider.handleRequest == 'function' && await provider.handleRequest(ctx)) { return; }
             }
             // and the final 404 for not find anything
             ctx.status = 404;
@@ -360,81 +372,75 @@ export async function handleResponseCompression(ctx: koa.Context, next: koa.Next
     ctx.set('Content-Length', encoded.length.toString());
 }
 
-async function handleReload(key: string): Promise<AdminInterfaceResponse> {
-    let operationLog = `request reload-static ${key}\n`;
+async function handleReload(key: string, result: AdminInterfaceResult): Promise<void> {
+    result.status = 'ok'; // partial error in wildcard part does not make this result be regarded as error
 
     for (const item of contentcache.items.filter(i => i.realpath.startsWith(key))) {
-        operationLog += `  for item ${item.realpath}: `;
+        result.logs.push(`for item ${item.realpath}: `);
         if (!syncfs.existsSync(item.absolutePath)) {
-            operationLog += `realpath not exist, remove`;
+            result.logs.push(`realpath not exist, remove`);
             contentcache.items.splice(contentcache.items.findIndex(i => i.realpath == item.realpath), 1);
         } else if (item.content === null) {
-            operationLog += `content not loaded, do nothing`;
+            result.logs.push(`content not loaded, do nothing`);
             // nothing happen when item never requested,
             // when actually requested, the handler will load newest content
         } else {
             const newContent = await fs.readFile(item.absolutePath);
             if (Buffer.compare(item.content, newContent)) {
-                operationLog += `content not same, update`;
+                result.logs.push(`content not same, update`);
                 item.cacheKey = getnow();
                 item.lastModified = new Date();
                 item.content = newContent;
                 item.encodedContent = {};
             } else {
-                operationLog += `content same, not update`;
+                result.logs.push(`content same, not update`);
             }
         }
-        operationLog += '\n';
     }
 
     for (const { host, realdir } of contentcache.wildcardToWildcard.filter(w => w.realdir.startsWith(key))) {
         const absolutedir = path.join(webroot, 'static', realdir);
         if (!syncfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
-            log.info(`content: configured realpath not exist: ${host} => * => ${realdir}`);
+            result.logs.push(`wildcard to wildcard dir not exist: ${host} => * => ${realdir}`);
             continue;
         }
         for (const entry of syncfs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
             if (path.extname(entry.name) in extensionToContentType) {
+                result.logs.push(`wildcard to wildcard load ${entry.name}`);
                 contentcache.virtualmap[path.join(host, entry.name)] = getOrAddItem(contentcache.items, path.join(realdir, entry.name));
             } else {
-                log.info(`content: configured realpath ${host} => * => ${realdir} file ${entry.name} not allowed`);
+                result.logs.push(`wildcard to wildcard ${host} => * => ${realdir} file ${entry.name} not allowed`);
             }
         }
     }
-    return { ok: true, log: operationLog };
 }
-export async function handleContentCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+export async function handleContentCommand(command: AdminInterfaceCommand, result: AdminInterfaceResult): Promise<void> {
 
     // reload static content
     if (command.kind == 'static-content:reload') {
-        return await handleReload(command.key);
+        await handleReload(command.key, result);
 
     // reload static content config
     } else if (command.kind == 'static-content:reload-config') {
-        // throw away all old cache
-        setupStaticContent(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content']);
-        return { ok: true, log: 'complete reload static config' };
+        await setupStaticContentImpl(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content'], result);
 
     // reload content server provider
     } else if (command.kind == 'content-server:reload') {
-        const provider = contentservers.find(s => s.name == command.name);
-        if (provider) {
-            const response: AdminInterfaceResponse = { ok: true, log: '' };
-            await setupContentServer(provider, response);
-            if (response.ok) { response.log = 'reloaded content server'; };
-            return response;
+        const index = contentservers.findIndex(s => s.name == command.name);
+        if (index >= 0) {
+            contentservers[index] = await setupContentServer(contentservers[index], result);
         } else {
-            return { ok: false, log: 'content server not found' };
+            result.status = 'error';
+            result.logs.push('content server name not found');
         }
     }
 
     // send to content server's command handler
     for (const provider of contentservers) {
         if (provider.handleAdminCommand) {
-            const response = provider.handleAdminCommand(command);
-            if (response) { return response; } // else continue to next content server
+            await provider.handleAdminCommand(command, result);
+            if (result.status != 'unhandled') { return; } // else continue to next handler
         }
     }
-    return null;
 }

@@ -490,15 +490,14 @@ export type AdminInterfaceCommand =
     | { kind: 'actions-server:reload', name: string }
     | { kind: 'short-link-server:reload' };
 
-export interface AdminInterfaceResponse {
-    ok: boolean,
-    log: string,
-    [p: string]: any,
+export interface AdminInterfaceResult {
+    status: 'unhandled' | 'ok' | 'error',
+    logs: any[], // put object should be ok
 }
 // END SHARED TYPE AdminInterfaceCommand
 
 let adminInterfaceConnection: net.Socket;
-const adminInterfaceResponseWakers: Record<number, (response: AdminInterfaceResponse) => void> = {};
+const adminInterfaceResponseWakers: Record<number, (response: AdminInterfaceResult) => void> = {};
 function connectAdminInterface() {
     try {
         adminInterfaceConnection = net.connect('/tmp/fine.socket');
@@ -513,7 +512,7 @@ function connectAdminInterface() {
         const text = data.toString('utf-8');
         logInfo('admin-interface', `receive ${text}`);
         try {
-            const response: AdminInterfaceResponse & HasId = JSON.parse(text);
+            const response: AdminInterfaceResult & HasId = JSON.parse(text);
             if (!response.id) {
                 logError('admin-interface', `receive response without id, when will this happen?`);
             } else if (!(response.id in adminInterfaceResponseWakers)) {
@@ -523,7 +522,7 @@ function connectAdminInterface() {
                 delete adminInterfaceResponseWakers[response.id];
             }
         } catch (error) {
-            logError('admin-interface', `receive data failed to parse json`, error);
+            logError('admin-interface', `invalid result: ${text}`, error);
         }
     });
     adminInterfaceConnection.on('error', error => {
@@ -543,7 +542,7 @@ function connectAdminInterface() {
 
 connectAdminInterface();
 let adminInterfaceCommandIdNext: number = 1;
-async function sendAdminCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResponse> {
+async function sendAdminCommand(command: AdminInterfaceCommand): Promise<AdminInterfaceResult> {
     if (!adminInterfaceConnection) {
         logError('admin-interface', "not connect, use 'connect admin interface' to connect");
         return null;
@@ -555,7 +554,7 @@ async function sendAdminCommand(command: AdminInterfaceCommand): Promise<AdminIn
     logInfo('admin-interface', `send ${serializedCommand}`);
 
     let timeout: any;
-    const responseReceived = new Promise<AdminInterfaceResponse>(resolve => {
+    const responseReceived = new Promise<AdminInterfaceResult>(resolve => {
         adminInterfaceResponseWakers[commandId] = response => {
             if (timeout) { clearTimeout(timeout); }
             resolve(response);
@@ -565,7 +564,7 @@ async function sendAdminCommand(command: AdminInterfaceCommand): Promise<AdminIn
 
     return await Promise.any([
         responseReceived,
-        new Promise<AdminInterfaceResponse>(resolve => {
+        new Promise<AdminInterfaceResult>(resolve => {
             timeout = setTimeout(() => {
                 delete adminInterfaceResponseWakers[commandId];
                 logError('admin-interface', `command ${commandId} timeout`);
@@ -612,8 +611,8 @@ function sendBuildScriptMessageResponse(messageId: number, response: BuildScript
 }
 buildScriptConnectionEventEmitter.addListener('message', async message => {
     if (message.kind == 'admin') {
-        const response = await sendAdminCommand(message.command);
-        sendBuildScriptMessageResponse(message.id, { kind: 'admin', ok: response?.ok });
+        const result = await sendAdminCommand(message.command);
+        sendBuildScriptMessageResponse(message.id, { kind: 'admin', ok: result?.status == 'ok' });
     } else if (message.kind == 'reload-browser') {
         browserWebsocketConnections.forEach(c => c.send('reload'));
         if (browserWebsocketConnections.length) {
