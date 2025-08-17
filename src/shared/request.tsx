@@ -1,10 +1,4 @@
 
-let emptytext: string;
-let root: { render: (args: any) => any };
-function css(args: any) {}
-
-// BEGIN TEMPLATE
-
 function EmptyPage({ handleContinue }: {
     handleContinue: () => void,
 }) {
@@ -105,7 +99,7 @@ function confirmGotoIdentityProvider() {
     gotoIdModalContainerElement.style.display = 'block';
 }
 
-async function sendRequest(method: string, path: string, parameters?: any, data?: any): Promise<any> {
+export async function request(method: string, path: string, parameters?: any, data?: any): Promise<any> {
     const url = new URL(`https://api.example.com/example${path}`);
     Object.entries(parameters || {}).forEach(p => url.searchParams.append(p[0], p[1].toString()));
     const response = await fetch(url.toString(), data ? {

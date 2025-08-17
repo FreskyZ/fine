@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import syncfs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import chalk from 'chalk-template';
 import ts from 'typescript';
 // NOTE when directly executing typescript, this need to be .ts
@@ -15,7 +17,11 @@ if (!targetDirectory) {
     logCritical('make', 'missing target directory parameter');
 }
 const targetFile = path.join(targetDirectory, 'akari.ts');
-const originalContent = await fs.readFile(targetFile, 'utf-8');
+const targetFileExists = syncfs.existsSync(targetFile);
+if (!targetFileExists && process.argv[3] != 'new') {
+    logCritical('make', 'missing target file, use make-akari.ts /path/to/target/directory new to create new');
+}
+const originalContent = targetFileExists ? await fs.readFile(targetFile, 'utf-8') : '';
 logInfo('make', chalk`make {cyan ${targetFile}}`);
 
 const components = [
@@ -23,7 +29,6 @@ const components = [
     'codegen',
     'typescript',
     'eslint',
-    'minify',
     'mypack',
     'sftp',
     'messenger',
@@ -39,6 +44,24 @@ if (!tcx.success) { process.exit(1); }
 
 if (!await eslint({ files: 'script/components/*', ignore: ['script/components/template-client.tsx'] })) { /* process.exit(1); */ }
 
+let hasError = false;
+const adknames = [
+    'access-types.d.ts',
+    'action-types.d.ts',
+    'error.ts',
+    'database.ts',
+    'validate.ts',
+    'ipcserver.ts',
+    'notification.ts',
+    'request.tsx',
+];
+for (const name of adknames) {
+    if (!syncfs.existsSync(path.join('src', 'shared', name))) {
+        hasError = true;
+        logError('make', `adk name ${name} not found in src/shared`);
+    }
+}
+
 interface ExternalReference {
     moduleName: string,
     defaultName?: string,
@@ -51,7 +74,6 @@ interface ExternalReference {
 // - check external reference consistency
 // - collect relative import relationships
 // - check no duplicate top level item names
-let hasError = false;
 const allTopLevelNames: string[] = [];
 const allTopLevelTypeNames: string[] = [];
 // normal import and type import is different record in this array
@@ -240,58 +262,71 @@ if (!await validateSharedTypeDefinition('script/remote-akari.ts', 'script/compon
 
 // although the previous process.exit(1) makes this has error always true, still keep it in case process is not exited
 hasError = false;
-let state: 'manual-import' | 'component-decl' | 'library' | 'manual-script' = 'manual-import';
+let state: 'manual-import' | 'include' | 'library' | 'manual-script' = 'manual-import';
 const manualImportLines: string[] = [];
 const requestedComponents: string[] = [];
+const requestedADKModules: string[] = []; // this does not include file extension
 const libraryHasher = crypto.createHash('sha256');
 const manualScriptLines: string[] = [];
-for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i + 1] as const)) {
-    if (state == 'manual-import') {
-        if (line == '// END IMPORT') {
-            state = 'component-decl';
-        } else if (line.trim()) { // ignore empty or whitespace line
-            manualImportLines.push(line); // but don't add trim
-        }
-    } else if (state == 'component-decl') {
-        if (line.startsWith('// components: ')) {
-            const rawComponents = line.substring(14).trim().split(',').map(x => x.trim()).filter(x => x);
-            const unrecognizedComponents = rawComponents.filter(c => !components.includes(c));
-            if (unrecognizedComponents.length) {
+if (originalContent) {
+    for (const [line, rowNumber] of originalContent.split('\n').map((r, i) => [r, i + 1] as const)) {
+        if (state == 'manual-import') {
+            if (line == '// END IMPORT') {
+                state = 'include';
+            } else if (line.trim()) { // ignore empty or whitespace line
+                manualImportLines.push(line); // but don't add trim
+            }
+        } else if (state == 'include') {
+            if (line.startsWith('// components: ')) {
+                const rawComponents = line.substring(14).trim().split(',').map(x => x.trim()).filter(x => x);
+                const unrecognizedComponents = rawComponents.filter(c => !components.includes(c));
+                if (unrecognizedComponents.length) {
+                    hasError = true;
+                    logError('make', `${targetFile}:${rowNumber}: unrecognized components: ${unrecognizedComponents}`);
+                }
+                requestedComponents.push(...rawComponents.filter(c => components.includes(c)));
+                if (!requestedComponents.includes('common')) { requestedComponents.push('common'); }
+            }  else if (line.startsWith('// adk: ')) {
+                const rawADKModules = line.substring(8).trim().split(',').map(x => x.trim()).filter(x => x);
+                const unrecognizedModules = rawADKModules.filter(c => !adknames.some(n => n.split('.')[0] == c));
+                if (unrecognizedModules.length) {
+                    hasError = true;
+                    logError('make', `${targetFile}:${rowNumber}: unrecognized adk module: ${unrecognizedModules}`);
+                }
+                requestedADKModules.push(...rawADKModules.filter(c => adknames.some(n => n.split('.')[0] == c)));
+            } else if (line == '// BEGIN LIBRARY') {
+                state = 'library';
+            } else {
                 hasError = true;
-                logError('make', `${targetFile}:${rowNumber}: unrecognized components: ${unrecognizedComponents.length}`);
+                logError('make', `${targetFile}:${rowNumber}: expecting components declaration`);
             }
-            requestedComponents.push(...rawComponents.filter(c => components.includes(c)));
-            if (!requestedComponents.includes('common')) { requestedComponents.push('common'); }
-        } else if (line == '// BEGIN LIBRARY') {
-            state = 'library';
-        } else {
-            hasError = true;
-            logError('make', `${targetFile}:${rowNumber}: expecting components declaration`);
-        }
-    } else if (state == 'library') {
-        if (line.startsWith('// END LIBRARY')) {
-            state = 'manual-script';
-            const actualHash = line.substring(15);
-            const expectHash = libraryHasher.digest('hex');
-            if (actualHash != expectHash) {
-                const actualShortHash = actualHash.substring(0, 6);
-                const expectShortHash = expectHash.substring(0, 6);
-                if (actualShortHash != expectShortHash) {
-                    logError('make', `${targetFile}: hash mismatch expect ${expectShortHash} actual ${actualShortHash}`);
-                } else {
-                    logError('make', `${targetFile}: hash mismatch expect ${expectHash} actual ${actualHash}`);
+        } else if (state == 'library') {
+            if (line.startsWith('// END LIBRARY')) {
+                state = 'manual-script';
+                const actualHash = line.substring(15);
+                const expectHash = libraryHasher.digest('hex');
+                if (actualHash != expectHash) {
+                    const actualShortHash = actualHash.substring(0, 6);
+                    const expectShortHash = expectHash.substring(0, 6);
+                    if (actualShortHash != expectShortHash) {
+                        logError('make', `${targetFile}: hash mismatch expect ${expectShortHash} actual ${actualShortHash}`);
+                    } else {
+                        logError('make', `${targetFile}: hash mismatch expect ${expectHash} actual ${actualHash}`);
+                    }
+                    if (!process.env['AKARIN_IGNORE_HASH_MISMATCH']) {
+                        logError('make', `generated content seems unexpectedly changed, use AKARIN_IGNORE_HASH_MISMATCH to ignore and overwrite`);
+                        process.exit(1);
+                    }
                 }
-                if (!process.env['AKARIN_IGNORE_HASH_MISMATCH']) {
-                    logError('make', `generated content seems unexpectedly changed, use AKARIN_IGNORE_HASH_MISMATCH to ignore and overwrite`);
-                    process.exit(1);
-                }
+            } else {
+                libraryHasher.update(line + '\n');
             }
-        } else {
-            libraryHasher.update(line + '\n');
+        } else if (state == 'manual-script') {
+            manualScriptLines.push(line);
         }
-    } else if (state == 'manual-script') {
-        manualScriptLines.push(line);
     }
+} else {
+    requestedComponents.push('common');
 }
 // console.log(manualImportLines);
 // console.log(requestedComponents);
@@ -304,6 +339,7 @@ for (const line of manualImportLines) {
 }
 sb += '// END IMPORT\n';
 sb += `// components: ${requestedComponents.join(', ')}\n`;
+if (requestedADKModules.length) { sb += `// adk: ${requestedADKModules.join(', ')}\n`; }
 sb += '// BEGIN LIBRARY\n';
 const beginLibraryIndex = sb.length;
 
@@ -352,6 +388,45 @@ for (const moduleName of sortedModuleNames.filter(m => requestedComponents.inclu
         }
         sb += line + '\n';
     }
+}
+if (requestedADKModules.length) {
+    sb += 'const adksource = {\n';
+    const modules = await Promise.all(requestedADKModules.map(async name => {
+        let sb = '';
+        sb += `    '${name}': \`\n`;
+        const filename = adknames.find(a => a.split('.')[0] == name);
+        const content = await fs.readFile(path.join('src', 'shared', filename));
+        const compressedContent = await new Promise<Buffer>(resolve => {
+            zlib.zstdCompress(content, (error, compressedContent) => {
+                if (error) {
+                    console.log('make', `adk ${name}: compress failed?`);
+                    resolve(Buffer.alloc(0));
+                } else {
+                    resolve(compressedContent);
+                }
+            });
+        });
+        const encodedContent = compressedContent.toString('base64');
+        const chunkSize = 128;
+        for (let i = 0; i < encodedContent.length; i += chunkSize) {
+            sb += encodedContent.slice(i, i + chunkSize) + '\n';
+        }
+        sb += '    `,\n';
+        return [name, sb] as const;
+    }));
+    modules.sort((m1, m2) => m1[0].localeCompare(m2[0]));
+    for (const [, content] of modules) {
+        sb += content;
+    }
+    sb += '};\n';
+    sb += 'async function getADKSource(name: string): Promise<Buffer> {\n';
+    sb += '    if (!(name in adksource)) { return null; }\n';
+    sb += '    return new Promise<Buffer>(resolve => {\n';
+    sb += '        zstdDecompress(Buffer.from(adksource[name].trim(), \'base64\'), (error, decompressedContent) => {\n';
+    sb += '            if (error) { resolve(null); } else { resolve(decompressedContent); }\n';
+    sb += '        })\n';
+    sb += '    });\n';
+    sb += '}\n';
 }
 sb += `// END LIBRARY ${crypto.hash('sha256', sb.substring(beginLibraryIndex))}\n`;
 for (const line of manualScriptLines) {

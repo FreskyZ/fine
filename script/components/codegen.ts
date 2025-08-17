@@ -74,39 +74,30 @@ export async function readCodeGenerationConfig(options: CodeGenerationOptions): 
         attributeNamePrefix: '',
         parseAttributeValue: true,
     });
-    // the result of preserveOrder: boolean is too complex and not that worthy to type
-    const rawDatabaseModel = parser.parse(await fs.readFile('src/server/database.xml'));
-    // console.log(JSON.stringify(rawDatabaseModel, undefined, 2));
+    // the result of preserveOrder is too complex and not that worthy to type
+    const rawShapes = parser.parse(await fs.readFile('shapes.xml'));
+    // console.log(JSON.stringify(rawShapes, undefined, 2));
 
-    const databaseName = rawDatabaseModel[1][':@'].name;
-    const databaseTables = (rawDatabaseModel[1].database as any[]).map<DatabaseModelTable>(c => {
-        if (!c.table) {
-            hasError = true;
-            logError('codegen', 'database.xml: unknown element tag, expect table');
-            return null;
-        }
-        return {
-            name: c[':@'].name,
-            primaryKey: c.table.find((f: any) => 'primary-key' in f)[':@'].field.split(','),
-            foreignKeys: c.table.filter((f: any) => 'foreign-key' in f).map((f: any) => f[':@']),
-            fields: c.table.filter((f: any) => 'field' in f).map((f: any) => ({
-                name: f[':@'].name,
-                type: f[':@'].type.endsWith('?') ? f[':@'].type.substring(0, f[':@'].type.length - 1) : f[':@'].type,
-                nullable: f[':@'].type.endsWith('?'),
-                size: f[':@'].size ? parseInt(f[':@'].size) : null,
-            })),
-        };
-    });
-    // console.log(JSON.stringify(databaseModel, undefined, 2));
+    const appname = rawShapes[1][':@'].app;
+    const dbname = rawShapes[1][':@'].database;
 
-    const rawWebInterfaces = parser.parse(await fs.readFile('src/shared/api.xml'));
-    // console.log(JSON.stringify(rawWebInterfaces, undefined, 2));
-
+    const tables: DatabaseModelTable[] = [];
     const actions: WebInterfaceAction[] = [];
     const actionTypes: WebInterfaceActionType[] = [];
-    const applicationName = rawWebInterfaces[1][':@'].name;
-    rawWebInterfaces[1].api.forEach((c: any) => {
-        if ('type' in c) {
+    rawShapes[1].shapes.forEach((c: any) => {
+        if ('table' in c) {
+            tables.push({
+                name: c[':@'].name,
+                primaryKey: c.table.find((f: any) => 'primary-key' in f)[':@'].field.split(','),
+                foreignKeys: c.table.filter((f: any) => 'foreign-key' in f).map((f: any) => f[':@']),
+                fields: c.table.filter((f: any) => 'field' in f).map((f: any) => ({
+                    name: f[':@'].name,
+                    type: f[':@'].type.endsWith('?') ? f[':@'].type.substring(0, f[':@'].type.length - 1) : f[':@'].type,
+                    nullable: f[':@'].type.endsWith('?'),
+                    size: f[':@'].size ? parseInt(f[':@'].size) : null,
+                })),
+            });
+        } else if ('type' in c) {
             actionTypes.push({
                 name: c[':@'].name,
                 fields: c.type.map((f: any) => ({
@@ -115,7 +106,7 @@ export async function readCodeGenerationConfig(options: CodeGenerationOptions): 
                     nullable: f[':@'].type.endsWith('?'),
                 })),
             });
-        } else {
+        } else if ('action' in c) {
             const key = c[':@'].key;
             const name = c[':@'].name;
             const $public = !!c[':@'].public;
@@ -138,11 +129,15 @@ export async function readCodeGenerationConfig(options: CodeGenerationOptions): 
                 }
             });
             actions.push({ key, name, public: $public, method, path, body, return: $return, parameters });
+        // ? you cannot get tag name in preserveOrder?
+        } else if (!('----------------------------------------------' in c)) {
+            hasError = true;
+            logError('codegen', 'database.xml: unknown element tag, expect table/type/action');
         }
     });
-    // console.log(JSON.stringify(actionTypes, undefined, 2), actions);
+    // console.log(tables, JSON.stringify(actionTypes, undefined, 2), actions);
 
-    return hasError ? null : { options, dbname: databaseName, tables: databaseTables, appname: applicationName, actions, actionTypes };
+    return hasError ? null : { options, dbname, tables, appname, actions, actionTypes };
 }
 
 // database.d.ts, return null for not ok
@@ -279,27 +274,8 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
-    sb += '/* eslint-disable @stylistic/lines-between-class-members */\n';
     sb += '\n';
-    sb += `class MyError extends Error {
-    public constructor(public readonly kind: MyErrorKind, message?: string) { super(message); this.name = 'MyError'; }
-}\n`;
-    sb += `class ParameterValidator {
-    public constructor(private readonly parameters: URLSearchParams) {}
-    private validate<T>(name: string, optional: boolean, convert: (raw: string) => T, validate: (value: T) => boolean): T {
-        if (!this.parameters.has(name)) {
-            if (optional) { return null; } else { throw new MyError('common', \`missing required parameter \${name}\`); }
-        }
-        const raw = this.parameters.get(name);
-        const result = convert(raw);
-        if (validate(result)) { return result; } else { throw new MyError('common', \`invalid parameter \${name} value \${raw}\`); }
-    }
-    public id(name: string) { return this.validate(name, false, parseInt, v => !isNaN(v) && v > 0); }
-    public idopt(name: string) { return this.validate(name, true, parseInt, v => !isNaN(v) && v > 0); }
-    public string(name: string) { return this.validate(name, false, v => v, v => !!v); }
-}\n`;
-
-    sb += 'export async function dispatch(ctx: DispatchContext): Promise<DispatchResult> {\n';
+    sb += 'export async function dispatch(ctx: ActionServerRequest): Promise<ActionServerResponse> {\n';
     // NOTE no need to wrap try in this function because it correctly throws into overall request error handler
     sb += `    const { pathname, searchParams } = new URL(ctx.path, 'https://example.com');\n`;
     sb += `    const v = new ParameterValidator(searchParams);\n`;
@@ -320,7 +296,7 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
         sb = sb.substring(0, sb.length - 2) + '),\n';
     }
     sb += `    } as Record<string, () => Promise<any>>)[\`\${ctx.method} \${pathname}\`];\n`;
-    sb += `    return action ? { body: await action() } : { error: new MyError('not-found', 'invalid-invocation') };\n`;
+    sb += `    return action ? { body: await action() } : { error: new MyError('not-found', 'action not found') };\n`;
     sb += `}\n`;
 
     const hash = crypto.hash('sha256', sb);
@@ -419,9 +395,9 @@ export async function generateCode(config: CodeGenerationConfig): Promise<boolea
     };
 
     const tasks = [
-        { kind: 'server', name: 'database.d.ts', run: createTask('src/server/database.d.ts', generateDatabaseTypes) },
-        { kind: 'server', name: 'database.sql', run: createTask('src/server/database.sql', generateDatabaseSchema) },
-        { kind: 'client,server', name: 'api.d.ts', run: createTask('src/shared/api.d.ts', generateWebInterfaceTypes) },
+        { kind: 'server', name: 'database-types.d.ts', run: createTask('src/server/database-types.d.ts', generateDatabaseTypes) },
+        { kind: 'server', name: 'database.sql', run: createTask('src/database.sql', generateDatabaseSchema) },
+        { kind: 'client,server', name: 'api.d.ts', run: createTask('src/shared/api-types.d.ts', generateWebInterfaceTypes) },
         { kind: 'server', name: 'index.ts', run: createPartialTask('src/server/index.ts', generateWebInterfaceServer) },
         { kind: 'client', name: 'index.tsx', run: createPartialTask('src/client/index.tsx', generateWebInterfaceClient) },
     ].filter(t => (config.options.client && t.kind.includes('client')) || (config.options.server && t.kind.includes('server')));

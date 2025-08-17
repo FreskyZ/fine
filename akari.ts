@@ -1,7 +1,7 @@
 import readline from 'node:readline/promises';
 import utc from 'dayjs/plugin/utc.js';
 // END IMPORT
-// components: minify, mypack, sftp, typescript, messenger, eslint, common
+// components: mypack, sftp, typescript, messenger, eslint, common
 // BEGIN LIBRARY
 import crypto, { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -344,26 +344,6 @@ async function eslint(options: ESLintOptions): Promise<boolean> {
 
     if (!hasIssue) { logInfo(`eslint${options.additionalLogHeader ?? ''}`, 'clear'); }
     return !hasIssue;
-}
-
-// -----------------------------------------
-// ------ script/components/minify.ts ------ 
-// -------- ATTENTION AUTO GENERATED -------
-// -----------------------------------------
-
-// the try catch structure of minify is hard to use, return null for not ok
-async function tryminify(input: string) {
-    try {
-        const minifyResult = await minify(input, {
-            module: true,
-            compress: { ecma: 2022 as any },
-            format: { max_line_len: 160 },
-        });
-        return minifyResult.code;
-    } catch (err) {
-        logError('terser', `minify error`, { err, input });
-        return null;
-    }
 }
 
 // ---------------------------------------
@@ -863,6 +843,21 @@ function combineModules(mcx: MyPackContext): boolean {
     }
     mcx.resultJs = resultJs;
     return true;
+}
+
+// the try catch structure of minify is hard to use, return null for not ok
+async function tryminify(input: string) {
+    try {
+        const minifyResult = await minify(input, {
+            module: true,
+            compress: { ecma: 2022 as any },
+            format: { max_line_len: 160 },
+        });
+        return minifyResult.code;
+    } catch (err) {
+        logError('terser', `minify error`, { err, input });
+        return null;
+    }
 }
 
 function filesize(size: number) {
@@ -1386,7 +1381,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 7688e410084d0fcebc582065dc4beb84eb15d72caa944da828e948d7958c7758
+// END LIBRARY 9ff841603ca6f0aaf478adfc82e9d7dfc73c859b8d95b5ec772858aef7f729b5
 
 dayjs.extend(utc);
 
