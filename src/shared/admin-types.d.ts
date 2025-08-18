@@ -24,6 +24,7 @@ export interface HasId {
 export type AdminInterfaceCommand =
     | { kind: 'ping' }
     | { kind: 'shutdown' }
+    | { kind: 'reload-certificate' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
     | { kind: 'access-control:revoke', sessionId: number }

@@ -1222,8 +1222,10 @@ async function connectRemote(ecx: MessengerContext) {
                 for (const buffer of buffers) {
                     logInfo(`tunnel`, `receive raw data ${buffer.length} bytes`);
                     buildScriptMessageResponseParser.push(buffer);
-                    const response = buildScriptMessageResponseParser.pull();
-                    if (response) {
+                    // one push may result in multiple packets
+                    while (true) {
+                        const response = buildScriptMessageResponseParser.pull();
+                        if (!response) { break; }
                         if (!response.id) {
                             logError('tunnel', `received response without id, when will this happen?`);
                         } else if (!(response.id in ecx.wakers)) {
@@ -1384,7 +1386,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY cb4b5adc53d1685ef6d729d9b7f351d0520cc78f3cd20629406fe7f8c1555fba
+// END LIBRARY df20ae5edbfc1cc23271c5ebc1afee5171a405fa5cebc78fef7a15043cb8bd0d
 
 dayjs.extend(utc);
 
@@ -1428,7 +1430,7 @@ async function deployRemoteSelf() {
     logInfo('akari', chalk`deploy {cyan remote self}`);
 
     const adminInterfaceTypeOk = await validateSharedTypeDefinition(
-        'src/shared/admin.d.ts', 'script/remote-akari.ts', 'AdminInterfaceCommand');
+        'src/shared/admin-types.d.ts', 'script/remote-akari.ts', 'AdminInterfaceCommand');
     if (!adminInterfaceTypeOk) { logError('akari', chalk`{cyan remote self} failed at shared type`); return; }
     
     // type check the file to avoid some potential errors

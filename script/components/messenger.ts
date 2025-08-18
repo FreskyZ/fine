@@ -295,8 +295,10 @@ export async function connectRemote(ecx: MessengerContext) {
                 for (const buffer of buffers) {
                     logInfo(`tunnel`, `receive raw data ${buffer.length} bytes`);
                     buildScriptMessageResponseParser.push(buffer);
-                    const response = buildScriptMessageResponseParser.pull();
-                    if (response) {
+                    // one push may result in multiple packets
+                    while (true) {
+                        const response = buildScriptMessageResponseParser.pull();
+                        if (!response) { break; }
                         if (!response.id) {
                             logError('tunnel', `received response without id, when will this happen?`);
                         } else if (!(response.id in ecx.wakers)) {

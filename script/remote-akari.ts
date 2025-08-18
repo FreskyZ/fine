@@ -442,8 +442,12 @@ httpServer.on('upgrade', (request, socket, header) => {
                     for (const buffer of buffers) {
                         logInfo(`websocket`, `receive raw data ${buffer.length} bytes`);
                         buildScriptMessageParser.push(buffer);
-                        const maybeMessage = buildScriptMessageParser.pull();
-                        if (maybeMessage) { buildScriptConnectionEventEmitter.emit('message', maybeMessage); }
+                        // one push may result in multiple packets
+                        while (true) {
+                            const maybeMessage = buildScriptMessageParser.pull();
+                            if (!maybeMessage) { break; }
+                            buildScriptConnectionEventEmitter.emit('message', maybeMessage);
+                        }
                     }
                 });
                 buildScriptConnection = websocket;
@@ -476,6 +480,7 @@ export interface HasId {
 export type AdminInterfaceCommand =
     | { kind: 'ping' }
     | { kind: 'shutdown' }
+    | { kind: 'reload-certificate' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
     | { kind: 'access-control:revoke', sessionId: number }
@@ -697,6 +702,9 @@ for await (const raw of interactiveReader) {
         interactiveReader.prompt();
     } else if (line == 'reload config') {
         await sendAdminCommand({ kind: 'static-content:reload-config' });
+        interactiveReader.prompt();
+    } else if (line == 'reload certificate') {
+        await sendAdminCommand({ kind: 'reload-certificate' });
         interactiveReader.prompt();
     } else if (line == 'reload user') {
         await sendAdminCommand({ kind: 'static-content:reload', key: 'user' });

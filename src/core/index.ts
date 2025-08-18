@@ -33,7 +33,7 @@ process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     webroot: string,
-    certificates: { [domain: string]: { key: string, cert: string } },
+    certificates: CertificateConfig,
     database: mysql.PoolOptions,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
@@ -90,6 +90,9 @@ adminServer.on('connection', connection => {
             sendResponse(command.id, { status: 'ok', logs: ['scheduling shutdown'] });
             shutdown();
             return;
+        } else if (command.kind == 'reload-certificate') {
+            await setupCertificates(JSON.parse(await fs.readFile('config', 'utf-8')).certificates);
+            return sendResponse(command.id, { status: 'ok', logs: ['reloaded certificates', httpsCertificates] });
         }
         for (const handler of adminInterfaceHandlers) {
             try {
@@ -113,16 +116,38 @@ const httpServer = http.createServer((request, response) => {
     response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
 });
 
-// read all certificate files in one Promise.all should
-// be ok for startup performance (even better for original 2 sequential syncfs.readfilesync calls)
-const httpsCertificatePaths = Object.values(config.certificates).map(c => [c.key, c.cert]).flat();
-const httpsCertificateContents = Object.fromEntries(await Promise.all(
-    Array.from(httpsCertificatePaths).map(async path => [path, await fs.readFile(path, 'utf-8')])));
-const httpsCertificates = Object.entries(config.certificates)
-    .map(([origin, { key, cert }]) => ({ origin, context: tls.createSecureContext({
-        key: httpsCertificateContents[key],
-        cert: httpsCertificateContents[cert],
-    }) }));
+type CertificateConfig = { [domain: string]: { key: string, cert: string } };
+let httpsCertificates: { origin: string, context: tls.SecureContext }[] = [];
+async function setupCertificates(certificates: CertificateConfig) {
+    // read all certificate files in one Promise.all should
+    // be ok for startup performance (even better for original 2 sequential syncfs.readfilesync calls)
+    const paths = Object.values(certificates)
+        .map(c => [c.key, c.cert]).flat().filter((v, i, a) => a.indexOf(v) == i);
+    // tolerate read file error, one certificate error should not affect other domains
+    const contents = Object.fromEntries((await Promise.all(paths.map(async p => {
+        try {
+            return [p, await fs.readFile(p)] as const;
+        } catch (error) {
+            log.error({ cat: 'certificate', kind: 'read certificate error', path: p, error });
+            return null;
+        }
+    }))).filter(x => x));
+
+    httpsCertificates = Object.entries(certificates).map(([origin, { key, cert }]) => {
+        if (!contents[key]) {
+            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', origin, key });
+            return null;
+        } else if (!contents[cert]) {
+            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', origin, cert });
+            return null;
+        }
+        return { origin, context: tls.createSecureContext({ key: contents[key], cert: contents[cert] }) };
+    }).filter(x => x);
+}
+// auto reload does not reload config
+const reloadCertificateInterval = setInterval(() => setupCertificates(config.certificates), 86400_000);
+
+await setupCertificates(config.certificates);
 const httpsServer = http2.createSecureServer({
     SNICallback: (servername, callback) => {
         const context = httpsCertificates.find(c => c.origin.localeCompare(servername) == 0)?.context;
@@ -228,6 +253,10 @@ function shutdown() {
         console.log('fine shutdown timeout, abort');
         process.exit(102);
     }, 30_000);
+
+    if (reloadCertificateInterval) {
+        clearInterval(reloadCertificateInterval);
+    }
 
     // destroy connections
     for (const socket of adminInterfaceConnections) {
