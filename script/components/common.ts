@@ -29,4 +29,4 @@ export interface ScriptConfig {
     certificate: string,
     ssh: { user: string, identity: string, passphrase: string },
 }
-export const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
+export const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('/etc/akari.json', 'utf-8'));

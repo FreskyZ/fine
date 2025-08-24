@@ -7,7 +7,6 @@ import crypto, { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Interface } from 'node:readline/promises';
-import tls from 'node:tls';
 import { zstdCompress, zstdCompressSync, zstdDecompress } from 'node:zlib';
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
@@ -22,7 +21,7 @@ import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
 // -----------------------------------------
-// ------ script/components/common.ts ------ 
+// ------ script/components/common.ts ------
 // -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
 
@@ -53,10 +52,10 @@ interface ScriptConfig {
     certificate: string,
     ssh: { user: string, identity: string, passphrase: string },
 }
-const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('akari.json', 'utf-8'));
+const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('/etc/akari.json', 'utf-8'));
 
 // ---------------------------------------------
-// ------ script/components/typescript.ts ------ 
+// ------ script/components/typescript.ts ------
 // ---------- ATTENTION AUTO GENERATED ---------
 // ---------------------------------------------
 
@@ -238,7 +237,7 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
 }
 
 // -----------------------------------------
-// ------ script/components/eslint.ts ------ 
+// ------ script/components/eslint.ts ------
 // -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
 
@@ -347,7 +346,7 @@ async function eslint(options: ESLintOptions): Promise<boolean> {
 }
 
 // ---------------------------------------
-// ------ script/components/sftp.ts ------ 
+// ------ script/components/sftp.ts ------
 // ------- ATTENTION AUTO GENERATED ------
 // ---------------------------------------
 
@@ -388,7 +387,7 @@ async function deploy(assets: UploadAsset[]): Promise<boolean> {
 }
 
 // -----------------------------------------
-// ------ script/components/mypack.ts ------ 
+// ------ script/components/mypack.ts ------
 // -------- ATTENTION AUTO GENERATED -------
 // -----------------------------------------
 
@@ -929,7 +928,7 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyP
 }
 
 // --------------------------------------------
-// ------ script/components/messenger.ts ------ 
+// ------ script/components/messenger.ts ------
 // --------- ATTENTION AUTO GENERATED ---------
 // --------------------------------------------
 
@@ -1156,15 +1155,15 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 async function connectRemote(ecx: MessengerContext) {
     if (!ecx['?']) {
         // ???
-        const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
-        const originalCreateSecureContext = tls.createSecureContext;
-        tls.createSecureContext = options => {
-            const originalResult = originalCreateSecureContext(options);
-            if (!options.ca) {
-                originalResult.context.addCACert(myCertificate);
-            }
-            return originalResult;
-        };
+        // const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
+        // const originalCreateSecureContext = tls.createSecureContext;
+        // tls.createSecureContext = options => {
+        //     const originalResult = originalCreateSecureContext(options);
+        //     if (!options.ca) {
+        //         originalResult.context.addCACert(myCertificate);
+        //     }
+        //     return originalResult;
+        // };
         ecx['?'] = true;
         // this place exactly can use to initialize member fields
         ecx.reconnectCount = 0;
@@ -1386,7 +1385,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY df20ae5edbfc1cc23271c5ebc1afee5171a405fa5cebc78fef7a15043cb8bd0d
+// END LIBRARY 41b1e1bb531ec60bb40086bb635e08653dad571d4d7ac7042675135ac2b35fb2
 
 dayjs.extend(utc);
 

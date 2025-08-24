@@ -12,6 +12,13 @@ import { eslint } from './components/eslint.ts';
 
 // assembles build scripts (akari.ts in this repository and related repositories)
 
+// put tsconfig.json to make typescript language server happy, it this really needed?
+if (process.argv[2] == 'tsconfig.json') {
+    await fs.writeFile('tsconfig.json', JSON.stringify({ compilerOptions: { target: 'esnext', module: 'NodeNext',
+        allowImportingTsExtensions: true, noEmit: true, esModuleInterop: true, forceConsistentCasingInFileNames: true, strict: false } }));
+    process.exit(0);
+}
+
 const targetDirectory = process.argv[2];
 if (!targetDirectory) {
     logCritical('make', 'missing target directory parameter');
@@ -19,7 +26,7 @@ if (!targetDirectory) {
 const targetFile = path.join(targetDirectory, 'akari.ts');
 const targetFileExists = syncfs.existsSync(targetFile);
 if (!targetFileExists && process.argv[3] != 'new') {
-    logCritical('make', 'missing target file, use make-akari.ts /path/to/target/directory new to create new');
+    logCritical('make', 'missing target file, use `make-akari.ts /path/to/target/directory new` to create new');
 }
 const originalContent = targetFileExists ? await fs.readFile(targetFile, 'utf-8') : '';
 logInfo('make', chalk`make {cyan ${targetFile}}`);
@@ -372,7 +379,7 @@ for (const moduleName of sortedModuleNames.filter(m => requestedComponents.inclu
     const headerBlockLength = Math.max(modulePath.length, 24);
     const filled = (length: number) => length <= 0 ? '' : new Array(length).fill('-').join('');
     sb += '// ' + filled(headerBlockLength + 14) + '\n';
-    sb += `// ------${filled(Math.ceil((headerBlockLength - modulePath.length) / 2))} ${modulePath} ${filled(Math.floor((headerBlockLength - modulePath.length) / 2))}------ \n`;
+    sb += `// ------${filled(Math.ceil((headerBlockLength - modulePath.length) / 2))} ${modulePath} ${filled(Math.floor((headerBlockLength - modulePath.length) / 2))}------\n`;
     sb += `// ------${filled(Math.ceil((headerBlockLength - 24) / 2))} ATTENTION AUTO GENERATED ${filled(Math.floor((headerBlockLength - 24) / 2))}------\n`;
     sb += '// ' + filled(headerBlockLength + 14) + '\n';
     for (let line of moduleContent.split('\n')) {

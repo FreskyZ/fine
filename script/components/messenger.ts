@@ -1,6 +1,4 @@
-import fs from 'node:fs/promises';
 import type { Interface } from 'node:readline/promises';
-import tls from 'node:tls';
 import { zstdCompress, zstdDecompress } from 'node:zlib';
 import { scriptconfig, logInfo, logError } from './common.ts';
 import type { UploadAsset } from './sftp.ts';
@@ -229,15 +227,15 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 export async function connectRemote(ecx: MessengerContext) {
     if (!ecx['?']) {
         // ???
-        const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
-        const originalCreateSecureContext = tls.createSecureContext;
-        tls.createSecureContext = options => {
-            const originalResult = originalCreateSecureContext(options);
-            if (!options.ca) {
-                originalResult.context.addCACert(myCertificate);
-            }
-            return originalResult;
-        };
+        // const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
+        // const originalCreateSecureContext = tls.createSecureContext;
+        // tls.createSecureContext = options => {
+        //     const originalResult = originalCreateSecureContext(options);
+        //     if (!options.ca) {
+        //         originalResult.context.addCACert(myCertificate);
+        //     }
+        //     return originalResult;
+        // };
         ecx['?'] = true;
         // this place exactly can use to initialize member fields
         ecx.reconnectCount = 0;
