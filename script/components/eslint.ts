@@ -16,6 +16,7 @@ interface ESLintOptions {
 export async function eslint(options: ESLintOptions): Promise<boolean> {
     const eslint = new ESLint({
         ignorePatterns: options.ignore,
+        // concurrency: 'auto', // no, this is not compatible with this inline config
         overrideConfigFile: true,
         plugins: {
             tseslint: tseslint.plugin as any,
