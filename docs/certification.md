@@ -1,26 +1,37 @@
 # Certificate Automation
 
-- You should use HTTPS ([Why use HTTPS?](https://www.cloudflare.com/learning/ssl/why-use-https/)).
+- First, you should use HTTPS ([Why use HTTPS?](https://www.cloudflare.com/learning/ssl/why-use-https/)).
 - HTTPS requires an SSL/TLS certificate ([What is an SSL certificate?](https://www.cloudflare.com/learning/ssl/what-is-an-ssl-certificate/)).
 - SSL/TLS certificates must be acquired and periodically renewed, as they have limited validity.
 
-Currently, [Let's Encrypt](https://letsencrypt.org) and its recommended ACME client, [Certbot](https://certbot.eff.org), are used for this process.
-
 ## Certification Workflow
 
-### One-Time Setup
+This project use [Let's Encrypt](https://letsencrypt.org) certificate authority and its recommended ACME client, [Certbot](https://certbot.eff.org).
+This project use docker to automate some workflow steps, the original non-containerized workflow is still kept in this document for reference.
 
-1. Install Certbot using `snap install --classic certbot` or follow the instructions at https://certbot.eff.org/.
-2. Check if your DNS provider is supported:
-   - If Certbot has built-in support, use `certbot --help all` (note: `certbot --help` does not show all plugins).
-   - If not, ensure your provider offers a professional API for DNS record management. Prepare `validation.js` and `cleanup.js` in a stable filesystem location.
-3. Redirect all domains and subdomains to a single certificate endpoint by adding CNAME records:
-   - `_acme-challenge.www.example.com` → `_acme-challenge.example.com`
-   - `_acme-challenge.app.example.com` → `_acme-challenge.example.com`
-   - `_acme-challenge.example2.com` → `_acme-challenge.example.com`
-   - Add CNAME records for any new origins as needed.
+Setup
 
-### Create Certificate
+1. install docker
+2. `docker pull certbot/certbot` for basic functionalities,
+   `docker pull certbot/dns-cloudflare` for using Cloudflare DNS api for validation, or other dns plugin if need.
+   > It should be good to precisely fix version to avoid potential issues,
+   > at the time of writing the version is `certbot/certbot:amd64-v4.2.0` and `certbot/dns-cloudflare:amd64-v4.2.0`
+
+Create certificate
+
+use Cloudflare DNS api
+
+```yaml, compose.yml
+name: 1
+services:
+    create:
+        
+```
+
+run `docker compose up -d`
+
+TODO no auto renewal, but a check outdated command?
+
 
 Use the following command:
 
@@ -40,7 +51,7 @@ certbot certonly --preferred-challenges dns --manual \
 - `-d example.com`: Specify the domain. For multiple domains, repeat the `-d` flag (e.g., `-d example.com -d www.example.com -d api.example.com`).
 - Add `--staging` to test the command and validation hooks.
 
-### Renew or Update Certificate
+Renew or Update Certificate
 
 Run `certbot renew` to renew certificates, or use the similar `certbot certonly` command to issue a new or updated certificate.
 
@@ -158,6 +169,51 @@ and they are paying acme.sh to default recommend that
 - Stricter numeric limits than [Let's Encrypt's rate limits](https://letsencrypt.org/docs/rate-limits/).
 
 Given these restrictions, Let's Encrypt remains the preferred choice for free, automated certificate management.
+
+### Non-Containerized Workflow
+
+TODO change this to difference, not full
+
+One-Time Setup
+
+1. Install Certbot using `snap install --classic certbot` or follow the instructions at https://certbot.eff.org/.
+2. Check if your DNS provider is supported:
+   - If Certbot has built-in support, use `certbot --help all` (note: `certbot --help` does not show all plugins).
+   - If not, ensure your provider offers a professional API for DNS record management. Prepare `validation.js` and `cleanup.js` in a stable filesystem location.
+3. Redirect all domains and subdomains to a single certificate endpoint by adding CNAME records:
+   - `_acme-challenge.www.example.com` → `_acme-challenge.example.com`
+   - `_acme-challenge.app.example.com` → `_acme-challenge.example.com`
+   - `_acme-challenge.example2.com` → `_acme-challenge.example.com`
+   - Add CNAME records for any new origins as needed.
+
+Create Certificate
+
+Use the following command:
+
+```sh
+certbot certonly --preferred-challenges dns --manual \
+   --manual-auth-hook "node /root/path/to/validation.js" \
+   --manual-cleanup-hook "node /root/path/to/cleanup.js" \
+   -d example.com
+```
+
+- `certonly`: Obtain or renew a certificate without installing it.
+- `--preferred-challenges dns`: Use the DNS-01 challenge ([details](https://letsencrypt.org/docs/challenge-types/)).
+- `--manual`: Use manual hooks for DNS validation and cleanup.
+- `--manual-auth-hook` and `--manual-cleanup-hook`: Paths to your hook scripts.
+  If using Node.js with nvm, specify the full path to the Node.js binary and make sure that version
+  is not accidentally updated or removed, e.g., `/home/username/.nvm/versions/node/v24.2.0/bin/node /etc/letsencrypt/validation-hooks/validation.js`.
+- `-d example.com`: Specify the domain. For multiple domains, repeat the `-d` flag (e.g., `-d example.com -d www.example.com -d api.example.com`).
+- Add `--staging` to test the command and validation hooks.
+
+Renew or Update Certificate
+
+Run `certbot renew` to renew certificates, or use the similar `certbot certonly` command to issue a new or updated certificate.
+
+To revoke a certificate:  
+```sh
+certbot revoke --cert-name example.com
+```
 
 ### Validation Hooks
 

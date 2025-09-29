@@ -120,11 +120,11 @@ export const log: Record<Level, (content: string | object) => void> = Object.fro
     .map(([level, logger]) => [level, level == 'debug' && !('FINE_DEBUG' in process.env) ? () => {} : logger.write.bind(logger)]));
 
 // try cleanup outdated logs per hour
-setInterval(() => Object.entries(loggers).map(([_, logger]) => logger.cleanup()), 3600_000).unref();
+setInterval(() => Object.entries(loggers).map(([, logger]) => logger.cleanup()), 3600_000).unref();
 
 // flush logger on exit is more proper (compare to recent versions of wacq)
 process.on('exit', () => {
-    Object.entries(loggers).map(([_, logger]) => logger.deinit());
+    Object.entries(loggers).map(([, logger]) => logger.deinit());
 });
 // log and abort for all uncaught exceptions and unhandled rejections
 process.on('uncaughtException', async error => {

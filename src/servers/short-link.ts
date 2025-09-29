@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import mysql from 'mysql2/promise';
 import {} from 'dayjs/plugin/utc.js'; // need empty include to add type
 import type * as koa from 'koa';
-import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin.js';
+import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { databaseTypeCast, type QueryResult } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 

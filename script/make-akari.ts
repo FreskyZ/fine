@@ -14,7 +14,7 @@ import { eslint } from './components/eslint.ts';
 
 // put tsconfig.json to make typescript language server happy, it this really needed?
 if (process.argv[2] == 'tsconfig.json') {
-    await fs.writeFile('tsconfig.json', JSON.stringify({ compilerOptions: { target: 'esnext', module: 'NodeNext',
+    await fs.writeFile('tsconfig.json', JSON.stringify({ compilerOptions: { target: 'esnext', module: 'NodeNext', jsx: 'preserve',
         allowImportingTsExtensions: true, noEmit: true, esModuleInterop: true, forceConsistentCasingInFileNames: true, strict: false } }));
     process.exit(0);
 }
@@ -94,7 +94,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
     const getLocation = (node: ts.Node) => {
         const { line, character } = ts.getLineAndCharacterOfPosition(sourceFile, node.pos);
         return `${moduleFileName}:${line + 1}${character + 1}`;
-    }
+    };
     const topLevelNames: string[] = [];
     const topLevelTypeNames: string[] = [];
     const references: ExternalReference[] = [];
@@ -125,7 +125,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
             } // ts says if node.modulespecifier is not string literal, it is a syntax error, so ignore this else
         } else if (ts.isExportDeclaration(node)) {
             hasError = true;
-            logError('make', `${getLocation(node)}: not support dedicated export statement for now`); //, node);
+            logError('make', `${getLocation(node)}: not support dedicated export statement for now`); // , node);
         } else if (ts.isVariableStatement(node)) {
             if (node.declarationList.declarations.length > 1) {
                 hasError = true;
@@ -150,7 +150,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
                         }
                     }
                 };
-                extractNames(declaration.name);                
+                extractNames(declaration.name);
             }
         } else if (ts.isFunctionDeclaration(node)) {
             if (ts.isIdentifier(node.name)) {
@@ -170,7 +170,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
             // EOF token
         } else {
             hasError = true;
-            logError('make', `${getLocation(node)}: unhandled top level node kind: ${ts.SyntaxKind[node.kind]}`); //, node);
+            logError('make', `${getLocation(node)}: unhandled top level node kind: ${ts.SyntaxKind[node.kind]}`); // , node);
         }
     });
 
@@ -232,8 +232,8 @@ allExternalReferences.forEach(r => r.namedNames.sort((lhs, rhs) => lhs.alias.loc
 allExternalReferences.sort((lhs, rhs) => {
     const leftIsNode = lhs.moduleName.startsWith('node:');
     const rightIsNode = rhs.moduleName.startsWith('node:');
-    if (leftIsNode && !rightIsNode) return -1;
-    if (!leftIsNode && rightIsNode) return 1;
+    if (leftIsNode && !rightIsNode) { return -1; }
+    if (!leftIsNode && rightIsNode) { return 1; }
     // this correctly handles rest part after node: and non node module names
     return lhs.moduleName.localeCompare(rhs.moduleName);
 });
@@ -356,18 +356,17 @@ for (const reference of allExternalReferences) {
     if (reference.defaultName) { sb += `${reference.defaultName}, `; }
     if (reference.namespaceName) { sb += `* as ${reference.namespaceName}, `; }
     if (reference.namespaceName && reference.namedNames.length) {
-        sb = sb.slice(0, -2) + ` from \'${reference.moduleName}\'\nimport `;
+        sb = sb.slice(0, -2) + ` from '${reference.moduleName}'\nimport `;
     }
     if (reference.namedNames.length) {
         sb += `{ `;
         for (const { name, alias, typeOnly } of reference.namedNames) {
             if (typeOnly) { sb += 'type '; }
-            if (name == alias) { sb += `${name}, `; }
-            else { sb += `${name} as ${alias}, `; }
+            sb += name == alias ? `${name}, ` : `${name} as ${alias}, `;
         }
         sb = sb.slice(0, -2) + ' }, ';
     }
-    sb = sb.slice(0, -2) + ` from \'${reference.moduleName}\';\n`;
+    sb = sb.slice(0, -2) + ` from '${reference.moduleName}';\n`;
 }
 for (const moduleName of sortedModuleNames.filter(m => requestedComponents.includes(m))) {
     const modulePath = `script/components/${moduleName}.ts`;
@@ -427,6 +426,7 @@ if (requestedADKModules.length) {
     sb += '    });\n';
     sb += '}\n';
 }
+
 sb += `// END LIBRARY ${crypto.hash('sha256', sb.substring(beginLibraryIndex))}\n`;
 for (const line of manualScriptLines) {
     sb += line + '\n';

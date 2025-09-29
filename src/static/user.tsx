@@ -45,12 +45,14 @@ function SignInTab({ handleSignUp, handleComplete }: {
     const [password, setPassword] = useState('');
 
     let allowSignUp = false;
-    useEffect(() => { (async () => {
-        const response = await fetch(`https://api.example.com/signup`);
-        if (response.status == 200) {
-            allowSignUp = !!(await response.json()).a;
-        } // ignore none 200
-    })(); }, []);
+    useEffect(() => {
+        (async () => {
+            const response = await fetch(`https://api.example.com/signup`);
+            if (response.status == 200) {
+                allowSignUp = !!(await response.json()).a;
+            } // ignore none 200
+        })();
+    }, []);
 
     const handleSignIn = async () => {
         if (!username || !password) {
@@ -84,12 +86,14 @@ function SignInTab({ handleSignUp, handleComplete }: {
             return notification('Sign up not allowed for now, I guess.');
         }
         handleSignUp();
-    }
+    };
 
     return <>
-        <input type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username} 
+        <input
+            type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username}
             onChange={e => setUserName(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignIn()} />
-        <input type="password" css={styles.input} required={true} placeholder="Password" disabled={loading} value={password} 
+        <input
+            type="password" css={styles.input} required={true} placeholder="Password" disabled={loading} value={password}
             onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignIn()} />
         <button css={styles.button} disabled={loading} onClick={handleSignIn}>SIGN IN</button>
         <button css={styles.button} disabled={loading} onClick={handleTrySignUp}>SIGN UP</button>
@@ -146,7 +150,7 @@ function SignUpTab({ handleSignIn, handleComplete }: {
     handleComplete: (user: UserCredential) => void,
 }) {
     const styles = signUpTabStyles;
-    
+
     const [loading, setLoading] = useState(false);
     const [username, setUserName] = useState('');
     const [password, setPassword] = useState('');
@@ -195,14 +199,15 @@ function SignUpTab({ handleSignIn, handleComplete }: {
     };
 
     return <>
-        <input type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username}
+        <input
+            type="text" css={styles.input} required={true} placeholder="User name" disabled={loading} value={username}
             onChange={e => setUserName(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleGetSecret()} />
         {username && <button css={styles.getQRCodeButton}
             disabled={loading} onClick={handleGetSecret}>{secret ? 'Refresh ' : 'Load '}QR Code</button>}
         {secret && <img css={styles.image} src={secret.dataurl} />}
         {secret && <input type="password" css={styles.input} required={true}
             placeholder="Password" disabled={loading} value={password}
-            onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignUp()}/>}
+            onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key == 'Enter' && handleSignUp()} />}
         <button css={styles.signInButton} disabled={loading || !!secret} onClick={handleSignIn}>BACK TO SIGN IN</button>
         <button css={styles.signUpButton} disabled={loading} onClick={handleSignUp}>SIGN UP</button>
     </>;
@@ -236,10 +241,10 @@ const signUpTabStyles = {
     }),
 };
 
-function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOutComplete }: { 
+function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOutComplete }: {
     user: UserCredential,
     handleSetUserName: (newUserName: string) => void,
-    handleSetSessionName: (newSessionName: string) => void, 
+    handleSetSessionName: (newSessionName: string) => void,
     handleSignOutComplete: () => void,
 }) {
     const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 600px)').matches);
@@ -276,28 +281,30 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
     const [signingOut, setSigningOut] = useState(false);
 
     const [modalOpen, setModalOpen] = useState(() => new URLSearchParams(window.location.search).has('return'));
-    const [returnAddress, _] = useState<string>(() => new URLSearchParams(window.location.search).get('return'));
+    const [returnAddress] = useState<string>(() => new URLSearchParams(window.location.search).get('return'));
     useEffect(() => {
         modalMaskElement.style.display = modalOpen ? 'block' : 'none';
         modalContainerElement.style.display = modalOpen ? 'block' : 'none';
     }, [modalOpen]);
 
-    useEffect(() => { (async() => {
-        const response = await fetch('https://api.example.com/user-sessions', { headers: getAuthorizationHeader() });
-        if (response.status != 200) {
-            return notification('Something went wrong. (5)');
-        }
-        const sessions: UserSession[] = await response.json();
-        setSessions([sessions.find(d => d.id == user.sessionId)].concat(sessions.filter(d => d.id != user.sessionId))); // put this session on top
-    })(); }, []);
+    useEffect(() => {
+        (async () => {
+            const response = await fetch('https://api.example.com/user-sessions', { headers: getAuthorizationHeader() });
+            if (response.status != 200) {
+                return notification('Something went wrong. (5)');
+            }
+            const sessions: UserSession[] = await response.json();
+            setSessions([sessions.find(d => d.id == user.sessionId)].concat(sessions.filter(d => d.id != user.sessionId))); // put this session on top
+        })();
+    }, []);
 
-    const handleUpdateUserName = async() => {
+    const handleUpdateUserName = async () => {
         if (!userName) { return notification('User name cannot be empty.'); }
 
         setUserNameLoading(true);
         const response = await fetch(`https://api.example.com/user-credential`, {
             method: 'PATCH',
-            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', },
+            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: userName }),
         });
         if (response.status == 201) {
@@ -329,7 +336,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         } else {
             return notification('Something went wrong. (7)');
         }
-    }
+    };
 
     const handleRemoveSession = async (sessionId: number) => {
         if (!confirm(`Are you sure to remove session '${sessions.find(d => d.id == sessionId).name}'?`)) {
@@ -346,7 +353,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         } else {
             return notification('Something went wrong. (8)');
         }
-    }
+    };
     const handleSignOut = async () => {
         if (!confirm(`Are you sure to sign out?`)) {
             return;
@@ -363,12 +370,12 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         } else {
             return notification('Something went wrong. (9)');
         }
-    }
+    };
 
     const handleGrantConfirm = async () => {
         const authorizationCodeResponse = await fetch(`https://api.example.com/generate-authorization-code`, {
             method: 'POST',
-            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json', },
+            headers: { ...getAuthorizationHeader(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ return: returnAddress }),
         });
         if (authorizationCodeResponse.status == 200) {
@@ -391,7 +398,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         <div css={styles.nameContainer}>
             {userNameEditing ? <>
                 <label css={styles.nameLabel}>User</label>
-                <input css={styles.formInput} value={userName} disabled={userNameLoading} 
+                <input css={styles.formInput} value={userName} disabled={userNameLoading}
                     onChange={e => setUserName(e.target.value)}
                     onKeyDown={e => e.key == 'Enter' && handleUpdateUserName()}></input>
                 <button css={styles.editButton} disabled={userNameLoading} onClick={handleUpdateUserName}>OK</button>
@@ -405,8 +412,8 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         <div css={styles.nameContainer}>
             {sessionNameEditing ? <>
                 <label css={styles.nameLabel}>Session</label>
-                <input css={styles.formInput} value={sessionName} disabled={sessionNameLoading} 
-                    onChange={e => setSessionName(e.target.value)} 
+                <input css={styles.formInput} value={sessionName} disabled={sessionNameLoading}
+                    onChange={e => setSessionName(e.target.value)}
                     onKeyDown={e => e.key == 'Enter' && handleUpdateSessionName()}></input>
                 <button css={styles.editButton} disabled={sessionNameLoading} onClick={handleUpdateSessionName}>OK</button>
                 <button css={styles.editButton} disabled={sessionNameLoading} onClick={() => { setSessionName(user.sessionName); setSessionNameEditing(false); }}>CANCEL</button>
@@ -476,7 +483,7 @@ const createManageTabStyles = (_narrow: boolean) => ({
         fontWeight: 'bold',
     }),
     tab: css({
-        paddingTop: '8px'
+        paddingTop: '8px',
     }),
     nameContainer: css({
         display: 'flex',
@@ -579,15 +586,15 @@ function Page() {
     if (initialLoading) {
         return false;
     } else if (user) {
-        return <ManageTab 
+        return <ManageTab
             user={user}
             handleSetUserName={newUserName => setUser({ ...user, name: newUserName })}
-            handleSetSessionName={newSessionName => setUser({ ...user, sessionName: newSessionName })} 
+            handleSetSessionName={newSessionName => setUser({ ...user, sessionName: newSessionName })}
             handleSignOutComplete={() => setUser(null)} />;
     } else {
         return signIn
-            ? <SignInTab handleComplete={setUser} handleSignUp={() => setSignIn(false)}/>
-            : <SignUpTab handleComplete={setUser} handleSignIn={() => setSignIn(true)} />
+            ? <SignInTab handleComplete={setUser} handleSignUp={() => setSignIn(false)} />
+            : <SignUpTab handleComplete={setUser} handleSignIn={() => setSignIn(true)} />;
     }
 }
 

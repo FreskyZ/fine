@@ -251,6 +251,7 @@ interface ESLintOptions {
 async function eslint(options: ESLintOptions): Promise<boolean> {
     const eslint = new ESLint({
         ignorePatterns: options.ignore,
+        // concurrency: 'auto', // no, this is not compatible with this inline config
         overrideConfigFile: true,
         plugins: {
             tseslint: tseslint.plugin as any,
@@ -1385,7 +1386,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 41b1e1bb531ec60bb40086bb635e08653dad571d4d7ac7042675135ac2b35fb2
+// END LIBRARY e626847528b8d49c1203dae0bd7b59f5eef8106367e4149fa2d11a04409dc2e6
 
 dayjs.extend(utc);
 
@@ -1469,8 +1470,7 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
     const mcx = await mypack({ entry: '/vbuild/user.js' }, tcx);
     if (!mcx.success) { logError('akari', chalk`{cyan user page} failed at pack`); return; };
 
-    // TODO recover change from old dev machine and enable this
-    // if (!await eslint({ files: 'src/static/user.tsx' })) { /* return; */ }
+    if (!await eslint({ files: 'src/static/user.tsx' })) { /* return; */ }
 
     const assets: UploadAsset[] = [
         // read html into string to do exmaple.com substitution
