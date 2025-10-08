@@ -321,6 +321,16 @@ segment in CDN URLs is derived from `package.json` to ensure compatibility. Subp
 or `dayjs/plugin/utc`, are resolved using longest-match resolution to correctly map dependencies to CDN URLs. Any
 unresolved external references result in errors, indicating typos or configuration issues.
 
+> UPDATE for CDN URLs: this approach have error if a package does not specify precise version of a dependency.
+> Currently, @emotion/react is specifying react>=16.8 in its dependency, while CDN provider have no way to know I'm
+> explicitly specifying react@19.1.1 in my package config, so it resolves the request to newest version react@19.2.0,
+> this makes @emotion/react injects its own jsx runtime into the wrong react module, and the web page completely don't
+> work. For now, this is temporary resolved by using [`script type=importmap`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules#importing_modules_using_import_maps)
+> that manually redirect emotion css's react request to the react version in package config, this manual fix needed to
+> be done in all current react pages and need attention to be synced with packcage config. For now I like the CDN URL
+> approach and will try to stick on this so maybe think up of automatic approach to check for this issue and handle
+> in future.
+
 After resolving imports, module contents are combined by removing import declarations and stripping `export` keywords
 from non-entry modules. The combined output is then minified using `terser`. A bundle report summarizes included
 modules, their sizes, and the final bundle size, both uncompressed and compressed. This reporting feature is inherited

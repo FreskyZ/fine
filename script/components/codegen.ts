@@ -331,7 +331,11 @@ function generateWebInterfaceClient(config: CodeGenerationConfig): string {
         if (sb.endsWith(', ')) {
             sb = sb.substring(0, sb.length - 2);
         }
-        sb += `): Promise<${action.return ? `I.${action.return}` : 'void'}> => `;
+        const returnType = !action.return ? 'void'
+            : action.return == 'string' ? 'string'
+            : action.return == 'string[]' ? 'string[]'
+            : `I.${action.return}`;
+        sb += `): Promise<${returnType}> => `;
 
         sb += `sendRequest('${action.method}', '${action.public ? '/public' : ''}/v1/${action.path}', `;
         if (action.parameters.length) {

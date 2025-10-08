@@ -1481,7 +1481,7 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
         const uploadResults = await deployWithRemoteConnect(ecx, assets);
         if (uploadResults.some(r => !r || r.status == 'error')) {
             logError('akari', chalk`{cyan user page} failed at upload`); return;
-        } else if (!uploadResults.some(r => r.status == 'error')) {
+        } else if (!uploadResults.some(r => r.status != 'nodiff')) {
             logInfo('akari', chalk`build {cyan user page} completed with no change`); return;
         } else {
             const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
