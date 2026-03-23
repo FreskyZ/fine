@@ -1,117 +1,95 @@
-# Certificate Automation
+# Automatic Certificate Management
 
-- First, you should use HTTPS ([Why use HTTPS?](https://www.cloudflare.com/learning/ssl/why-use-https/)).
-- HTTPS requires an SSL/TLS certificate ([What is an SSL certificate?](https://www.cloudflare.com/learning/ssl/what-is-an-ssl-certificate/)).
-- SSL/TLS certificates must be acquired and periodically renewed, as they have limited validity.
+- first, you need https, https://www.cloudflare.com/learning/ssl/why-use-https
+- then, https need ssl/tls certificate, https://www.cloudflare.com/learning/ssl/what-is-an-ssl-certificate
+- ssl/tls certificate need to be acquired follow specific process and renewed before expiration
+- let's encrypt https://letsencrypt.org/ supports automate certificate management based on ACME protocol
+  https://datatracker.ietf.org/doc/html/rfc8555/, with help of its ACME client, certbot https://certbot.eff.org
 
-## Certification Workflow
+## Certificate Workflow
 
-This project use [Let's Encrypt](https://letsencrypt.org) certificate authority and its recommended ACME client, [Certbot](https://certbot.eff.org).
-This project use docker to automate some workflow steps, the original non-containerized workflow is still kept in this document for reference.
+install certbot according to instructions https://certbot.eff.org/instructions
 
-Setup
+### Challenge Types
 
-1. install docker
-2. `docker pull certbot/certbot` for basic functionalities,
-   `docker pull certbot/dns-cloudflare` for using Cloudflare DNS api for validation, or other dns plugin if need.
-   > It should be good to precisely fix version to avoid potential issues,
-   > at the time of writing the version is `certbot/certbot:amd64-v4.2.0` and `certbot/dns-cloudflare:amd64-v4.2.0`
+there are multiple challenge types https://letsencrypt.org/docs/challenge-types/, use DNS challenge type because
 
-Create certificate
+- I'm not using normal web server
+- it will be complex to contact web server (put a file or call nginx reload, etc.) in containerized environment,
+  while the DNS-01 type works as long as you have access to letsencrypt.org and
+  your dns service provider api, which really fits in the isolation model of containerization
 
-use Cloudflare DNS api
-
-```yaml, compose.yml
-name: 1
-services:
-    create:
-        
-```
-
-run `docker compose up -d`
-
-TODO no auto renewal, but a check outdated command?
-
-
-Use the following command:
+### Commands
 
 ```sh
+# certonly: acquire certificate
+# --preferred-challenges: use DNS-01 challenge type
+# --dns-cloudflare: use cloudflare dns api
+# --dns-cloudflare-credentials: api key file,
+#     see more at https://certbot-dns-cloudflare.readthedocs.io/en/stable/
+#     other dns plugin have their own parameters and setups
+# -d: domains, use multiple -d for multiple domains, support wildcard domain,
+#    when using wildcard domain, don't forget that *.example.com does not cover example.com itself,
+#    you need -d *.example.com -d example.com for that
+# --staging: use this at developing/configuring stage
+certbot certonly --preferred-challenges dns \
+    --dns-cloudflare --dns-cloudflare-credentials cloudflare.ini \
+    -d example.com --staging
+
+# or acquire certificate with custom validation hooks
+# --manual: not use builtin dns api plugins
+# --manual-auth-hook: invoked before authentication,
+#     add text record to CERTBOT_DOMAIN with value CERTBOT_VALIDATION
+#     see https://eff-certbot.readthedocs.io/en/stable/using.html#pre-and-post-validation-hooks
+#     also can see https://github.com/acmesh-official/acme.sh/wiki/DNS-API-Dev-Guide
+#     by the way, node nvm does not work well here, you need something like
+#     /home/username/.nvm/versions/node/v24.2.0/bin/node /etc/letsencrypt/validation-hooks/validation.js
+# --manual-cleanup-hook: invoked after authentication, cleanup your dns record
+# --deploy-hook: instruct web server to restart or reload certificate
 certbot certonly --preferred-challenges dns --manual \
-   --manual-auth-hook "node /root/path/to/validation.js" \
-   --manual-cleanup-hook "node /root/path/to/cleanup.js" \
-   -d example.com
-```
+    --manual-auth-hook 'node validation.js' \
+    --manual-cleanup-hook 'node cleanup.js' \
+    --deploy-hook 'node reload-server.js' \
+    -d example.com --staging
 
-- `certonly`: Obtain or renew a certificate without installing it.
-- `--preferred-challenges dns`: Use the DNS-01 challenge ([details](https://letsencrypt.org/docs/challenge-types/)).
-- `--manual`: Use manual hooks for DNS validation and cleanup.
-- `--manual-auth-hook` and `--manual-cleanup-hook`: Paths to your hook scripts.
-  If using Node.js with nvm, specify the full path to the Node.js binary and make sure that version
-  is not accidentally updated or removed, e.g., `/home/username/.nvm/versions/node/v24.2.0/bin/node /etc/letsencrypt/validation-hooks/validation.js`.
-- `-d example.com`: Specify the domain. For multiple domains, repeat the `-d` flag (e.g., `-d example.com -d www.example.com -d api.example.com`).
-- Add `--staging` to test the command and validation hooks.
+# only when install with snap (more on this later),
+# certbot will automatically setup cron or systemd-timer to schedule renew,
+# check by crontab -l or systemctl status snap.certbot.renew.timer, or find the name by systemctl list-timers,
+# manually use renew command to trigger renew if letsencrypt think it's appropriote time,
+# most of the time this will skip most not due-to-renew certificates
+certbot renew
 
-Renew or Update Certificate
-
-Run `certbot renew` to renew certificates, or use the similar `certbot certonly` command to issue a new or updated certificate.
-
-To revoke a certificate:  
-```sh
+# revoke
+# cert name is by default the domain name, actually you can manually
+# specify cert name in certonly command if you have multiple domains or you want some other name
+# don't forget to revoke staging certificate with revoke --staging after testing your automation process
 certbot revoke --cert-name example.com
+
+# check certificate information
+openssl crl2pkcs7 -nocrl -certfile /etc/letsencrypt/live/example.com/cert.pem | openssl pkcs7 -print_certs -text -noout
+
+# if you are told that web server should be run as non root user,
+# don't forget to give web server process priviledge to access the files in deploy hook
+sudo chown -R 1000:1000 /etc/letsencrypt/live/example.com
+sudo chown -R 1000:1000 /etc/letsencrypt/archive/example.com
+
+# backup
+# no -C because the backup and restore location is always /etc/letsencrypt
+# it is recommended to include the validation hooks, e.g. /etc/letsencrypt/validation-hooks/validation.js
+tar cJf letsencrypt-backup-20250101.tar.xz /etc/letsencrypt
+# restore
+tar xJf letsencrypt-backup-20250101.tar.xz -C /
 ```
 
-## Backup and Restore
+### Server Side Setup
 
-Back up the entire `/etc/letsencrypt` directory. It's also recommended to back up your `validation.js` and `cleanup.js` files. For convenience, store these scripts in a stable location such as `/etc/letsencrypt/validation-hooks`.
-
-To create a backup:
-
-```sh
-tar zcvf /tmp/letsencrypt-backup-20250101.tar.gz /etc/letsencrypt
-```
-
-To restore from backup:
-
-```sh
-tar zxvf /tmp/letsencrypt-backup-20250101.tar.gz -C /
-```
-
-The `-C /` option extracts files to their original absolute paths.
-
-To display certificate details similar to a browser's certificate information panel:
-
-```sh
-openssl crl2pkcs7 -nocrl -certfile cert.pem | openssl pkcs7 -print_certs -text -noout
-```
-
-If the directory to store certificate file is owned by root and normal priviledge server cannot open the file
-
-```sh
-sudo chown -R fine:fine /etc/letsencrypt/live/example.com
-sudo chown -R fine:fine /etc/letsencrypt/archive/example.com
-```
-
-## Server Side Setup
-
-- The certificate files should be located in `/etc/letsencrypt/live/example.com/` file name `privkey.pem` and `cert.pem`.
-- If you are not running web server with root, check permission availability of certificate files from server process.
-- Use them in Node.js with `https.createServer` or `http2.createSecureServer`:
-
-```js
-https.createServer({
-   key: fs.readFileSync('privkey.pem', 'utf-8'),
-   cert: fs.readFileSync('cert.pem', 'utf-8')
-}, app);
+```javascript
+// create server
+https.createServer({ key: fs.readFileSync('privkey.pem'), cert: fs.readFileSync('cert.pem') }, app);
 // or
-http2.createSecureServer({
-   key: fs.readFileSync('privkey.pem', 'utf-8'),
-   cert: fs.readFileSync('cert.pem', 'utf-8')
-}, app);
-```
+http2.createSecureServer({ key: fs.readFileSync('privkey.pem'), cert: fs.readFileSync('cert.pem') }, app);
 
-- For serving multiple certificates for different domains on the same server, use the `SNICallback` option:
-
-```js
+// if have difference certificates for different domains, use SNI callback
 // httpsCertificates: { default: { key: string, cert: string }, [domain: string]: { key: string, cert: string } }
 const httpsServer = http2.createSecureServer({
    key: httpsCertificates.default.key,
@@ -127,320 +105,138 @@ const httpsServer = http2.createSecureServer({
 }, app);
 ```
 
-## Technology Details
+### Certificate Authorities
 
-### The ACME Protocol
+if you check https://letsencrypt.org/docs/client-options
+and click into acme.sh https://github.com/Neilpang/acme.sh and find its sponsor zerossl certificate authority,
 
-The `ACME` in `Certbot ACME client` stands for [Automatic Certificate Management Environment](https://en.wikipedia.org/wiki/Automatic_Certificate_Management_Environment),
-a protocol for automating certificate management. It was initially developed by Let's Encrypt and later standardized ([RFC 8555](https://datatracker.ietf.org/doc/html/rfc8555/)).
+> with claiming that acme.sh is the #1 acme client?
+> acme protocol is created and improved by let's encrypt and electronic frontier foundation
+> (the eff in certbot's url certbot.eff.org) and acme.sh is claiming it's #1?
 
-The core of certificate issuance is proving control over a domain. Common validation methods include:
+and then misled by its advertisement and its comparison document
+https://help.zerossl.com/hc/en-us/articles/17864245480093-Advantages-over-Using-Let-s-Encrypt,
+you can open it's pricing page and find out that the free account has far less functionality and is far more
+restricted than letsencrypt which is true completely free, so
 
-- Receiving a secret via email at admin@example.com and confirming receipt.
-- Adding a specific token to your DNS records to prove DNS control.
-- Placing a token in a file on your web server to prove server control.
+*zerossl is not zero cost*
 
-The ACME protocol automates this process by:
+after the finding you can review the comparison document and can find that longer certificate lifetime is not
+an advantage and is avoided by letsencrypt, email validaiton is against automation, webapp integration is against 
+automation, these incorrect advertisement wording together with the shameless claims may help you understand
+more how evil is commercial groups and how good is letsencrypt and eff.
 
-- Creating a certificate request.
-- Placing the required token in your website content or DNS settings.
-- Completing validation and downloading the certificate.
-- Optionally installing the certificate on your web server.
-- Renewing the certificate automatically before expiration.
+by the way, letsencrypt and eff created https://datatracker.ietf.org/doc/html/rfc9773/ ACME renewal information
+specification to help schedule renewal operations and mitigate issues from shortening certificate lifetime
 
-and the world become s-er automatically!
+## Containerization
 
-### ACME Servers
+use official image certbot/certbot
 
-Let's Encrypt developed the ACME protocol, but there are other ACME server implementations.
-For example, the other ACME client [acme.sh](https://github.com/acmesh-official/acme.sh) defaults to using ZeroSSL.
+by the way, container appraoch is not listed in https://certbot.eff.org/instructions
+but introduced in https://eff-certbot.readthedocs.io/en/latest/install.html#alternative-1-docker,
+why are there 2 different document sites?
 
-ZeroSSL advertises its advantages over Let's Encrypt ([comparison](https://help.zerossl.com/hc/en-us/articles/17864245480093-Advantages-over-Using-Let-s-Encrypt)),
-I almost believed that, until I opened the [pricing](https://zerossl.com/pricing/) page to realize that...
+### DNS Plugin
 
-> ZeroSSL: The cost of *zero*ssl is not zero cost.
-> (by deepseek) ZeroSSL: Where the 'zero' stands for 'zero dollars left in your wallet.'
-> (by deepseek) Turns out, with ZeroSSL, Zero != Free. Who knew?
+I use some domains from aliyun domain registrar, this dns provider is
+not supported in builtin plugin list, so I was developing a nodejs script as hooks in
+manual dns plugin https://eff-certbot.readthedocs.io/en/latest/using.html#manual
 
-and they are paying acme.sh to default recommend that
+- which is written in nodejs and need to install node, while I currently don't know how to install bare nodejs
+  in linux? actually nodejs official document also only provides nvm instructions or nvm-like tools except use
+  container, oh, ai says use apt install nodejs, ok.
+- on the other hand, if you try to install certbot in a nodejs image, you need use snap or pip, while pip is
+  discouraged in https://eff-certbot.readthedocs.io/en/latest/install.html#alternative-2-pip, snap is one of
+  the (not major) reasons that I switch from ubuntu to debian in some environments
+- certbot is a python program, to avoid install nodejs and python in the same container, you need to rewrite the
+  script in python, the uv project file structure is more complex than npm projects, you need to investigate which
+  files to exclude while backing up /etc/letsencrypt together with hooks, and python is missing builtin high level
+  http client library support (why is requests still a 3rd party library?) and similar asyncio support like nodejs,
+  all of these will make developing experience and efficiency worse than nodejs
+- the validation hooks depends on aliyun official dns sdk, which is a complete piece of *shit*,
+  you can blame this section to find the old script content,
+  it looks like "const credential = new Credential.default(new CredentialConfig({ ... }));"
+  - why is there a new? normal data objects should use plain objects instead of new
+  - why is there a .default? this have serious bundling issues that happen in 2025?
+  - and this .default make the type definitions complete not working,
+    as they only work on not .default version, so you get a non typed large library in 2025?  
+  and "try { const response = await client.addDomainRecord(new AddDomainRecordRequest({ ... })) }"
+  - why is there so many news?
+  - why is there so many dedicated real class names? (real function objects in runtime compare to typescript types)
+  - why is this using try catch and don't know the error object type?
+- the sdk wraps aliyun dns api which uses a signing mechanism which is a complete piece of *shit*,
+  described at https://help.aliyun.com/zh/sdk/product-overview/v3-request-structure-and-signature#c1aca127aeru1,
+  implemented at https://github.com/aliyun/darabonba-openapi/blob/master/python/alibabacloud_tea_openapi/client.py,
+  or https://github.com/aliyun/darabonba-openapi/blob/master/ts/src/utils.ts#L881,
+  which is completely different from modern authentication scheme that use http request header authorization to
+  send token bearer token, to make it worse, this sdk source code is
+  - using class static method? why do you need class static method in js?
+  - and var? I mean, you sometimes find old js projects in github using var,
+    but you really cannot easily find old but new projects in github using var and typescript type at same time?
+  - both python and typescript source code don't have any comment in the source code, I mean, too many AI style
+    comment is bad, but no comment also indicates the code quality problem
 
-- The free plan allows only 3 certificates (each valid for 3 months).
-- No support for SAN (multiple domain) certificates and wild card certificates while Let's Encrypt support that without charge.
-- Stricter numeric limits than [Let's Encrypt's rate limits](https://letsencrypt.org/docs/rate-limits/).
+with this background it seems unforturnate things will happen that I have to discard aliyun sdk and implement the
+signing mechanism on my own reading the poor documents and very poor existing implementations, and I even consider
+riir (rewrite in rust) because write the numeric operations in python has bad performance, and directly talk to acme
+protocol to avoid the redundant part in certbot that I do not use like http challegent type and other dns plugins...
 
-Given these restrictions, Let's Encrypt remains the preferred choice for free, automated certificate management.
+and there comes **DNS Alias Mode**! https://github.com/acmesh-official/acme.sh/wiki/DNS-alias-mode
 
-### Non-Containerized Workflow
+a DNS CNAME (canonical name) record acts as an alias, mapping one domain name to another (the canonical domain),
+this is not an acme.sh feature, and is not a certbot feature, and is not a letsencrypt and ACME protocol feature,
+it is a DNS feature, in DNS specification https://datatracker.ietf.org/doc/html/rfc1034#section-3.6.2, in 1987.
 
-TODO change this to difference, not full
+with this feature, you can redirect aliyun domain to a specific cloudflare dns record,
+e.g. make _acme-challenge.aliyun-example.com redirect to _acme-challenge.aliyun-example.com.cloudflare-example.com,
+and manipulate TXT record with cloudflare api to complete the authentication part
 
-One-Time Setup
+follow CNAME record is not supported by builtin dns plugins
+(that's why this feature is not mentioned in letsencrypt and certbot documents),
+but cloudflare api is very *normal*, it is easy to implement in python without 3rd party libraries and asyncio
 
-1. Install Certbot using `snap install --classic certbot` or follow the instructions at https://certbot.eff.org/.
-2. Check if your DNS provider is supported:
-   - If Certbot has built-in support, use `certbot --help all` (note: `certbot --help` does not show all plugins).
-   - If not, ensure your provider offers a professional API for DNS record management. Prepare `validation.js` and `cleanup.js` in a stable filesystem location.
-3. Redirect all domains and subdomains to a single certificate endpoint by adding CNAME records:
-   - `_acme-challenge.www.example.com` → `_acme-challenge.example.com`
-   - `_acme-challenge.app.example.com` → `_acme-challenge.example.com`
-   - `_acme-challenge.example2.com` → `_acme-challenge.example.com`
-   - Add CNAME records for any new origins as needed.
+by the way, I was using godaddy domains for sometime, web and api functionality of this dns registrar is also
+kind of shit, this is actually implied when I see really many advertisements from godaddy in youtube
 
-Create Certificate
+### Renewal
 
-Use the following command:
+the document does not talk about renewal setup
+in https://eff-certbot.readthedocs.io/en/latest/install.html#alternative-1-docker
 
-```sh
-certbot certonly --preferred-challenges dns --manual \
-   --manual-auth-hook "node /root/path/to/validation.js" \
-   --manual-cleanup-hook "node /root/path/to/cleanup.js" \
-   -d example.com
-```
+the short answer is, the certbot official docker image does **NOT** include automatic renewal schedule
 
-- `certonly`: Obtain or renew a certificate without installing it.
-- `--preferred-challenges dns`: Use the DNS-01 challenge ([details](https://letsencrypt.org/docs/challenge-types/)).
-- `--manual`: Use manual hooks for DNS validation and cleanup.
-- `--manual-auth-hook` and `--manual-cleanup-hook`: Paths to your hook scripts.
-  If using Node.js with nvm, specify the full path to the Node.js binary and make sure that version
-  is not accidentally updated or removed, e.g., `/home/username/.nvm/versions/node/v24.2.0/bin/node /etc/letsencrypt/validation-hooks/validation.js`.
-- `-d example.com`: Specify the domain. For multiple domains, repeat the `-d` flag (e.g., `-d example.com -d www.example.com -d api.example.com`).
-- Add `--staging` to test the command and validation hooks.
+it is discovered by
 
-Renew or Update Certificate
+- while systemd is not available in container, there is no item in crontab -l that looks like certbot after
+  certonly --staging command
+- the command in container has output shows NEXT STEPS:
+  The certificate will need to be renewed before it expires. Certbot can automatically renew the certificate in
+  the background, but you may need to take steps to enable that functionality. See https://certbot.org/renewal-setup
+  for instructions, this document section start with "If you think you may need to set up automated renewal", which
+  indicates that certbot cli think I may need to setup renewal schedule
+- https://github.com/certbot/certbot/blob/main/snap/snapcraft.yaml#L45-49 looks very like the timer setup,
+  in https://snapcraft.io/docs/reference/development/yaml-schemas/the-snap-format/ shows it *is* the timer setup,
+  which means certbot itself may not invoke crontab or systemd on its own, but instruct snapd to do so
+- search the codebase using cron https://github.com/search?q=repo%3Acertbot%2Fcertbot%20cron&type=code
+  or search systemd https://github.com/search?q=repo%3Acertbot%2Fcertbot%20systemd&type=code
+  shows no actual code is calling cron or systemd commands or functions to setup the periodic job
+- a packaging document https://eff-certbot.readthedocs.io/en/latest/packaging.html#notes-for-package-maintainers
+  says "If you’d like to include automated renewal in your package" indicates the pip package does not include
+  automatic renewal
+- installation instructions for snap https://certbot.eff.org/instructions?ws=other&os=snap only talk about "Test
+  automatic renew", but no "setup automatic renew", while for pip https://certbot.eff.org/instructions?ws=other&os=pip
+  it has a section "Set up automatic renew", by the way, macos also need manual setup, but windows don't
 
-Run `certbot renew` to renew certificates, or use the similar `certbot certonly` command to issue a new or updated certificate.
+so it is believed that official docker image and pip installed certbot does not automatically setup renewal schedule,
+and this is also the answer to "what do I put in docker container's entrypoint/command", you should run certbot renew
+or setup periodic job to run certbot renew in renewal container
 
-To revoke a certificate:  
-```sh
-certbot revoke --cert-name example.com
-```
+also, the common search result to run certbot renew in exact time point of the day is not recommended by letsencrypt,
+this will cause thousands or millions of services contacting acme server at the same time, reducing service quality
+at both end, certbot snap is setting up 00:00~24:00/2, the tilde means twice a day at random time,
+see https://snapcraft.io/docs/reference/administration/timer-string-format/, the pip installation instruction is
+using echo "0 0,12 * * * ... time.sleep(random.random() * 3600)' && certbot renew -q" which means random minute at
+hour 0 or hour 12, 
 
-### Validation Hooks
-
-Certbot documentation lacks examples for the `--manual-auth-hook` parameter.
-While [acme.sh's DNS-API Dev Guide](https://github.com/acmesh-official/acme.sh/wiki/DNS-API-Dev-Guide) provides guidance,
-it focuses on shell scripts, as acme.sh is implemented entirely in shell. This may explain why Certbot-related documentation
-also demonstrates shell scripts for validation hooks.
-
-However, shell scripting is not ideal for complex tasks. Since Aliyun DNS primarily offers SDKs (not a simple HTTP API),
-Node.js is a more robust choice for implementing validation hooks. Testing confirms that Certbot supports any executable
-as a hook, including Node.js scripts.
-
-To set up Aliyun DNS for certificate automation, follow these steps:
-
-1. In the RAM console, create a new RAM user and save the access key.
-2. Create a permission policy allowing only DNS record operations.
-3. Attach the policy to the user.
-
-API references:
-- [AddDomainRecord](https://help.aliyun.com/zh/dns/api-alidns-2015-01-09-adddomainrecord)
-- [DeleteDomainRecord](https://help.aliyun.com/zh/dns/api-alidns-2015-01-09-deletedomainrecord)
-- [DescribeDomainRecords](https://help.aliyun.com/zh/dns/api-alidns-2015-01-09-describedomainrecords)
-
-and the validation.js and cleanup.js implementation
-
-```js, validation.js
-// packages
-// "@alicloud/alidns20150109": "^3.4.9",
-// "@alicloud/credentials": "^2.4.3",
-// "@alicloud/openapi-client": "^0.4.14",
-// "@alicloud/tea-util": "^1.4.10"
-import { Config as ClientConfig } from '@alicloud/openapi-client';
-import Credential, { Config as CredentialConfig } from '@alicloud/credentials';
-import Alidns, { AddDomainRecordRequest } from '@alicloud/alidns20150109';
-
-// official demo code
-// https://next.api.aliyun.com/api-tools/sdk/Alidns?version=2015-01-09&language=typescript-tea&tab=primer-doc
-
-// the demo is very java and very not nodejs and typescript,
-// by the way, the python demo is also very java and not very python,
-// so this implementation removes the meaningless class, class static method and class static main
-// but are still forced to new several *real javascript class* variables as options,
-// which in nodejs and typescript, should use type constrained plain object while to make things worse,
-// the too-java sdk and lack of typescript knowledge make EXACTLY EVERYHING NOT typescript inferrable
-
-// ATTENTION as part of exactly everyhing, you need the .default to find the actually default exported
-// class constructor, which precisely abandon all type information at both parameter side and return value side
-const credential = new Credential.default(new CredentialConfig({
-    // these does not have interface type, you need to f12 the CredentialConfig class to find the property names
-    type: 'access_key',
-    // the real implementation use hardcode secret,
-    // because the script itself is really secret to be only runnable and not frequently run on server
-    accessKeyId: process.env.ALIYUN_ACCESS_KEY_ID,
-    accessKeySecret: process.env.ALIYUN_ACCESS_KEY_SECRET,
-}));
-// same issue as above
-const client = new Alidns.default(new ClientConfig({
-    // same issue as above
-    credential,
-    endpoint: 'alidns.cn-shanghai.aliyuncs.com',
-}));
-
-// certbot provides several environment variables
-// CERTBOT_DOMAIN is the domain to be validated, in theory you should invoke api to attach the token
-// to _acme-challenge. prefixed domain, but I'm pointing all domains to the same validation endpoint so no use
-// console.log('CERTBOT_DOMAIN', process.env.CERTBOT_DOMAIN);
-
-// this is the value to be appear in DNS record
-const token = process.env.CERTBOT_VALIDATION;
-if (!token) {
-    console.error('validation.js: environment variable CERTBOT_VALIDATION missing');
-    process.exit(1);
-}
-console.log(`validation.js: token ${token}`);
-
-try {
-    // same issue as before
-    const response = await client.addDomainRecord(new AddDomainRecordRequest({
-        // same issue as before
-        domainName: 'example.com',
-        RR: '_acme-challenge',
-        type: 'TXT',
-        value: token,
-    }));
-    console.log(`validation.js: token ${token} api add complete record id ${response.body.recordId}`);
-} catch (err) {
-    console.error(`validation.js: token ${token} failed to add domain record`, err);
-    process.exit(1);
-}
-
-let ok = false;
-let delay = 1000;
-do {
-    if (delay > 60000) {
-        console.error(`validation.js: token ${token} check DNS query result not found for more than 1 minute, abort checking`);
-        break;
-    }
-    await new Promise(resolve => setTimeout(resolve, delay));
-
-    console.log(`validation.js: token ${token} checking DNS query result`);
-    // google public DNS https://developers.google.com/speed/public-dns/docs/doh/json
-    // UPDATE: google public DNS is not available, use aliyun public DNS https://alidns.com/articles/6018321800a44d0e45e90d71
-    const response = await fetch('https://dns.alidns.com/resolve?name=_acme-challenge.example.com&type=TXT');
-    if (!response.ok) {
-        console.error(`validation.js: token ${token}, failed to call dns.alidns.com (really?), abort checking`, response);
-        break;
-    }
-    const responseData = await response.json();
-    ok = (responseData.Answer || []).some(a => a.type == 16 && a.data.replace(/^"|"$/g, '') == token);
-
-    if (ok) {
-        console.log(`validation.js: token ${token} check DNS query result success`);
-    } else {
-        console.log(`validation.js: token ${token} check DNS query result not yet success`, responseData);
-        delay *= 2;
-    }
-} while (!ok);
-
-// wait yet another several seconds considering differences between this machine and letsencrypt's machines
-// the number is chosen arbitrarily, if you see this in a github repository it means this number works for me for now
-await new Promise(resolve => setTimeout(resolve, 10000));
-```
-
-```js, cleanup.js
-import { Config as ClientConfig } from '@alicloud/openapi-client';
-import Credential, { Config as CredentialConfig } from '@alicloud/credentials';
-import Alidns, { DescribeDomainRecordsRequest, DeleteDomainRecordRequest } from '@alicloud/alidns20150109';
-
-const credential = new Credential.default(new CredentialConfig({
-    type: 'access_key',
-    accessKeyId: process.env.ALIYUN_ACCESS_KEY_ID,
-    accessKeySecret: process.env.ALIYUN_ACCESS_KEY_SECRET,
-}));
-const client = new Alidns.default(new ClientConfig({
-    credential,
-    endpoint: 'alidns.cn-shanghai.aliyuncs.com',
-}));
-
-const token = process.env.CERTBOT_VALIDATION;
-if (!token) {
-    console.error('cleanup.js: environment variable CERTBOT_VALIDATION missing');
-    process.exit(1);
-}
-console.log(`cleanup.js: token ${token}`);
-
-// need to list the records to find the record id to delete
-/** @type {{ recordId: string, value: string }[]} */
-let records;
-try {
-    const recordsResponse = await client.describeDomainRecords(new DescribeDomainRecordsRequest({
-        domainName: 'example.com',
-        type: 'TXT',
-        RRKeyword: '_acme-challenge',
-        searchMode: 'COMBINATION',
-    }));
-    records = recordsResponse.body.domainRecords.record;
-} catch (err) {
-    console.warn(`cleanup.js: token ${token} failed to get records, no cleanup performed`, err);
-    process.exit();
-}
-
-const record = records.find(r => r.value == token);
-if (!record) {
-    console.warn(`cleanup.js: token ${token} not found related records, no cleanup performed`);
-    process.exit();
-}
-
-console.log(`cleanup.js: token ${token} removing record id ${record.recordId}`);
-try {
-    await client.deleteDomainRecord(new DeleteDomainRecordRequest({
-        recordId: record.recordId,
-    }));
-    console.log(`cleanup.js: token ${token} remove complete`);
-} catch (err) {
-    console.error(`cleanup.js: token ${token} failed to delete record, please check manually`, err);
-}
-```
-
-### WSL Setup
-
-connect to HTTPS on my local WSL dev environment fails on ssl ???
-curl: (60) SSL certificate problem: unable to get local issuer certificate ???
-
-export the full chain cert in browser (select full chain in the Windows save as modal) as example.com.crt
-put it in /usr/local/share/ca-certificates/ (need sudo, may be need apt install ca-certificates)
-run sudo update-ca-certificates
-
-now curl works, to make node work, run node --use-system-ca, or use this
-
-```js
-// ???
-const mycert = await fs.readFile('my.crt', 'utf-8');
-const originalCreateSecureContext = tls.createSecureContext;
-tls.createSecureContext = options => {
-    const originalResult = originalCreateSecureContext(options);
-    if (!options.ca) { originalResult.context.addCACert(mycert); }
-    return originalResult;
-};
-```
-
-don't forget append multiple question marks
-
-this seems is not public api, this is learned from https://github.com/fujifish/syswide-cas/blob/master/index.js
-
-### Story
-
-At first, I bought a domain on GoDaddy because it didn't require beian. As part of reviving this project,
-I spun up a temporary file-serving web server and ran the same certificate creation and renewal commands I'd used for years.
-
-But this time, Let's Encrypt kept throwing mysterious validation errors—errors I hadn't seen before,
-and certainly not ones caused by my source code, domain, or DNS settings. To make matters worse,
-browsers would always auto-redirect to HTTPS and throw certificate errors, even though I hadn't set
-that up. Strangely, `curl` worked perfectly for HTTP GET requests, returning file content without issue.
-
-Frustrated, I scrolled through GoDaddy's website—enduring oversized buttons, excessive whitespace,
-and a surprising lack of real functionality. It became clear that not all service providers operate
-at the same professional level. So, I started exploring alternatives.
-
-For years, I'd relied on the HTTP-based challenge type for certificate validation. But now, I discovered
-there was a DNS-based approach and another ACME client: acme.sh. After reading acme.sh's [documentation](https://github.com/acmesh-official/acme.sh/wiki),
-I tried using the DNS challenge type, only to find GoDaddy's DNS management page equally lacking
-in features—and, for some reason, barely usable in my network environment.
-
-That's when I stumbled upon [acme.sh's DNS alias mode](https://github.com/acmesh-official/acme.sh/wiki/DNS-alias-mode),
-which, in theory, lets you redirect DNS validation to a more professional DNS provider. I set up test
-scripts for Aliyun's DNS API, and things started to click. I also discovered extra help
-in `certbot --help all` and the official Let's Encrypt documentation.
-
-After some trial and error, I tested the full process using Certbot with custom validation hooks.
-Finally, everything worked—and the whole certificate automation workflow came together.
+TODO final decision in my container
