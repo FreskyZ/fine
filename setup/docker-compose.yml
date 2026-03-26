@@ -1,0 +1,28 @@
+name: fine
+
+# https://docs.docker.com/reference/compose-file/services/
+services:
+
+  # docker compose up -d acme
+  # run shell: docker compose run --rm --entrypoint /bin/sh acme
+  #    - initial setup: /entrypoint --setup
+  #    - check certificates: certbot certificates
+  #    - check renew schedule: cat /etc/letsencrypt/renewal-schedule/next
+  #    - update certificates: certbot certonly ...
+  #    - backup tar ... /etc/letsencrypt
+  acme:
+    image: my/certbot:1
+    container_name: acme1
+    attach: false
+    volumes:
+      - certificates:/etc/letsencrypt
+      - certbot-logs:/var/log/letsencrypt
+      - fine-configs:/etc/fine:ro
+      - fine-sockets:/run/fine
+
+volumes:
+  certificates: { external: true }
+  certbot-logs: { external: true }
+  fine-configs: { external: true }
+  fine-sockets: { external: true }
+  fine-database: { external: true }

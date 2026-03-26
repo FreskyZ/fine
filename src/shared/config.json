@@ -1,17 +1,16 @@
 {
   "webroot": "/var/fine",
+  "cloudflare": {
+    "token": ""
+  },
   "certificates": {
     "example.com": {
-      "key": "key.pem",
-      "cert": "cert.pem"
     },
-    "www.example.com": {
-      "key": "key.pem",
-      "cert": "cert.pem"
+    "example-2.com": {
+      "wildcard": true
     },
-    "api.example.com": {
-      "key": "key.pem",
-      "cert": "cert.pem"
+    "example-3.com": {
+      "alias": true
     }
   },
   "database": {
