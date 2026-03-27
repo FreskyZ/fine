@@ -241,4 +241,6 @@ will cause thousands of or millions of services connecting acme server at the sa
 both end, certbot snap package is setting up 00:00~24:00/2, the tilde means twice a day at random time,
 see https://snapcraft.io/docs/reference/administration/timer-string-format/, the pip installation instruction is
 using echo "0 0,12 * * * ... time.sleep(random.random() * 3600)' && certbot renew -q" which means random minute at
-hour 0 or hour 12, I'm following snap setup, select a random time in each half of a utc day, see setup/certbot-entrypoint.py
+hour 0 or hour 12, I'm following snap setup, select a random time in each half of a utc day
+
+see setup/certbot-entrypoint.py, by the way, random time is easy, fail safe is not easy

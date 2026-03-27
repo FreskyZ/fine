@@ -26,8 +26,13 @@ def create_certificates():
         config = json.load(f)
     for domain, info in config['certificates'].items():
         is_wildcard = 'wildcard' in info and info['wildcard']
-        print(f'setup.py: {'*.' if is_wildcard else ''}{domain}')
-        domain_parameters = ['-d', f'*.{domain}', '-d', domain] if is_wildcard else ['-d', domain]
+        include_www = 'www' in info and info['www']
+        print(f'setup.py: {domain}{', wildcard' if is_wildcard else ''}{', www' if include_www else ''}')
+        domain_parameters = ['-d', domain]
+        if is_wildcard:
+            domain_parameters += ['-d', f'*.{domain}']
+        elif include_www: # elif: wildcard covers www
+            domain_parameters += ['-d', f'www.{domain}']
         child = subprocess.run([
             'certbot',
             'certonly',

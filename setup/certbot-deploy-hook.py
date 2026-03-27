@@ -16,6 +16,7 @@ try:
     connection.connect('/run/fine/fine.socket')
 except Exception as ex:
     print('deploy.py: failed to connect', ex)
+    exit(1)
 
 message = '{"kind":"reload-certificate"}'
 print(f'deploy.py: sending {message}')
@@ -31,7 +32,7 @@ while True:
             break # received eof
         received_data.append(data)
     except socket.timeout:
-        print('deploy.py: recv timeout, regard as idle')
+        print('deploy.py: recv timeout, regard as complete')
         break
     except Exception as e:
         print('deploy.py: unexpected error', e)

@@ -402,7 +402,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         };
     });
 
-    return await Promise.any([
+    return await Promise.race([
         received,
         new Promise<BuildScriptMessageResponse>(resolve => {
             timeout = setTimeout(() => {
