@@ -141,19 +141,21 @@ adduser -u 70 -S -D -G postgres -h /var/lib/pgsql -s /bin/sh postgres
 # 2755:	setgid (Set Group ID) When applied to a directory, any new files or subdirectories created within it
 #       will inherit the directory's group ownership, rather than the creator's primary group.
 # should not be relavent when postgres server is run as postgres user and normal exec sh is postgres user
-
-# TODO may be need to create /run/pgsql folder
 EORUN
 
 # TODO is LANG needed after initdb --locale-provider
-ENV LANG=en_US.utf8
+# ENV LANG=en_US.utf8
 ENV PGDATA=/var/lib/pgsql/data
 
-# this switch user operation preserves env
-USER postgres
+# unix socket directory, set in postgresql.conf unix_socket_directories
+VOLUME /run/pgsql
 # if you volume from host fs, this folder will inherit the owner and permission,
 # if you volume from docker volume, this folder will keep existing owner and permission
 VOLUME /var/lib/pgsql
+
+# this switch user operation preserves env
+USER postgres
+
 WORKDIR /var/lib/pgsql
 
 # official document says use SIGINT and long stop timeout
