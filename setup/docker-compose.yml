@@ -1,28 +1,87 @@
 name: fine
 
-# https://docs.docker.com/reference/compose-file/services/
 services:
 
   # docker compose up -d acme
-  # run shell: docker compose run --rm --entrypoint /bin/sh acme
-  #    - initial setup: /entrypoint --setup
-  #    - check certificates: certbot certificates
-  #    - check renew schedule: cat /etc/letsencrypt/renewal-schedule/next
-  #    - update certificates: certbot certonly ...
-  #    - backup tar ... /etc/letsencrypt
+  # or run shell: docker compose run --rm --name acme-shell1 --entrypoint /bin/sh acme
+  #   # docker compose run does not respect container_name if you ask
+  #   - initial setup: /create.py
+  #   - or restore backup: tar xJf letsencrypt-backup.tar.xz -C /
+  #   - update certificate domains or other certbot commands: certbot certonly ...
+  #   - check renew schedule: cat /etc/letsencrypt/renewal-schedule/next
   acme:
     image: my/certbot:1
     container_name: acme1
-    attach: false
     volumes:
       - certificates:/etc/letsencrypt
+      - certbot-libs:/var/lib/letsencrypt
       - certbot-logs:/var/log/letsencrypt
       - fine-configs:/etc/fine:ro
       - fine-sockets:/run/fine
 
+  # docker compose up -d database
+  # or run shell: docker compose run --rm --name database-shell1 --entrypoint /bin/sh database
+  #   - initial setup: ./initdb.sh
+  #   - psql: psql
+  # or directly psql: docker compose run --rm --name database-shell1 --entrypoint psql database
+  database:
+    image: my/postgres:1
+    container_name: database1
+    volumes:
+      - fine-sockets:/run/pgsql
+      - fine-database:/var/lib/pgsql
+
+  # docker compose run --rm --name akari1 akari
+  # TODO consider initialize all fine volumes with akari.ts
+  akari:
+    image: node
+    container_name: akari1
+    working_dir: /var/fine
+    entrypoint: node akari.ts
+    volumes:
+      - fine-program:/var/fine
+      - node_modules:/var/fine/node_modules
+      - fine-configs:/etc/fine
+      - fine-sockets:/run/fine
+      - fine-logs:/var/log/fine
+      - fine-public:/var/fine/public
+
+  # docker compose up -d web
+  # docker compose restart web # to restart node index.js like before
+  web:
+    image: node
+    container_name: fine1
+    working_dir: /var/fine
+    entrypoint: node index.js
+    volumes:
+      - fine-program:/var/fine:ro
+      - node_modules:/var/fine/node_modules
+      - fine-configs:/etc/fine:ro
+      - fine-sockets:/run/fine
+      - fine-logs:/var/log/fine
+      - certificates:/etc/letsencrypt:ro
+      - fine-public:/var/fine/public:ro
+
 volumes:
-  certificates: { external: true }
-  certbot-logs: { external: true }
-  fine-configs: { external: true }
-  fine-sockets: { external: true }
-  fine-database: { external: true }
+  certificates:
+    name: certificates
+  certbot-libs: # why do certbot/certbot want me to map /var/lib/letsencrypt?
+    name: certbot-libs 
+  certbot-logs:
+    name: certbot-logs
+  fine-configs:
+    name: fine-configs
+  fine-sockets: # this is only for sockets, but you cannot share tmpfs accross containers
+    name: fine-sockets 
+  fine-database:
+    name: fine-database
+  fine-logs:
+    name: fine-logs
+  fine-program:
+    name: fine-program
+  fine-public: # should be easier to mount and manipulate
+    name: fine-public
+  fine-servers:
+    name: fine-servers
+  node_modules:
+    name: fine-node_modules

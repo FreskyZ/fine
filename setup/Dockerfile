@@ -100,7 +100,6 @@ EORUN
 # check postgres --version
 
 # docker build --target postgres --tag my/postgres:1 .
-# docker run -it --rm --name postgres1 -v fine-database:/var/lib/pgsql my/postgres:1
 FROM alpine:3.23.3 AS postgres
 
 # all these files are owned by root, they are 755 so non root user can still exec these commands
@@ -128,36 +127,46 @@ set -ex
 # this is not man 8 groupadd, see man 1 busybox
 # -g: gid, -S: system group
 addgroup -g 70 -S postgres
-# -ud: uid, -S: system, -D: no password, -G: group, -h: home, -s: shell
-adduser -u 70 -S -D -G postgres -h /var/lib/pgsql -s /bin/sh postgres
-# official image make the home directory 1777
+# -u: uid, -S: system, -D: no password, -G: group, -h: home, -s: shell
+# about permission: official image make the home directory 1777
 # 1777: Sticky Bit When applied to a directory, it prevents users from deleting or renaming files they do not own,
 #       even if they have write permissions to the directory. This is typically used on shared directories like /tmp
 # the busybox adduser will set the home directory 2755
 # 2755:	setgid (Set Group ID) When applied to a directory, any new files or subdirectories created within it
 #       will inherit the directory's group ownership, rather than the creator's primary group.
 # should not be relavent when postgres server is run as postgres user and normal exec sh is postgres user
+adduser -u 70 -S -D -G postgres -h /var/lib/pgsql -s /bin/sh postgres
+# mkdir and chown, or else postgres cannot create file here
+install -d -o postgres -g postgres /run/pgsql
 EORUN
 
-# TODO is LANG needed after initdb --locale-provider
-# ENV LANG=en_US.utf8
+USER postgres
+WORKDIR /var/lib/pgsql
+
+# put configuration files in ~
+# and later use initdb.sh to move them into ~/data after initdb
+COPY --chown=70:70 postgresql.auto.conf pg_hba.conf database-setup.sh /var/lib/pgsql
+RUN chmod 600 postgresql.auto.conf && chmod 600 pg_hba.conf && chmod 700 database-setup.sh && mv database-setup.sh initdb.sh
+
+# client tools use these to connect
+# should be same as postgresql.auto.conf port
+ENV PGPORT=6543
+# should be same as postgresql.auto.conf unix_socket_directories
+ENV PGHOST=/run/pgsql
+# server tools use this to find server files
 ENV PGDATA=/var/lib/pgsql/data
 
-# unix socket directory, set in postgresql.conf unix_socket_directories
-VOLUME /run/pgsql
 # if you volume from host fs, this folder will inherit the owner and permission,
 # if you volume from docker volume, this folder will keep existing owner and permission
 VOLUME /var/lib/pgsql
 
-# this switch user operation preserves env
-USER postgres
-
-WORKDIR /var/lib/pgsql
-
 # official document says use SIGINT and long stop timeout
 # see https://www.postgresql.org/docs/current/server-start.html
-# TODO setup --stop-timeout in docker compose (no need to set in temporary shell container)
+# TODO setup --stop-timeout in docker compose (no need to set in temp shell container)
 STOPSIGNAL SIGINT
 
-# TODO normal entry point is postgres
-ENTRYPOINT ["/bin/sh"]
+# docker run -it --rm --name postgres-shell1 -v fine-database:/var/lib/pgsql -v fine-sockets:/run/pgsql --entrypoint /bin/sh my/postgres:1
+#   ./initdb.sh && psql
+#   pg_ctl stop -m fast # if you'd like to visit this database again
+# docker run -d --rm --name postgres1 -v fine-database:/var/lib/pgsql -v fine-sockets:/run/pgsql my/postgres:1
+ENTRYPOINT ["postgres"]
