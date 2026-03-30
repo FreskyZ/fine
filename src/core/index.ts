@@ -6,7 +6,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
-import mysql from 'mysql2/promise';
+import type { PoolConfig } from 'pg';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
@@ -34,7 +34,7 @@ process.on('unhandledRejection', handleProcessRejection);
 const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
     webroot: string,
     certificates: CertificateConfig,
-    database: mysql.PoolOptions,
+    database: PoolConfig,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
 };
@@ -46,8 +46,9 @@ setupAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);
 
 // admin interface
-if (syncfs.existsSync('/tmp/fine.socket')) {
-    await fs.unlink('/tmp/fine.socket');
+const socketpath = '/run/fine/fine.socket';
+if (syncfs.existsSync(socketpath)) {
+    await fs.unlink(socketpath);
 }
 
 const adminServer = net.createServer();
@@ -116,7 +117,7 @@ const httpServer = http.createServer((request, response) => {
     response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
 });
 
-type CertificateConfig = { [domain: string]: { key: string, cert: string } };
+type CertificateConfig = { [domain: string]: { wildcard: boolean } };
 let httpsCertificates: { origin: string, context: tls.SecureContext }[] = [];
 async function setupCertificates(certificates: CertificateConfig) {
     // read all certificate files in one Promise.all should
@@ -198,7 +199,7 @@ Promise.all([
             reject();
         };
         adminServer.once('error', handleListenError);
-        adminServer.listen('/tmp/fine.socket', () => {
+        adminServer.listen(socketpath, () => {
             adminServer.removeListener('error', handleListenError);
             adminServer.on('error', handleSocketServerError); // install normal error handler after listen success
             resolve();

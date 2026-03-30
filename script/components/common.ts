@@ -21,6 +21,9 @@ export function logCritical(header: string, message: string): never {
     return process.exit(1);
 }
 
+// ATTENTION: except domain, webroot currently is well known, certificate is currently not used,
+// ssh seems like will not be used in future, this config file may not be needed in future
+
 // build script's config (akari.json), or config for code in 'script' folder,
 // to be distinguished with codegen config (api.xml and database.xml) and core config (/webroot/config)
 export interface ScriptConfig {
@@ -29,4 +32,4 @@ export interface ScriptConfig {
     certificate: string,
     ssh: { user: string, identity: string, passphrase: string },
 }
-export const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('/etc/akari.json', 'utf-8'));
+export const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('real-akari.json', 'utf-8'));

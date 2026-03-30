@@ -71,14 +71,16 @@ class RateLimit {
     }
 }
 
-const config = JSON.parse(await fs.readFile('config', 'utf-8')) as {
+const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')) as {
     webroot: string,
-    certificates: Record<string, { key: string, cert: string }>,
+    certificates: Record<string, {/* not used here */}>,
 };
+const mainDomain = Object.keys(config.certificates)[0];
+// TODO do I need fullchain.perm for now?
+const [keyFile, certFile] = await Promise.all(['privkey.pem', 'fullchain.pem'].map(n => fs.readFile(`/etc/letsencrypt/live/${mainDomain}/${n}`)));
 
-const [domain, certificate] = Object.entries(config.certificates)[0];
 const websocketServer = new WebSocketServer({ noServer: true });
-const httpServer = https.createServer({ key: await fs.readFile(certificate.key), cert: await fs.readFile(certificate.cert) });
+const httpServer = https.createServer({ key: keyFile, cert: certFile });
 
 const ratelimit = new RateLimit(10, 1);
 httpServer.on('request', (request, response) => {
@@ -86,7 +88,7 @@ httpServer.on('request', (request, response) => {
     // request.url contains query, but should be enough for this
     if (request.method == 'GET' && request.url == '/client-dev.js') {
         response.writeHead(200, 'OK');
-        response.end(`const w=new WebSocket(\`wss://${domain}:8001\`,'browser');w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
+        response.end(`const w=new WebSocket(\`wss://${mainDomain}:8001\`,'browser');w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
     } else {
         // upgrade does not goto here, so direct 400 is ok
         response.writeHead(400, 'Bad Request');
@@ -505,7 +507,7 @@ let adminInterfaceConnection: net.Socket;
 const adminInterfaceResponseWakers: Record<number, (response: AdminInterfaceResult) => void> = {};
 function connectAdminInterface() {
     try {
-        adminInterfaceConnection = net.connect('/tmp/fine.socket');
+        adminInterfaceConnection = net.connect('/run/fine/fine.socket');
     } catch (error) {
         logInfo('admin-interface', `connect error`, error);
         return;

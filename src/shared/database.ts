@@ -1,20 +1,13 @@
 
 import dayjs from 'dayjs';
-import mysql from 'mysql2/promise';
+import pg from 'pg';
 
 // query function need RowDataPacket, but this makes 
 // the original type cannot be construct if use UserData extends RowDataPacket (missing required property),
 // so use this helper generic type alias
-export type QueryResult<T> = T & mysql.RowDataPacket;
+export type QueryResult<T> = pg.QueryResult<T>;
 // result of insert/update/delete, which is data Manipulatation language Result
-export type ManipulateResult = mysql.ResultSetHeader;
-
-export const databaseTypeCast: mysql.TypeCast = (field, next) =>
-    field.type == 'BIT' && field.length == 1 ? field.buffer()[0] == 1
-    // NOTE this make DATETIME column directly dayjs.Dayjs in query result,
-    // don't forget database type property type if you are developing app without codegen
-    : field.type == 'DATETIME' ? dayjs.utc(field.string(), 'YYYY-MM-DD hh:mm:ss')
-    : next();
+export type ManipulateResult = pg.QueryResult;
 
 export function formatDatabaseDate(value: dayjs.Dayjs) {
     return value.format('YYYY-MM-DD');

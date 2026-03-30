@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import dayjs from 'dayjs';
 import koa from 'koa';
-import mysql from 'mysql2/promise';
+import pg from 'pg';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
 import type { UserSession } from '../shared/access-types.js';
@@ -9,16 +9,17 @@ import type { RequestState } from '../shared/action-types.js';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import type { QueryResult, ManipulateResult } from '../shared/database.js';
 import { MyError } from '../shared/error.js';
-import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
+import { formatDatabaseDateTime, toISOString } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 import type { ServerProviderConfig } from './content.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
 
-let pool: mysql.Pool;
-export function setupDatabase(config: mysql.PoolOptions) {
-    pool = mysql.createPool({ ...config, typeCast: databaseTypeCast });
+let pool: pg.Pool;
+export function setupDatabase(config: pg.PoolConfig) {
+    pool = new pg.Pool({ ...config });
+    pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, value => dayjs(value));
 }
 
 // context and ctx.state used in this program,
@@ -125,19 +126,19 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
 
 // db types are postfixed 'Data' compared to non postfixed api types
 interface UserData {
-    Id: number,
-    Name: string,
-    Active: boolean,
-    Secret: string,
-    Apps: string,
+    id: number,
+    name: string,
+    active: boolean,
+    secret: string,
+    apps: string[],
 }
 interface UserSessionData {
-    Id: number,
-    UserId: number,
-    Name: string,
-    AccessToken: string,
-    LastAccessTime: dayjs.Dayjs,
-    LastAccessAddress: string,
+    id: number,
+    user_id: number,
+    name: string,
+    access_token: string,
+    last_access_time: dayjs.Dayjs,
+    last_access_address: string,
 }
 // cache database data, entries will not expire,
 // because I should and will not directly update db User and UserSession table
@@ -206,13 +207,13 @@ function getBearerAuthorization(ctx: MyContext) {
 
 // and save to cache
 async function getUserById(userId: number) {
-    let user = userStorage.find(u => u.Id == userId);
+    let user = userStorage.find(u => u.id == userId);
     if (!user) {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Id` = ?', [userId]);
-        user = rows[0];
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "id" = $1', [userId]);
+        user = queryResult.rows[0];
         // check again, because task schedule may happen cross await point
-        if (!userStorage.some(u => u.Id == userId)) {
+        if (!userStorage.some(u => u.id == userId)) {
             userStorage.push(user);
         }
     }
@@ -224,17 +225,17 @@ async function createUserSession(ctx: MyContext, userId: number): Promise<{ acce
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     const accessToken = generateRandomText(42);
     const session: UserSessionData = {
-        Id: 0,
-        UserId: userId,
-        Name: '<unnamed>',
-        AccessToken: accessToken,
-        LastAccessTime: ctx.state.now,
-        LastAccessAddress: ctx.socket.remoteAddress,
+        id: 0,
+        user_id: userId,
+        name: '<unnamed>',
+        access_token: accessToken,
+        last_access_time: ctx.state.now,
+        last_access_address: ctx.socket.remoteAddress,
     };
-    const [result] = await pool.execute<ManipulateResult>(
-        'INSERT INTO `UserSession` (`UserId`, `Name`, `AccessToken`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?)',
-        [session.UserId, session.Name, session.AccessToken, formatDatabaseDateTime(ctx.state.now), session.LastAccessAddress]);
-    session.Id = result.insertId;
+    const manipulateResult = await pool.query<{ id: number }>(
+        'INSERT INTO "user_session" ("user_id", "name", "access_token", "last_access_time", "last_access_address") VALUES ($1, $2, $3, $4, $5) RETURNING "id"',
+        [session.user_id, session.name, session.access_token, ctx.state.now, session.last_access_address]);
+    session.id = manipulateResult.rows[0].id;
     userSessionStorage.push(session);
 
     return { accessToken };
@@ -260,10 +261,10 @@ async function handleSignIn(ctx) {
         throw new MyError('common', 'invalid user name or password');
     }
 
-    let user = userStorage.find(u => !collator.compare(u.Name, username));
+    let user = userStorage.find(u => !collator.compare(u.name, username));
     if (!user) {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "name" = $1', [username]);
         if (!Array.isArray(rows) || rows.length == 0) {
             throw new MyError('common', 'invalid user name or password');
         }

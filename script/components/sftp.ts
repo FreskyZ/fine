@@ -10,6 +10,8 @@ export interface UploadAsset {
     remote: string, // relative path to webroot
 }
 
+// ATTENTION sftp upload only upload to cloud host, does not upload to cloud container, this may completely cannot work in future
+
 // return false for not ok
 // nearly every text file need replace example.com to real domain,
 // so change this function to 'deploy' to make it reasonable to do the substitution,
