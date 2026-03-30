@@ -7,20 +7,21 @@ import os, socket
 # so this script always call the rpc function regardless of the parameter,
 # because that side (src/core/index.ts) always check all the certificates to update
 
-if not os.path.exists('/run/fine/fine.socket'):
+SOCKET_PATH = '/run/fine/fine.socket'
+if not os.path.exists(SOCKET_PATH):
     print('deploy.py: socket file not found, skip')
     exit()
 
 connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:
-    connection.connect('/run/fine/fine.socket')
+    connection.connect(SOCKET_PATH)
 except Exception as ex:
     print('deploy.py: failed to connect', ex)
     exit(1)
 
 message = '{"kind":"reload-certificate"}'
 print(f'deploy.py: sending {message}')
-connection.sendall(message)
+connection.sendall(message.encode('utf-8'))
 
 # receive response until idle
 connection.settimeout(5)
@@ -35,8 +36,8 @@ while True:
         print('deploy.py: recv timeout, regard as complete')
         break
     except Exception as e:
-        print('deploy.py: unexpected error', e)
+        print('deploy.py: recv unexpected error', e)
         exit(1)
 
-print('deploy.py: received ', b''.join(received_data))
+print('deploy.py: received', b''.join(received_data))
 connection.close()

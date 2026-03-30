@@ -1,11 +1,8 @@
 #!/usr/local/bin/python -u
 #                  NOTE ^^ this -u is for unbufferred output, which is required if you want to docker logs python entrypoint print output
-import json, os, sys, subprocess, random, time, signal, datetime, pathlib, shutil
+import os, sys, subprocess, random, time, signal, datetime, pathlib, shutil
 
-# certbot container entrypoint
-# - normally no argv, schedule and run certbot renew
-# - run with --setup, create certificates or update certificate setup,
-#   the certonly command actually effectively works as a force renewal if exist and no setup change
+# certbot container entrypoint, renew certificates with randomized schedule
 
 def check_deploy_hook(scriptname):
     deploy_dir_path = pathlib.Path('/etc/letsencrypt/renewal-hooks/deploy')
@@ -16,46 +13,6 @@ def check_deploy_hook(scriptname):
     if not deploy_script_path.exists():
         print(f'{scriptname}: deploy deploy hook')
         shutil.move('/deploy.py', deploy_script_path)
-
-def create_certificates():
-    print('setup.py: creating certificates')
-    if not os.path.exists('/etc/fine/config.json'):
-        print('setup.py: not found /etc/fine/config.json, you may forget to map')
-        exit(1)
-    with open('/etc/fine/config.json') as f:
-        config = json.load(f)
-    for domain, info in config['certificates'].items():
-        is_wildcard = 'wildcard' in info and info['wildcard']
-        include_www = 'www' in info and info['www']
-        print(f'setup.py: {domain}{', wildcard' if is_wildcard else ''}{', www' if include_www else ''}')
-        domain_parameters = ['-d', domain]
-        if is_wildcard:
-            domain_parameters += ['-d', f'*.{domain}']
-        elif include_www: # elif: wildcard covers www
-            domain_parameters += ['-d', f'www.{domain}']
-        child = subprocess.run([
-            'certbot',
-            'certonly',
-            '--preferred-challenges', 'dns',
-            '--manual',
-            '--manual-auth-hook', '/auth.py',
-            '--manual-cleanup-hook', '/auth.py',
-        # # oh, this is your spread
-        ] + domain_parameters + [
-            # NOTE ATTENTION add in dev environment and ATTENTION remove in production environment
-            #      both side is attention
-            # '--staging',
-            # disable prompt
-            '--agree-tos',
-            # disable prompt for email, the eamil feature is already not used by letsencrypt
-            # https://letsencrypt.org/2025/01/22/ending-expiration-emails
-            '-m example@outlook.com',
-            '--non-interactive'
-        ], check=True)
-        print(f'command exited with return code {child.returncode}')
-        if child.returncode:
-            exit(child.returncode)
-    print(f'create or update {len(config['certificates'])} certificates')
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 def schedule(savedir, action):
@@ -155,15 +112,8 @@ def run_renew_command(time):
     child = subprocess.run(["certbot", "renew", '-q'], check=False)
     print(f"schedule.py: renew command complete with return code {child.returncode}")
 
-if len(sys.argv) == 1:
-    check_deploy_hook('schedule.py')
-    savedir = pathlib.Path('/etc/letsencrypt/renewal-schedule')
-    if not savedir.exists():
-        savedir.mkdir()
-    schedule(savedir, run_renew_command)
-elif len(sys.argv) > 1 and sys.argv[1] == '--setup':
-    create_certificates()
-    check_deploy_hook('setup.py')
-else:
-    print('entrypoint: unknown parameter')
-    exit(1)
+check_deploy_hook('schedule.py')
+savedir = pathlib.Path('/etc/letsencrypt/renewal-schedule')
+if not savedir.exists():
+    savedir.mkdir()
+schedule(savedir, run_renew_command)

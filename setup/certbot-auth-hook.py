@@ -159,7 +159,8 @@ if not is_cleanup:
         print('auth.py: create record result unkwon structure', result)
         exit(1)
     print(f'{RECORD_ID_PREFIX}{result['id']}')
-    # sleep 10 seconds should be enough for normal anycast situations
+    # 30s works for now,
+    # although default ttl is 10 minutes, current anycast dns should be very fast # but 10s does not work, so use 30
     time.sleep(30)
 else: # cleanup
     matches = [r[len(RECORD_ID_PREFIX):].strip() for r in auth_output.splitlines() if r.startswith(RECORD_ID_PREFIX)]

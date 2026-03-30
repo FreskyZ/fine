@@ -67,6 +67,7 @@ certbot renew
 certbot revoke --cert-name example.com
 
 # check certificate information
+certbot certificates
 openssl crl2pkcs7 -nocrl -certfile /etc/letsencrypt/live/example.com/cert.pem | openssl pkcs7 -print_certs -text -noout
 
 # if you are told that web server should be run as non root user,
