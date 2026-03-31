@@ -1,24 +1,23 @@
 import crypto from 'node:crypto';
 import dayjs from 'dayjs';
 import koa from 'koa';
-import mysql from 'mysql2/promise';
+import pg from 'pg';
 import { authenticator } from 'otplib';
 import qrcode from 'qrcode';
 import type { UserSession } from '../shared/access-types.js';
 import type { RequestState } from '../shared/action-types.js';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
-import type { QueryResult, ManipulateResult } from '../shared/database.js';
 import { MyError } from '../shared/error.js';
-import { databaseTypeCast, formatDatabaseDateTime, toISOString } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 import type { ServerProviderConfig } from './content.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
 
-let pool: mysql.Pool;
-export function setupDatabase(config: mysql.PoolOptions) {
-    pool = mysql.createPool({ ...config, typeCast: databaseTypeCast });
+let pool: pg.Pool;
+export function setupDatabase(config: pg.PoolConfig) {
+    pool = new pg.Pool({ ...config });
+    pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, value => dayjs(value));
 }
 
 // context and ctx.state used in this program,
@@ -125,19 +124,19 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
 
 // db types are postfixed 'Data' compared to non postfixed api types
 interface UserData {
-    Id: number,
-    Name: string,
-    Active: boolean,
-    Secret: string,
-    Apps: string,
+    id: number,
+    name: string,
+    active: boolean,
+    secret: string,
+    apps: string[],
 }
 interface UserSessionData {
-    Id: number,
-    UserId: number,
-    Name: string,
-    AccessToken: string,
-    LastAccessTime: dayjs.Dayjs,
-    LastAccessAddress: string,
+    id: number,
+    user_id: number,
+    name: string,
+    access_token: string,
+    last_access_time: dayjs.Dayjs,
+    last_access_address: string,
 }
 // cache database data, entries will not expire,
 // because I should and will not directly update db User and UserSession table
@@ -206,13 +205,13 @@ function getBearerAuthorization(ctx: MyContext) {
 
 // and save to cache
 async function getUserById(userId: number) {
-    let user = userStorage.find(u => u.Id == userId);
+    let user = userStorage.find(u => u.id == userId);
     if (!user) {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Id` = ?', [userId]);
-        user = rows[0];
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "id" = $1', [userId]);
+        user = queryResult.rows[0];
         // check again, because task schedule may happen cross await point
-        if (!userStorage.some(u => u.Id == userId)) {
+        if (!userStorage.some(u => u.id == userId)) {
             userStorage.push(user);
         }
     }
@@ -224,17 +223,18 @@ async function createUserSession(ctx: MyContext, userId: number): Promise<{ acce
     // NOTE: 42 is a arbitray number, because this is random token, not encoded something token
     const accessToken = generateRandomText(42);
     const session: UserSessionData = {
-        Id: 0,
-        UserId: userId,
-        Name: '<unnamed>',
-        AccessToken: accessToken,
-        LastAccessTime: ctx.state.now,
-        LastAccessAddress: ctx.socket.remoteAddress,
+        id: 0,
+        user_id: userId,
+        name: '<unnamed>',
+        access_token: accessToken,
+        last_access_time: ctx.state.now,
+        last_access_address: ctx.socket.remoteAddress,
     };
-    const [result] = await pool.execute<ManipulateResult>(
-        'INSERT INTO `UserSession` (`UserId`, `Name`, `AccessToken`, `LastAccessTime`, `LastAccessAddress`) VALUES (?, ?, ?, ?, ?)',
-        [session.UserId, session.Name, session.AccessToken, formatDatabaseDateTime(ctx.state.now), session.LastAccessAddress]);
-    session.Id = result.insertId;
+    const insertResult = await pool.query<{ id: number }>(
+        'INSERT INTO "user_session" ("user_id", "name", "access_token",'
+        + ' "last_access_time", "last_access_address") VALUES ($1, $2, $3, $4, $5) RETURNING "id"',
+        [session.user_id, session.name, session.access_token, ctx.state.now, session.last_access_address]);
+    session.id = insertResult.rows[0].id;
     userSessionStorage.push(session);
 
     return { accessToken };
@@ -260,29 +260,28 @@ async function handleSignIn(ctx) {
         throw new MyError('common', 'invalid user name or password');
     }
 
-    let user = userStorage.find(u => !collator.compare(u.Name, username));
+    let user = userStorage.find(u => !collator.compare(u.name, username));
     if (!user) {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
-        if (!Array.isArray(rows) || rows.length == 0) {
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "name" ILIKE $1', [username]);
+        if (queryResult.rows.length == 0) {
             throw new MyError('common', 'invalid user name or password');
         }
-        user = rows[0];
+        user = queryResult.rows[0];
         // check again, because task schedule may happen cross await point
-        if (!userStorage.some(u => !collator.compare(u.Name, username))) {
-            userStorage.push(rows[0]);
+        if (!userStorage.some(u => !collator.compare(u.name, username))) {
+            userStorage.push(user);
         }
     }
 
-    if (!user.Active) {
+    if (!user.active) {
         throw new MyError('common', 'invalid user name or password');
-    }
-    if (!authenticator.check(password, user.Secret)) {
+    } else if (!authenticator.check(password, user.secret)) {
         throw new MyError('common', 'invalid user name or password');
     }
 
     ctx.status = 200;
-    ctx.body = await createUserSession(ctx, user.Id);
+    ctx.body = await createUserSession(ctx, user.id);
 }],
 
 [{ kind: 'id-before', method: 'GET', path: /^\/signup$/ },
@@ -299,13 +298,13 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
     if (!username) {
         throw new MyError('common', 'user name cannot be empty');
     }
-    if (userStorage.some(u => !collator.compare(u.Name, username))) {
+    if (userStorage.some(u => !collator.compare(u.name, username))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
-        if (Array.isArray(rows) && rows.length != 0) {
-            userStorage.push(rows[0]);
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "name" ILIKE $1', [username]);
+        if (queryResult.rows.length != 0) {
+            userStorage.push(queryResult.rows[0]);
             throw new MyError('common', 'user name already exists');
         }
     }
@@ -328,31 +327,30 @@ async function handleSignUp(ctx) {
         throw new MyError('common', 'user name cannot be empty');
     }
 
-    if (userStorage.some(u => !collator.compare(u.Name, username))) {
+    if (userStorage.some(u => !collator.compare(u.name, username))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Name` = ?', [username]);
-        if (Array.isArray(rows) && rows.length != 0) {
-            userStorage.push(rows[0]);
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "name" ILIKE $1', [username]);
+        if (queryResult.rows.length != 0) {
+            userStorage.push(queryResult.rows[0]);
             throw new MyError('common', 'user name already exists');
         }
     }
 
     if (!secret || !password) {
         throw new MyError('common', 'invalid user name or password');
-    }
-    if (!authenticator.check(password, secret)) {
+    } else if (!authenticator.check(password, secret)) {
         throw new MyError('common', 'invalid user name or password');
     }
 
-    const [result] = await pool.execute<ManipulateResult>(
-        "INSERT INTO `User` (`Name`, `Active`, `Secret`, `Apps`) VALUES (?, 1, ?, '')", [username, secret]);
-    const user: UserData = { Id: result.insertId, Name: username, Active: true, Secret: secret, Apps: '' };
+    const insertResult = await pool.query<UserData>(
+        `INSERT INTO "user" ("name", "active", "secret", "apps") VALUES ($1, TRUE, $2, '{}') RETURNING "id"`, [username, secret]);
+    const user: UserData = { id: insertResult.rows[0].id, name: username, active: true, secret: secret, apps: [] };
     userStorage.push(user);
 
     ctx.status = 201;
-    ctx.body = await createUserSession(ctx, user.Id);
+    ctx.body = await createUserSession(ctx, user.id);
 }],
 
 // this is same as in kind: app-after, it's ok to duplicate because it's really small
@@ -375,10 +373,9 @@ async function handleGenerateAuthorizationCode(ctx) {
     ratelimits.appSignIn[app].request(ctx.ip);
 
     const user = await getUserById(ctx.state.user.id);
-    if (!user.Active) {
+    if (!user.active) {
         throw new MyError('common', 'invalid user');
-    }
-    if (user.Id != 1 && !user.Apps.split(',').includes(app)) {
+    } else if (user.id != 1 && !user.apps.includes(app)) {
         throw new MyError('access-control');
     }
 
@@ -403,21 +400,21 @@ async function handleUpdateUserName(ctx) {
     if (!newUserName) { throw new MyError('common', 'invalid new user name'); }
 
     const user = await getUserById(ctx.state.user.id);
-    if (user.Name == newUserName) { ctx.status = 201; return; } // ignore no change but allow case change
+    if (user.name == newUserName) { ctx.status = 201; return; } // ignore no change but allow case change
 
-    if (userStorage.some(u => u.Id != user.Id && !collator.compare(u.Name, newUserName))) {
+    if (userStorage.some(u => u.id != user.id && !collator.compare(u.name, newUserName))) {
         throw new MyError('common', 'user name already exists');
     } else {
-        const [rows] = await pool.query<QueryResult<UserData>[]>(
-            'SELECT `Id`, `Name`, `Active`, `Secret`, `Apps` FROM `User` WHERE `Id` <> ? AND `Name` = ?', [user.Id, newUserName]);
-        if (Array.isArray(rows) && rows.length != 0) {
-            userStorage.push(rows[0]);
+        const queryResult = await pool.query<UserData>(
+            'SELECT "id", "name", "active", "secret", "apps" FROM "user" WHERE "id" <> $1 AND "name" ILIKE $2', [user.id, newUserName]);
+        if (queryResult.rows.length != 0) {
+            userStorage.push(queryResult.rows[0]);
             throw new MyError('common', 'user name already exists');
         }
     }
 
-    user.Name = newUserName;
-    await pool.execute('UPDATE `User` SET `Name` = ? WHERE `Id` = ?', [newUserName, user.Id]);
+    user.name = newUserName;
+    await pool.query('UPDATE "user" SET "name" = $1 WHERE "id" = $2', [newUserName, user.id]);
 
     ctx.status = 201;
 }],
@@ -427,24 +424,27 @@ async function handleGetUserSessions(ctx) {
     // you always cannot tell whether all sessions already loaded from db (unless new runtime memory storage added)
     // so always load from db and replace user session storage
 
-    const [idSessions] = await pool.query<QueryResult<UserSessionData>[]>(
-        'SELECT `Id`, `UserId`, `Name`, `AccessToken`, `LastAccessTime`, `LastAccessAddress` FROM `UserSession` WHERE `UserId` = ?', [ctx.state.user.id]);
+    const queryResult = await pool.query<UserSessionData>(
+        'SELECT "id", "user_id", "name", "access_token", "last_access_time", "last_access_address" FROM "user_session" WHERE "user_id" = $1',
+        [ctx.state.user.id]);
     // update storage
     // // this is how you filter by predicate in place
-    while (userSessionStorage.some(d => d.UserId == ctx.state.user.id)) {
-        userSessionStorage.splice(userSessionStorage.findIndex(d => d.UserId == ctx.state.user.id), 1);
+    while (userSessionStorage.some(d => d.user_id == ctx.state.user.id)) {
+        userSessionStorage.splice(userSessionStorage.findIndex(d => d.user_id == ctx.state.user.id), 1);
     }
-    userSessionStorage.push(...idSessions);
+    userSessionStorage.push(...queryResult.rows);
 
     ctx.status = 200;
-    ctx.body = idSessions.map<UserSession>(d => ({
-        id: d.Id,
-        name: d.Name,
-        lastAccessTime: toISOString(d.LastAccessTime),
-        lastAccessAddress: d.LastAccessAddress,
+    ctx.body = queryResult.rows.map<UserSession>(d => ({
+        id: d.id,
+        name: d.name,
+        // use custom format to avoid millisecond part
+        lastAccessTime: d.last_access_time.format('YYYY-MM-DDTHH:mm:ss[Z]'),
+        lastAccessAddress: d.last_access_address,
     })).concat(applicationSessionStorage.map<UserSession>(a => ({
         app: a.app,
-        lastAccessTime: toISOString(a.lastAccessTime),
+        // use custom format to avoid millisecond part
+        lastAccessTime: a.lastAccessTime.format('YYYY-MM-DDTHH:mm:ss[Z]'),
     })));
 }],
 
@@ -454,19 +454,18 @@ async function handleUpdateSessionName(ctx, parameters) {
     const sessionId = parseInt(parameters['session_id']);
     if (isNaN(sessionId) || sessionId == 0) { throw new MyError('common', 'invalid session id'); }
 
-    const session = userSessionStorage.find(d => d.Id == sessionId);
+    const session = userSessionStorage.find(d => d.id == sessionId);
     if (!session) {
         throw new MyError('common', 'invalid session id');
-    }
-    if (session.UserId != ctx.state.user.id) {
+    } else if (session.user_id != ctx.state.user.id) {
         throw new MyError('common', 'invalid session id');
     }
 
     const newSessionName = (ctx.request.body as any)?.name;
     if (!newSessionName) { throw new MyError('common', 'invalid new session name'); }
 
-    session.Name = newSessionName;
-    await pool.execute('UPDATE `UserSession` SET `Name` = ? WHERE `Id` = ?', [newSessionName, sessionId]);
+    session.name = newSessionName;
+    await pool.query('UPDATE "user_session" SET "name" = $1 WHERE "id" = $2', [newSessionName, sessionId]);
 
     ctx.status = 201;
 }],
@@ -477,16 +476,15 @@ async function handleRemoveSession(ctx, parameters) {
     const sessionId = parseInt(parameters['session_id']);
     if (isNaN(sessionId) || sessionId == 0) { throw new MyError('common', 'invalid session id'); }
 
-    const session = userSessionStorage.find(d => d.Id == sessionId);
+    const session = userSessionStorage.find(d => d.id == sessionId);
     if (!session) {
         throw new MyError('common', 'invalid session id');
-    }
-    if (session.UserId != ctx.state.user.id) {
+    } else if (session.user_id != ctx.state.user.id) {
         throw new MyError('common', 'invalid session id');
     }
 
-    userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == sessionId), 1);
-    await pool.execute('DELETE FROM `UserSession` WHERE `Id` = ?', [sessionId]);
+    userSessionStorage.splice(userSessionStorage.findIndex(d => d.id == sessionId), 1);
+    await pool.query('DELETE FROM "user_session" WHERE "id" = $1', [sessionId]);
 
     ctx.status = 204;
 }],
@@ -509,13 +507,11 @@ async function handleApplicationSignIn(ctx) {
     ratelimits.appSignIn[data.app].request(ctx.ip);
 
     const user = await getUserById(data.userId);
-    if (!user.Active) {
+    if (!user.active) {
         throw new MyError('auth', undefined, 'user is not active');
-    }
-    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
+    } else if (user.id != 1 && user.apps.includes(ctx.state.app)) {
         throw new MyError('auth', undefined, 'app not allowed');
-    }
-    if (!userSessionStorage.some(s => s.Id == data.sessionId)) {
+    } else if (!userSessionStorage.some(s => s.id == data.sessionId)) {
         throw new MyError('auth', undefined, 'invalid session id');
     }
 
@@ -553,38 +549,42 @@ async function handleSignOut(ctx) {
 async function authenticateIdentityProvider(ctx: MyContext) {
     const accessToken = getBearerAuthorization(ctx);
 
-    let session = userSessionStorage.find(d => d.AccessToken == accessToken);
+    let session = userSessionStorage.find(d => d.access_token == accessToken);
     if (!session) {
-        const [rows] = await pool.query<QueryResult<UserSessionData>[]>(
-            'SELECT `Id`, `Name`, `AccessToken`, `UserId`, `LastAccessTime`, '
-            + '`LastAccessAddress` FROM `UserSession` WHERE `AccessToken` = ?', [accessToken]);
-        if (!Array.isArray(rows) || rows.length == 0) {
+        const queryResult = await pool.query<UserSessionData>(
+            'SELECT "id", "name", "access_token", "user_id", '
+            + '"last_access_time", "last_access_address" FROM "user_session" WHERE "access_token" = $1', [accessToken]);
+        if (queryResult.rows.length == 0) {
             throw new MyError('auth', undefined, 'invalid access token');
         }
-        session = rows[0];
-        userSessionStorage.push(rows[0]);
+        session = queryResult.rows[0];
+        userSessionStorage.push(session);
     }
 
-    if (session.LastAccessTime.add(30, 'day').isBefore(ctx.state.now)) {
+    if (session.last_access_time.add(30, 'day').isBefore(ctx.state.now)) {
         // check expires or update last access time
-        await pool.execute('DELETE FROM `UserSession` WHERE `Id` = ? ', [session.Id]);
-        userSessionStorage.splice(userSessionStorage.findIndex(d => d.Id == session.Id), 1);
+        await pool.query('DELETE FROM "user_session" WHERE "id" = $1', [session.id]);
+        userSessionStorage.splice(userSessionStorage.findIndex(d => d.id == session.id), 1);
         throw new MyError('auth', undefined, 'authorization expired');
     }
 
     // this means ctx.state.user.id must be in userStorage after pass authentication
-    const user = await getUserById(session.UserId);
-    if (!user.Active) {
+    const user = await getUserById(session.user_id);
+    if (!user.active) {
         throw new MyError('auth', undefined, 'authorization inactive');
     }
 
-    session.LastAccessTime = ctx.state.now;
-    session.LastAccessAddress = ctx.ip || 'unknown';
+    session.last_access_time = ctx.state.now;
+    session.last_access_address = ctx.ip || 'unknown';
+    // avoid ipv4 compatible ipv6 address, e.g. ::ffff:1.2.3.4, why do koa default to this?
+    if (session.last_access_address.startsWith('::ffff:') && /^\d+\.\d+\.\d+\.\d+$/.test(session.last_access_address.substring(7))) {
+        session.last_access_address = session.last_access_address.substring(7);
+    }
     await pool.query(
-        'UPDATE `UserSession` SET `LastAccessTime` = ?, `LastAccessAddress` = ? WHERE `Id` = ?',
-        [formatDatabaseDateTime(session.LastAccessTime), session.LastAccessAddress, session.Id]);
+        'UPDATE "user_session" SET "last_access_time" = $1, "last_access_address" = $2 WHERE "id" = $3',
+        [session.last_access_time, session.last_access_address, session.id]);
 
-    ctx.state.user = { id: user.Id, name: user.Name, sessionId: session.Id, sessionName: session.Name };
+    ctx.state.user = { id: user.id, name: user.name, sessionId: session.id, sessionName: session.name };
 }
 
 async function authenticateApplication(ctx: MyContext) {
@@ -603,18 +603,16 @@ async function authenticateApplication(ctx: MyContext) {
     }
 
     const user = await getUserById(session.userId);
-    if (!user.Active) {
+    if (!user.active) {
         throw new MyError('auth', undefined, 'user inactive');
-    }
-    if (!userSessionStorage.some(s => s.Id == session.sessionId)) {
+    } else if (!userSessionStorage.some(s => s.id == session.sessionId)) {
         throw new MyError('auth', undefined, 'user session not found, when will this happen?');
-    }
-    if (user.Id != 1 && user.Apps.split(',').includes(ctx.state.app)) {
+    } if (user.id != 1 && user.apps.includes(ctx.state.app)) {
         throw new MyError('access-control');
     }
 
     session.lastAccessTime = ctx.state.now;
-    ctx.state.user = { id: user.Id, name: user.Name };
+    ctx.state.user = { id: user.id, name: user.name };
 }
 
 export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next): Promise<any> {
@@ -667,15 +665,14 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
 
 async function handleRevoke(sessionId: number, result: AdminInterfaceResult): Promise<void> {
     try {
-        const [deleteResult] = await pool
-            .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `Id` = ?', [sessionId]);
+        const deleteResult = await pool.query('DELETE FROM "user_session" WHERE "id" = $1', [sessionId]);
         result.status = 'ok'; // remove from cache will not error, so this is ok
         result.logs.push(`delete from database usersession`, deleteResult);
     } catch (error) {
         result.status = 'error';
         result.logs.push(`delete from database usersession error`, error);
     }
-    const index = userSessionStorage.findIndex(d => d.Id == sessionId);
+    const index = userSessionStorage.findIndex(d => d.id == sessionId);
     if (index >= 0) {
         result.logs.push(`remove from cache`, userSessionStorage.splice(index, 1));
     } else {
@@ -685,17 +682,16 @@ async function handleRevoke(sessionId: number, result: AdminInterfaceResult): Pr
 async function handleActivateUser(userId: number, newActive: boolean, result: AdminInterfaceResult): Promise<void> {
     if (newActive) {
         try {
-            const [updateResult] = await pool
-                .execute<ManipulateResult>('UPDATE `User` SET `Active` = 1 WHERE `Id` = ?', userId);
+            const updateResult = await pool.query('UPDATE "user" SET "active" = TRUE WHERE "id" = $1', [userId]);
             result.status = 'ok'; // remove from cache will not error, so this is ok
             result.logs.push('update database user', updateResult);
         } catch (error) {
             result.status = 'error';
             result.logs.push('update database user error', error);
         }
-        const cacheRecord = userStorage.find(u => u.Id == userId);
+        const cacheRecord = userStorage.find(u => u.id == userId);
         if (cacheRecord) {
-            cacheRecord.Active = true;
+            cacheRecord.active = true;
             result.logs.push('update cache', cacheRecord);
         } else {
             result.logs.push('not in cache');
@@ -703,8 +699,7 @@ async function handleActivateUser(userId: number, newActive: boolean, result: Ad
     } else {
         result.status = 'ok'; // default to ok, may change to error later
         try {
-            const [updateResult] = await pool
-                .execute<ManipulateResult>('UPDATE `User` SET `Active` = 0 WHERE `Id` = ?', userId);
+            const updateResult = await pool.query('UPDATE "user" SET "active" = FALSE WHERE "id" = $1', [userId]);
             result.logs.push('update database user', updateResult);
         } catch (error) {
             result.status = 'error';
@@ -712,23 +707,22 @@ async function handleActivateUser(userId: number, newActive: boolean, result: Ad
         }
         // also remove all sessions
         try {
-            const [deleteResult] = await pool
-                .execute<ManipulateResult>('DELETE FROM `UserSession` WHERE `UserId` = ?', userId);
+            const deleteResult = await pool.query('DELETE FROM "user_session" WHERE "user_id" = $1', [userId]);
             result.logs.push('delete from database usersssion', deleteResult);
         } catch (error) {
             result.status = 'error';
             result.logs.push('delete from database usersession error', error);
         }
-        const userCacheRecord = userStorage.find(u => u.Id == userId);
+        const userCacheRecord = userStorage.find(u => u.id == userId);
         if (userCacheRecord) {
-            userCacheRecord.Active = false;
+            userCacheRecord.active = false;
             result.logs.push(`update user cache`, userCacheRecord);
         } else {
             result.logs.push('not in user cache');
         }
 
-        const removedSessionCacheRecords = userSessionStorage.filter(s => s.UserId == userId);
-        userSessionStorage.splice(0, userSessionStorage.length, ...userSessionStorage.filter(s => s.UserId != userId));
+        const removedSessionCacheRecords = userSessionStorage.filter(s => s.user_id == userId);
+        userSessionStorage.splice(0, userSessionStorage.length, ...userSessionStorage.filter(s => s.user_id != userId));
         if (removedSessionCacheRecords.length) {
             result.logs.push('remove from user session cache', removedSessionCacheRecords);
         }

@@ -1,7 +1,7 @@
 import readline from 'node:readline/promises';
 import utc from 'dayjs/plugin/utc.js';
 // END IMPORT
-// components: mypack, sftp, typescript, messenger, eslint, common
+// components: mypack, typescript, messenger, eslint, common
 // BEGIN LIBRARY
 import crypto, { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -15,7 +15,6 @@ import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 import { ESLint } from 'eslint';
 import { XMLParser } from 'fast-xml-parser';
-import SFTPClient from 'ssh2-sftp-client';
 import { minify } from 'terser';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
@@ -44,15 +43,17 @@ function logCritical(header: string, message: string): never {
     return process.exit(1);
 }
 
-// build script's config (akari.json), or config for code in 'script' folder,
-// to be distinguished with codegen config (api.xml and database.xml) and core config (/webroot/config)
+// there was a dedicated config for local akari, also use by make-akari by the way
+// mainly for ssh related config, but sftp deploy does not work with containerized environment,
+// so it is discarded and directly use local-mapped config (see upload core config and download core config command)
+// still named scriptconfig to avoid conflict with codegenconfig, etc.
 interface ScriptConfig {
     domain: string,
-    webroot: string,
-    certificate: string,
-    ssh: { user: string, identity: string, passphrase: string },
 }
-const scriptconfig: ScriptConfig = JSON.parse(await fs.readFile('/etc/akari.json', 'utf-8'));
+const scriptconfig: ScriptConfig = await (async () => {
+    const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8'));
+    return { domain: Object.keys(config.certificates)[0] };
+})();
 
 // ---------------------------------------------
 // ------ script/components/typescript.ts ------
@@ -344,47 +345,6 @@ async function eslint(options: ESLintOptions): Promise<boolean> {
 
     if (!hasIssue) { logInfo(`eslint${options.additionalLogHeader ?? ''}`, 'clear'); }
     return !hasIssue;
-}
-
-// ---------------------------------------
-// ------ script/components/sftp.ts ------
-// ------- ATTENTION AUTO GENERATED ------
-// ---------------------------------------
-
-interface UploadAsset {
-    data: string | Buffer,
-    remote: string, // relative path to webroot
-}
-
-// return false for not ok
-// nearly every text file need replace example.com to real domain,
-// so change this function to 'deploy' to make it reasonable to do the substitution,
-// use buffer or Buffer.from(string) to skip that
-async function deploy(assets: UploadAsset[]): Promise<boolean> {
-    const client = new SFTPClient();
-    try {
-        await client.connect({
-            host: scriptconfig.domain,
-            username: scriptconfig.ssh.user,
-            privateKey: await fs.readFile(scriptconfig.ssh.identity),
-            passphrase: scriptconfig.ssh.passphrase,
-        });
-        for (const asset of assets) {
-            const fullpath = path.join(scriptconfig.webroot, asset.remote);
-            await client.mkdir(path.dirname(fullpath), true);
-            if (!Buffer.isBuffer(asset.data)) {
-                asset.data = Buffer.from(asset.data.replaceAll('example.com', scriptconfig.domain));
-            }
-            await client.put(asset.data, fullpath);
-        }
-        logInfo('sftp', chalk`upload {yellow ${assets.length}} files ${assets.map(a => chalkNotTemplate.yellow(path.basename(a.remote)))}`);
-        return true;
-    } catch (error) {
-        logError('sftp', 'failed to upload', error);
-        return false;
-    } finally {
-        await client.end();
-    }
 }
 
 // -----------------------------------------
@@ -1331,7 +1291,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         };
     });
 
-    return await Promise.any([
+    return await Promise.race([
         received,
         new Promise<BuildScriptMessageResponse>(resolve => {
             timeout = setTimeout(() => {
@@ -1343,11 +1303,15 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
     ]);
 }
 
+interface UploadAsset {
+    data: string | Buffer,
+    remote: string, // relative path to webroot
+}
 // upload through websocket connection eliminate the time to establish tls connection and ssh connection
 // this also have centralized handling of example.com replacement
 // return item is null for not ok
-async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
-    // compare to the not know whether can parallel sftp, this is designed to be parallel
+async function uploadWithRemoteConnection(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
+    // compare to the old ssh2-sftp-client package or sftp protocol (this is gone for now), this is designed to be parallel
     return await Promise.all(assets.map(async asset => {
         // webroot base path and parent path mkdir is handled in remote akari
         if (!Buffer.isBuffer(asset.data)) {
@@ -1386,61 +1350,16 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY e626847528b8d49c1203dae0bd7b59f5eef8106367e4149fa2d11a04409dc2e6
+// END LIBRARY b6e846bd5e77e64ad0b442dbdfe10932de93af8636afd780ff4ff9aab5beba57
 
 dayjs.extend(utc);
 
-// in old days you need to deploy public files, if you forget
-async function uploadPublicAssets() {
-    logInfo('akari', chalk`deploy {cyan public}`);
-    const assets = await Promise.all((await fs
-        .readdir('src/public', { recursive: true, withFileTypes: true }))
-        .filter(entry => entry.isFile())
-        .map<Promise<UploadAsset>>(async entry => {
-            const filepath = path.join(entry.parentPath, entry.name);
-            // return { data: await fs.readFile(filepath), remote: filepath.replace('src/', '') };
-            return { data: await fs.readFile(filepath), remote: filepath.replace('src/public/', 'public2/') };
-        }));
-    await deploy(assets);
-    logInfo('akari', chalk`deploy {cyan public} complete`);
-}
-
-async function uploadPackageJson() {
-    logInfo('akari', chalk`deploy {cyan package.json}`);
-    await deploy([{ remote: 'package.json', data: await fs.readFile('package.json') }]);
-    logInfo('akari', chalk`deploy {cyan package.json} complete, run \`npm i --omit=dev\` on server`);
-}
-
-// static command was referring to home page and user page
-// but now it means the pure static pages home, short, 404, 418
-async function uploadStaticAssets() {
-    logInfo('akari', chalk`deploy {cyan static}`);
-
-    if (process.env['AKARIN_DOWNLOAD_RESETCSS']) {
-        // TODO network not very ok, test later
-        const response = await fetch('https://raw.githubusercontent.com/ant-design/ant-design/refs/heads/master/components/style/reset.css');
-        if (response.ok) {
-            logError('akari', 'download response not ok, skip', response);
-        } else {
-            const content = await response.text();
-            await fs.writeFile('src/static/reset.css', content);
-            logInfo('akari', `download and save reset.css ${content.length} bytes`);
-        }
-    }
-
-    const assets = await Promise.all([
-        ['src/static/home.html', 'static/home.html'],
-        ['src/static/short.html', 'static/short.html'],
-        ['src/static/404.html', 'static/404.html'],
-        ['src/static/418.html', 'static/418.html'],
-        ['src/static/reset.css', 'static/reset.css'],
-    ].map(async ([local, remote]) => ({ data: await fs.readFile(local), remote })));
-    await deploy(assets);
-    logInfo('akari', chalk`deploy {cyan static} complete`);
-}
-
-// deploy remote akari.ts
-async function deployRemoteSelf() {
+// now no way to upload file without remote connection,
+// when run with command line parameter of local akari, this only checks type errors
+// if you go to here to find how to deploy remote-akari
+// without remote connection when there is error or other issues within remote-akari
+// just sftp upload the updated remote-akari.ts file and deploy it with docker cp into akari container
+async function deployRemoteSelf(ecx?: MessengerContext) {
     logInfo('akari', chalk`deploy {cyan remote self}`);
 
     const adminInterfaceTypeOk = await validateSharedTypeDefinition(
@@ -1454,15 +1373,26 @@ async function deployRemoteSelf() {
         additionalOptions: { noEmit: true, erasableSyntaxOnly: true },
     });
     if (!tcx.success) { logError('akari', chalk`{cyan remote self} failed at type check`); return; }
-    const uploadResult = await deploy([{ data: await fs.readFile('script/remote-akari.ts'), remote: 'akari.ts' }]);
-    if (!uploadResult) {
-        logError('akari', chalk`{cyan remote self} failed at upload`); return;
+    if (ecx) {
+        const assets: UploadAsset[] = [{
+            data: await fs.readFile('script/remote-akari.ts', 'utf-8'),
+            remote: 'akari.ts',
+        }];
+        const [uploadResult] = await uploadWithRemoteConnection(ecx, assets);
+        if (!uploadResult || uploadResult.status == 'error') {
+            logError('akari', chalk`{cyan remote self} failed at upload`); return;
+        } else if (uploadResult.status == 'nodiff') {
+            logInfo('akari', chalk`deploy {cyan remote self} completed with no change`); return;
+        } else {
+            logInfo('akari', chalk`deploy {cyan remote self} completed successfully`);
+        }
+    } else {
+        logInfo('akari', chalk`check {cyan remote self} completed, connect to remote self to deploy remote self`)
     }
-    logInfo('akari', chalk`deploy {cyan remote self} completed successfully`);
 }
 
 // identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md 
-async function buildIdentityProvider(ecx?: MessengerContext) {
+async function buildIdentityProvider(ecx: MessengerContext) {
     logInfo('akari', chalk`build {cyan user page}`);
 
     const tcx = transpile({ entry: 'src/static/user.tsx', target: 'browser' });
@@ -1477,26 +1407,21 @@ async function buildIdentityProvider(ecx?: MessengerContext) {
         { data: await fs.readFile('src/static/user.html', 'utf-8'), remote: 'static/user.html' },
         { data: mcx.resultJs, remote: 'static/user.js' },
     ];
-    if (ecx) {
-        const uploadResults = await deployWithRemoteConnect(ecx, assets);
-        if (uploadResults.some(r => !r || r.status == 'error')) {
-            logError('akari', chalk`{cyan user page} failed at upload`); return;
-        } else if (!uploadResults.some(r => r.status != 'nodiff')) {
-            logInfo('akari', chalk`build {cyan user page} completed with no change`); return;
-        } else {
-            const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
-            if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan user page} failed at reload`); return false; }
-        }
+    const uploadResults = await uploadWithRemoteConnection(ecx, assets);
+    if (uploadResults.some(r => !r || r.status == 'error')) {
+        logError('akari', chalk`{cyan user page} failed at upload`); return;
+    } else if (!uploadResults.some(r => r.status != 'nodiff')) {
+        logInfo('akari', chalk`build {cyan user page} completed with no change`); return;
     } else {
-        const uploadResult = await deploy(assets);
-        if (!uploadResult) { logError('akari', chalk`{cyan user page} failed at upload`); return false; }
+        const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
+        if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan user page} failed at reload`); return false; }
     }
     
     logInfo('akari', chalk`build {cyan user page} completed successfully`); return true;
 }
 
 // // this is extremely simple comparing to the full standalone version of temp version of build-core.js
-async function buildCore(ecx?: MessengerContext) {
+async function buildCore(ecx: MessengerContext) {
     logInfo('akari', chalk`build {cyan core}`);
 
     const tcx = transpile({ entry: 'src/core/index.ts', target: 'node' });
@@ -1507,22 +1432,17 @@ async function buildCore(ecx?: MessengerContext) {
     if (!await eslint({ files: 'src/core/*' })) { /* return; */ }
 
     const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'index.js' }];
-    if (ecx) {
-        const [uploadResult] = await deployWithRemoteConnect(ecx, assets);
-        if (!uploadResult || uploadResult.status == 'error') {
-            logError('akari', chalk`{cyan core} failed at upload`); return;
-        } else if (uploadResult.status == 'nodiff') {
-            logInfo('akari', chalk`build {cyan core} completed with no change`); return;
-        } // no furthur reload command for core
-    } else {
-        const uploadResult = await deploy(assets);
-        if (!uploadResult) { logError('akari', chalk`{cyan core} failed at upload`); return false; }
-    }
+    const [uploadResult] = await uploadWithRemoteConnection(ecx, assets);
+    if (!uploadResult || uploadResult.status == 'error') {
+        logError('akari', chalk`{cyan core} failed at upload`); return;
+    } else if (uploadResult.status == 'nodiff') {
+        logInfo('akari', chalk`build {cyan core} completed with no change`); return;
+    } // no furthur reload command for core`{cyan core} failed at upload`); return false; }
 
     logInfo('akari', chalk`build {cyan core} completed successfully`); return true;
 }
 
-async function buildShortLinkServer(ecx?: MessengerContext) {
+async function buildShortLinkServer(ecx: MessengerContext) {
     logInfo('akari', chalk`build {cyan short}`);
 
     const tcx = transpile({ entry: 'src/servers/short-link.ts', target: 'node' });
@@ -1533,19 +1453,14 @@ async function buildShortLinkServer(ecx?: MessengerContext) {
     if (!await eslint({ files: 'src/servers/short-link.ts' })) { /* return; */ }
 
     const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'servers/short-link.js' }];
-    if (ecx) {
-        const [uploadResult] = await deployWithRemoteConnect(ecx, assets);
-        if (!uploadResult || uploadResult.status == 'error') {
-            logError('akari', chalk`{cyan short} failed at upload`); return;
-        } else if (uploadResult.status == 'nodiff') {
-            logInfo('akari', chalk`build {cyan short} completed with no change`); return;
-        } else {
-            const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'content-server:reload', name: 'short-link' } });
-            if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan short} failed at reload`); return false; }
-        }
+    const [uploadResult] = await uploadWithRemoteConnection(ecx, assets);
+    if (!uploadResult || uploadResult.status == 'error') {
+        logError('akari', chalk`{cyan short} failed at upload`); return;
+    } else if (uploadResult.status == 'nodiff') {
+        logInfo('akari', chalk`build {cyan short} completed with no change`); return;
     } else {
-        const uploadResult = await deploy(assets);
-        if (!uploadResult) { logError('akari', chalk`{cyan short} failed at upload`); return false; }
+        const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'content-server:reload', name: 'short-link' } });
+        if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan short} failed at reload`); return false; }
     }
 
     logInfo('akari', chalk`build {cyan short} completed successfully`); return true;
@@ -1571,6 +1486,8 @@ async function startInteractiveShell() {
             process.exit(0);
         } else if (line.startsWith('connect')) {
             await connectRemote(ecx);
+        } else if (line == 'rself') {
+            await deployRemoteSelf(ecx);
         } else if (line == 'core') {
             await buildCore(ecx);
         } else if (line == 'user') {
@@ -1582,21 +1499,30 @@ async function startInteractiveShell() {
             if (!local || !remote) {
                 logError('akari', `missing path, expect 'upload static local:remote`);
             } else {
+                let data: string;
                 // use utf-8 to apply example.com substitution for static content
-                await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local, 'utf-8'), remote }]);
+                try { data = await fs.readFile(local, 'utf-8'); }
+                catch (ex: any) { logError('akari', `failed to open file ${local}: ${ex}`); }
+                if (typeof data == 'string') { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
             }
         } else if (line.startsWith('upload binary ')) {
             const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim()).filter(x => x);
             if (!local || !remote) {
                 logError('akari', `missing path, expect 'upload binary local:remote`);
             } else {
+                let data: Buffer;
                 // difference with upload static is this does not read string
-                await deployWithRemoteConnect(ecx, [{ data: await fs.readFile(local), remote }]);
+                try { data = await fs.readFile(local); }
+                catch (ex: any) { logError('akari', `failed to open file ${local}: ${ex}`); }
+                if (Buffer.isBuffer(data)) { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
             }
         } else if (line.startsWith('upload core config')) {
-            await deployWithRemoteConnect(ecx, [{ data: await fs.readFile('real-config.json'), remote: 'config' }]);
+            await uploadWithRemoteConnection(ecx, [{
+                data: await fs.readFile('/etc/fine/config.json'),
+                remote: '/etc/fine/config.json',
+            }]);
         } else if (line.startsWith('download error log')) {
-            const filepath = `logs/${dayjs.utc().format('YYMMDD')}E.log`;
+            const filepath = `/var/log/fine/${dayjs.utc().format('YYMMDD')}E.log`;
             const [content] = await downloadWithRemoteConnection(ecx, [filepath]);
             if (!content.length) {
                 logInfo('akari', `download error log ${filepath} received empty`);
@@ -1656,25 +1582,12 @@ async function startInteractiveShell() {
     }
 }
 
+// TODO migrate all outside deploy operations to use wss not ssh, stop use akari.json
 async function dispatch(command: string[]) {
-    if (command[0] == 'public') {
-        await uploadPublicAssets();
-    } else if (command[0] == 'package.json') {
-        await uploadPackageJson();
-    } else if (command[0] == "static") {
-        await uploadStaticAssets();
-    } else if (command[0] == 'rself') {
+    if (command[0] == 'rself') {
         // the original command for bootstraping is 'self', and the original command
         // for remote akari is self server, so keep part of the tradition to call this rself (remote self)
         await deployRemoteSelf();
-    } else if (command[0] == 'user') {
-        // user.html and user.tsx is currently the only ui page in this repository
-        // and should be no more similar pages in future in this repository, so a dedicated command
-        await buildIdentityProvider();
-    } else if (command[0] == 'core') {
-        await buildCore();
-    } else if (command[0] == 'short') {
-        await buildShortLinkServer();
     } else if (!command[0] || (command[0] == 'with' && command[1] == 'remote')) {
         await startInteractiveShell();
     } else {
@@ -1682,4 +1595,6 @@ async function dispatch(command: string[]) {
     }
 }
 
+// this script is expected to be run with this, if you left this project for some time and forget
+// docker run -it --rm --name akari1 -v .:/work -v /etc/fine:/etc/fine -h FINE-NODE -w /work my/node:1
 dispatch(process.argv.slice(2));

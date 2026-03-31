@@ -16,7 +16,7 @@ import utc from 'dayjs/plugin/utc.js'; // why does this need .js?
 // because initialize require utc, while index do not use dayjs, so put it here
 dayjs.extend(utc);
 // logs are in logs directory, there is no meaning to configure it
-const logsDirectory = path.resolve('logs');
+const logsDirectory = '/var/log/fine';
 
 interface LoggerOptions {
     readonly postfix: string, // file name postfix
@@ -35,7 +35,8 @@ class Logger {
     constructor(private readonly options: LoggerOptions) {}
 
     init() {
-        syncfs.mkdirSync('logs', { recursive: true });
+        // no need mkdir-p because it is now volume mapped
+        // syncfs.mkdirSync('logs', { recursive: true });
         this.handle = syncfs.openSync(path.join(logsDirectory,
             `${this.time.format('YYMMDD')}${this.options.postfix}.log`), 'a');
     }

@@ -37,7 +37,6 @@ const components = [
     'typescript',
     'eslint',
     'mypack',
-    'sftp',
     'messenger',
 ];
 const tcx = transpile({

@@ -6,7 +6,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
-import mysql from 'mysql2/promise';
+import type { PoolConfig } from 'pg';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
@@ -31,10 +31,10 @@ app.use(() => { throw new Error('unreachable'); }); // assert route correctly ha
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
-const config = JSON.parse(syncfs.readFileSync('config', 'utf-8')) as {
+const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
     webroot: string,
     certificates: CertificateConfig,
-    database: mysql.PoolOptions,
+    database: PoolConfig,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
 };
@@ -46,8 +46,9 @@ setupAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);
 
 // admin interface
-if (syncfs.existsSync('/tmp/fine.socket')) {
-    await fs.unlink('/tmp/fine.socket');
+const socketpath = '/run/fine/fine.socket';
+if (syncfs.existsSync(socketpath)) {
+    await fs.unlink(socketpath);
 }
 
 const adminServer = net.createServer();
@@ -91,7 +92,7 @@ adminServer.on('connection', connection => {
             shutdown();
             return;
         } else if (command.kind == 'reload-certificate') {
-            await setupCertificates(JSON.parse(await fs.readFile('config', 'utf-8')).certificates);
+            await setupCertificates(JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')).certificates);
             return sendResponse(command.id, { status: 'ok', logs: ['reloaded certificates', httpsCertificates] });
         }
         for (const handler of adminInterfaceHandlers) {
@@ -116,45 +117,53 @@ const httpServer = http.createServer((request, response) => {
     response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
 });
 
-type CertificateConfig = { [domain: string]: { key: string, cert: string } };
-let httpsCertificates: { origin: string, context: tls.SecureContext }[] = [];
+type CertificateConfig = { [domain: string]: { wildcard: boolean } };
+let httpsCertificates: { domain: string, context: tls.SecureContext }[] = [];
 async function setupCertificates(certificates: CertificateConfig) {
-    // read all certificate files in one Promise.all should
-    // be ok for startup performance (even better for original 2 sequential syncfs.readfilesync calls)
-    const paths = Object.values(certificates)
-        .map(c => [c.key, c.cert]).flat().filter((v, i, a) => a.indexOf(v) == i);
+
+    // TODO do I need fullchain for now?
+    const getKeyFilePath = (n: string) => `/etc/letsencrypt/live/${n}/privkey.pem`;
+    const getCertFilePath = (n: string) => `/etc/letsencrypt/live/${n}/fullchain.pem`;
+
+    const files = Object.keys(certificates)
+        .map(domain => [getKeyFilePath(domain), getCertFilePath(domain)]).flat();
     // tolerate read file error, one certificate error should not affect other domains
-    const contents = Object.fromEntries((await Promise.all(paths.map(async p => {
+    const contents = Object.fromEntries((await Promise.all(files.map(async path => {
         try {
-            return [p, await fs.readFile(p)] as const;
+            return [path, await fs.readFile(path)] as const;
         } catch (error) {
-            log.error({ cat: 'certificate', kind: 'read certificate error', path: p, error });
+            log.error({ cat: 'certificate', kind: 'read certificate error', path: path, error });
             return null;
         }
     }))).filter(x => x));
 
-    httpsCertificates = Object.entries(certificates).map(([origin, { key, cert }]) => {
-        if (!contents[key]) {
-            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', origin, key });
+    httpsCertificates = Object.keys(certificates).map(domain => {
+        const [keyPath, certPath] = [getKeyFilePath(domain), getCertFilePath(domain)];
+        if (!contents[keyPath]) {
+            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', domain, keyPath });
             return null;
-        } else if (!contents[cert]) {
-            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', origin, cert });
+        } else if (!contents[certPath]) {
+            log.error({ cat: 'certificate', message: 'skip origin because read certificate error', domain, certPath });
             return null;
         }
-        return { origin, context: tls.createSecureContext({ key: contents[key], cert: contents[cert] }) };
+        return { domain, context: tls.createSecureContext({ key: contents[keyPath], cert: contents[certPath] }) };
     }).filter(x => x);
 }
-// auto reload does not reload config
-const reloadCertificateInterval = setInterval(() => setupCertificates(config.certificates), 86400_000);
 
 await setupCertificates(config.certificates);
 const httpsServer = http2.createSecureServer({
     SNICallback: (servername, callback) => {
-        const context = httpsCertificates.find(c => c.origin.localeCompare(servername) == 0)?.context;
-        if (context) {
-            callback(null, context);
-        } else {
+        const splitted = servername.split('.');
+        if (splitted.length < 2) {
             callback(new Error('SNI certificate request not found'));
+        } else {
+            const domain = `${splitted.at(-2)}.${splitted.at(-1)}`;
+            const context = httpsCertificates.find(c => c.domain.localeCompare(domain) == 0)?.context;
+            if (context) {
+                callback(null, context);
+            } else {
+                callback(new Error('SNI certificate request not found'));
+            }
         }
     },
 }, app.callback());
@@ -190,7 +199,6 @@ httpsServer.on('connection', (socket: net.Socket) => {
 });
 
 // servers start and close // that's how they are implemented braceful
-const isSocketActivation = !!process.env['LISTEN_FDS'];
 Promise.all([
     new Promise<void>((resolve, reject) => {
         const handleListenError = (error: Error) => {
@@ -198,7 +206,7 @@ Promise.all([
             reject();
         };
         adminServer.once('error', handleListenError);
-        adminServer.listen('/tmp/fine.socket', () => {
+        adminServer.listen(socketpath, () => {
             adminServer.removeListener('error', handleListenError);
             adminServer.on('error', handleSocketServerError); // install normal error handler after listen success
             resolve();
@@ -210,8 +218,7 @@ Promise.all([
             reject();
         };
         httpServer.once('error', handleListenError);
-        // ATTENTION this relies on socket file listen 80 first, and this cannot be automatically checked here
-        httpServer.listen(isSocketActivation ? { fd: 3 } : 6001, () => {
+        httpServer.listen(80, () => {
             httpServer.removeListener('error', handleListenError);
             httpServer.on('error', error => {
                 // wrap and goto uncaught exception
@@ -227,8 +234,7 @@ Promise.all([
             reject();
         };
         httpsServer.once('error', handleListenError);
-        // ATTENTION this relies on socket file listen 80 then 443, and this cannot be automatically checked here
-        httpsServer.listen(isSocketActivation ? { fd: 4 } : 6002, () => {
+        httpsServer.listen(443, () => {
             httpsServer.removeListener('error', handleListenError);
             httpsServer.on('error', error => {
                 throw new Error('https server error: ' + error.message);
@@ -253,10 +259,6 @@ function shutdown() {
         console.log('fine shutdown timeout, abort');
         process.exit(102);
     }, 30_000);
-
-    if (reloadCertificateInterval) {
-        clearInterval(reloadCertificateInterval);
-    }
 
     // destroy connections
     for (const socket of adminInterfaceConnections) {

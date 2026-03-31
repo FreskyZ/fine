@@ -426,7 +426,7 @@ export async function handleContentCommand(command: AdminInterfaceCommand, resul
 
     // reload static content config
     } else if (command.kind == 'static-content:reload-config') {
-        await setupStaticContentImpl(JSON.parse(syncfs.readFileSync('config', 'utf-8'))['static-content'], result);
+        await setupStaticContentImpl(JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8'))['static-content'], result);
 
     // reload content server provider
     } else if (command.kind == 'content-server:reload') {

@@ -1,7 +1,6 @@
 import type { Interface } from 'node:readline/promises';
 import { zstdCompress, zstdDecompress } from 'node:zlib';
 import { scriptconfig, logInfo, logError } from './common.ts';
-import type { UploadAsset } from './sftp.ts';
 import type { MyPackContext } from './mypack.ts';
 
 // messenger: message sender abbreviated as messenger
@@ -414,11 +413,15 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
     ]);
 }
 
+export interface UploadAsset {
+    data: string | Buffer,
+    remote: string, // relative path to webroot
+}
 // upload through websocket connection eliminate the time to establish tls connection and ssh connection
 // this also have centralized handling of example.com replacement
 // return item is null for not ok
-export async function deployWithRemoteConnect(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
-    // compare to the not know whether can parallel sftp, this is designed to be parallel
+export async function uploadWithRemoteConnection(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
+    // compare to the old ssh2-sftp-client package or sftp protocol (this is gone for now), this is designed to be parallel
     return await Promise.all(assets.map(async asset => {
         // webroot base path and parent path mkdir is handled in remote akari
         if (!Buffer.isBuffer(asset.data)) {

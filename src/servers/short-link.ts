@@ -1,26 +1,26 @@
 import fs from 'node:fs/promises';
 import dayjs from 'dayjs';
-import mysql from 'mysql2/promise';
+import pg from 'pg';
 import {} from 'dayjs/plugin/utc.js'; // need empty include to add type
 import type * as koa from 'koa';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
-import { databaseTypeCast, type QueryResult } from '../shared/database.js';
 import { RateLimit } from '../shared/ratelimit.js';
 
-const config = JSON.parse(await fs.readFile('config', 'utf-8')) as {
-    database: mysql.PoolOptions,
+const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')) as {
+    database: pg.PoolConfig,
     'short-link': { domain: string }, // for now only a domain in config
 };
-const pool = mysql.createPool({ ...config.database, typeCast: databaseTypeCast });
+const pool = new pg.Pool({ ...config.database });
+// pg.types is the same as in core/index.ts, should not set type parser again
 
 interface ShortLinkData {
-    Id: number,
+    id: number,
     // path without leading slash, e.g. 'abc' in shortexample.com/abc
-    Name: string,
+    name: string,
     // the value to be in Location header, should be a url
-    Value: string,
+    value: string,
     // absolute expiration time utc
-    ExpireTime: dayjs.Dayjs,
+    expire_time: dayjs.Dayjs,
 }
 const cache: { items: ShortLinkData[] } = { items: [] };
 const ratelimit = new RateLimit('shortlink', 10, 1);
@@ -37,16 +37,16 @@ export async function handleRequest(ctx: koa.Context): Promise<boolean> {
     };
     const notfound = () => {
         // ATTENTION this require 404 in static config or else this is infinite recursion
-        redirect(`https://${config['short-link'].domain}/404`);
+        redirect(`https://${ctx.host}/404`);
     };
 
     const name = ctx.path.substring(1);
-    const cacheItem = cache.items.find(i => i.Name == name);
+    const cacheItem = cache.items.find(i => i.name == name);
     if (cacheItem) {
-        if (cacheItem.ExpireTime.isAfter(dayjs.utc())) {
-            redirect(cacheItem.Value);
+        if (cacheItem.expire_time.isAfter(dayjs.utc())) {
+            redirect(cacheItem.value);
         } else {
-            const index = cache.items.findIndex(i => i.Name == name);
+            const index = cache.items.findIndex(i => i.name == name);
             cache.items.splice(index, 1);
             // and goto normal load from db
         }
@@ -55,16 +55,16 @@ export async function handleRequest(ctx: koa.Context): Promise<boolean> {
     // rate limit before invoking db
     ratelimit.request(ctx.ip || 'unknown');
 
-    const [records] = await pool.query<QueryResult<ShortLinkData>[]>(
-        'SELECT `Id`, `Name`, `Value`, `ExpireTime` FROM `ShortLinks` WHERE `Name` = ?;', [name]);
-    if (!Array.isArray(records) || records.length == 0) {
+    const queryResult = await pool.query<ShortLinkData>(
+        'SELECT "id", "name", "value", "expire_time" FROM "short_link" WHERE "name" ILIKE $1', [name]);
+    if (queryResult.rows.length == 0) {
         notfound();
-    } else if (records[0].ExpireTime.isBefore(dayjs.utc())) {
-        await pool.execute('DELETE FROM `ShortLinks` WHERE `Id` = ?;', [records[0].Id]);
+    } else if (queryResult.rows[0].expire_time.isBefore(dayjs.utc())) {
+        await pool.query('DELETE FROM "short_link" WHERE "id" = $1', [queryResult.rows[0].id]);
         notfound();
     } else {
-        cache.items.push(records[0]);
-        redirect(records[0].Value);
+        cache.items.push(queryResult.rows[0]);
+        redirect(queryResult.rows[0].value);
     }
     return true;
 }
