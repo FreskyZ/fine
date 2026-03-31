@@ -1,5 +1,7 @@
 # Database Setup
 
+beside other comparison between postgresql and mysql, postgresql official site home page don't have the word AI
+
 ## Build
 
 build from source, see https://www.postgresql.org/docs/18/installation.html

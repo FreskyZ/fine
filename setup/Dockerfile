@@ -145,8 +145,9 @@ WORKDIR /var/lib/pgsql
 
 # put configuration files in ~
 # and later use initdb.sh to move them into ~/data after initdb
-COPY --chown=70:70 postgresql.auto.conf pg_hba.conf database-setup.sh /var/lib/pgsql
-RUN chmod 600 postgresql.auto.conf && chmod 600 pg_hba.conf && chmod 700 database-setup.sh && mv database-setup.sh initdb.sh
+COPY --chown=70:70 --chmod=700 database-setup.sh /var/lib/pgsql/initdb.sh
+COPY --chown=70:70 --chmod=600 database-auth.conf /var/lib/pgsql/pg_hba.conf
+COPY --chown=70:70 --chmod=600 database-main.conf /var/lib/pgsql/postgresql.auto.conf
 
 # client tools use these to connect
 # should be same as postgresql.auto.conf port
