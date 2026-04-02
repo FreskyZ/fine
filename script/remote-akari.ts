@@ -18,16 +18,16 @@ dayjs.extend(utc);
 
 function logInfo(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
+        console.log(chalk`✈️[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
+        console.log(chalk`✈️[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
     }
 }
 function logError(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
+        console.log(chalk`✈️[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`⛅[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+        console.log(chalk`✈️[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     }
 }
 
@@ -687,6 +687,22 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
     }
 });
 
+function usage() {
+    console.log('  - exit');
+    console.log('  - help');
+    console.log('  - connect       # connect admin interface');
+    console.log('  - reload config # reload static config, other config need restart');
+    // console.log('  - reload certificate  reload-certificate'); // TODO should not need manual invocation in future
+    console.log('  - reload user   # shorthand for reload static user');
+    console.log('  - reload static KEY');
+    console.log('  - reload content server KEY');
+    console.log('  - reload actions server KEY');
+    console.log('  - display user sessions');
+    console.log('  - display application sessions');
+    console.log('  - display rate limits');
+    console.log('  - !shell command');
+}
+
 const interactiveReader = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -701,7 +717,10 @@ for await (const raw of interactiveReader) {
         interactiveReader.prompt();
     } else if (line == 'exit') {
         shutdown();
-    } else if (line == 'connect admin interface') {
+    } else if (line == 'help') {
+        usage();
+        interactiveReader.prompt();
+    } else if (line == 'connect') {
         if (!adminInterfaceConnection) {
             connectAdminInterface();
         } else {
@@ -739,7 +758,7 @@ for await (const raw of interactiveReader) {
         await sendAdminCommand({ kind: 'access-control:display-rate-limits' });
         interactiveReader.prompt();
     } else if (line.startsWith('!')) {
-        const shellCommand = line.slice(1);
+        const shellCommand = line.slice(1).trim();
         const child = spawn(shellCommand, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
         child.stdout.on('data', data => process.stdout.write(data));
         child.stderr.on('data', data => process.stderr.write(data));

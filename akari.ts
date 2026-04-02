@@ -1,5 +1,7 @@
 import readline from 'node:readline/promises';
 import utc from 'dayjs/plugin/utc.js';
+import { spawn } from 'node:child_process';
+import didYouMean from 'didyoumean';
 // END IMPORT
 // components: mypack, typescript, messenger, eslint, common
 // BEGIN LIBRARY
@@ -26,16 +28,16 @@ import tseslint from 'typescript-eslint';
 
 function logInfo(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
+        console.log(chalk`💻[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
+        console.log(chalk`💻[{green ${dayjs().format('HH:mm:ss.SSS')}} {gray ${header}}] ${message}`);
     }
 }
 function logError(header: string, message: string, error?: any): void {
     if (error) {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
+        console.log(chalk`💻[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`, error);
     } else {
-        console.log(chalk`[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
+        console.log(chalk`💻[{green ${dayjs().format('HH:mm:ss.SSS')}} {red ${header}}] ${message}`);
     }
 }
 function logCritical(header: string, message: string): never {
@@ -1360,7 +1362,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 9d372d4aecf87d2cae2867f533a842fd282ffed8d29a5c8c2f2aaa21f07e477a
+// END LIBRARY f51e66158ee4652e1747c3fed8262cbe85c0b4be47635da2708172d311b9a08c
 
 dayjs.extend(utc);
 
@@ -1476,6 +1478,30 @@ async function buildShortLinkServer(ecx: MessengerContext) {
     logInfo('akari', chalk`build {cyan short} completed successfully`); return true;
 }
 
+function usage() {
+    console.log('  - exit');
+    console.log('  - help');
+    console.log('  - connect                        connect remote akari');
+    console.log('  - rself | core | user | short    build and deploy remote akari | core | user page | short link page');
+    console.log('  - upload static LOCAL:[REMOTE]   upload static file');
+    console.log('  - upload LOCAL:[REMOTE]          upload arbitray file, omit REMOTE for same path');
+    console.log('  - download REMOTE:[LOCAL]        download arbitrary file, omit LOCAL for same path');
+    console.log('                                   download log file to open in vscode or download backup file,');
+    console.log('                                   to view log file, just use !cat FILENAME | tail -10 on remote side');
+    console.log('  - !shell command');
+}
+// return [null, null] for invalid format
+function resolveNameMapping(raw: string): [string, string] {
+    if (raw.endsWith(':')) {
+        const local = raw.substring(0, raw.length - 1);
+        return [local, local];
+    }
+    const splitted = raw.split(':');
+    if (splitted.length != 2) {
+        return [null, null];
+    }
+    return [splitted[0].trim(), splitted[1].trim()];
+}
 async function startInteractiveShell() {
     const ecx: MessengerContext = {
         readline: readline.createInterface({
@@ -1494,7 +1520,9 @@ async function startInteractiveShell() {
         } else if (line == 'exit') {
             // it's complex to disconnect websocket with disabling auto reconnect, so use abort
             process.exit(0);
-        } else if (line.startsWith('connect')) {
+        } else if (line == 'help') {
+            usage();
+        } else if (line == 'connect') {
             await connectRemote(ecx);
         } else if (line == 'rself') {
             await deployRemoteSelf(ecx);
@@ -1505,94 +1533,72 @@ async function startInteractiveShell() {
         } else if (line == 'short') {
             await buildShortLinkServer(ecx);
         } else if (line.startsWith('upload static ')) {
-            const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim()).filter(x => x);
+            const [local, remote] = resolveNameMapping(line.substring(14).trim());
             if (!local || !remote) {
-                logError('akari', `missing path, expect 'upload static local:remote`);
+                logError('akari', `missing path, expect 'upload static LOCAL:REMOTE`);
             } else {
                 let data: string;
                 // use utf-8 to apply example.com substitution for static content
-                try { data = await fs.readFile(local, 'utf-8'); }
-                catch (ex: any) { logError('akari', `failed to open file ${local}: ${ex}`); }
-                if (typeof data == 'string') { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
+                try {
+                    data = await fs.readFile(local, 'utf-8');
+                } catch (ex: any) {
+                    logError('akari', `failed to open file ${local}`, ex);
+                }
+                if (data) { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
             }
-        } else if (line.startsWith('upload binary ')) {
-            const [local, remote] = line.substring(14).trim().split(':').map(x => x.trim()).filter(x => x);
+        } else if (line.startsWith('upload ')) {
+            const [local, remote] = resolveNameMapping(line.substring(7).trim());
             if (!local || !remote) {
-                logError('akari', `missing path, expect 'upload binary local:remote`);
+                logError('akari', `missing path, expect 'upload LOCAL:REMOTE`);
             } else {
                 let data: Buffer;
-                // difference with upload static is this does not read string
-                try { data = await fs.readFile(local); }
-                catch (ex: any) { logError('akari', `failed to open file ${local}: ${ex}`); }
-                if (Buffer.isBuffer(data)) { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
-            }
-        } else if (line.startsWith('upload core config')) {
-            await uploadWithRemoteConnection(ecx, [{
-                data: await fs.readFile('/etc/fine/config.json'),
-                remote: '/etc/fine/config.json',
-            }]);
-        } else if (line.startsWith('download error log')) {
-            const filepath = `/var/log/fine/${dayjs.utc().format('YYMMDD')}E.log`;
-            const [content] = await downloadWithRemoteConnection(ecx, [filepath]);
-            if (!content.length) {
-                logInfo('akari', `download error log ${filepath} received empty`);
-            } else {
-                const text = content.toString('utf-8');
-                logInfo('akari', `download error log ${filepath} received ${text.length} bytes`);
-                const maybeLastLinesPart = line.substring(18).trim();
-                const lastLines = maybeLastLinesPart.startsWith(':-') ? parseInt(maybeLastLinesPart.substring(2)) : NaN;
-                if (isNaN(lastLines)) {
-                    console.log(text);
-                } else {
-                    const lines = text.split(/\r?\n/);
-                    const start = Math.max(0, lines.length - lastLines);
-                    console.log(lines.slice(start).join('\n'));
-                }
-            }
-        } else if (line.startsWith('download core config')) {
-            const [content] = await downloadWithRemoteConnection(ecx, ['config']);
-            if (!content.length) {
-                logInfo('akari', `download config received empty`);
-            } else {
+                // use buffer to avoid example.com substitution
                 try {
-                    await fs.writeFile('real-config.json', content);
-                    logInfo('akari', `download config to local real-config.json`);
-                } catch (error) {
-                    logError('akari', `download config failed to write file real-config.json`, error);
+                    data = await fs.readFile(local);
+                } catch (ex: any) {
+                    logError('akari', `failed to open file ${local}`, ex);
                 }
-                if (process.env['AKARI_CORE_CONFIG_BACKUP_PATH']) {
-                    try {
-                        await fs.writeFile(process.env['AKARI_CORE_CONFIG_BACKUP_PATH'], content);
-                    } catch (error) {
-                        logError('akari', `failed to back real-config.json to ${process.env['AKARI_CORE_CONFIG_BACKUP_PATH']}`, error);
-                    }
-                }
+                if (data) { await uploadWithRemoteConnection(ecx, [{ data, remote }]); }
             }
         } else if (line.startsWith('download ')) {
-            const [remote, local] = line.substring(9).trim().split(':').map(x => x.trim()).filter(x => x);
-            const [content] = await downloadWithRemoteConnection(ecx, [remote]);
-            if (!content.length) {
-                logInfo('akari', `download ${remote} received empty`);
-            } else if (local) {
-                try {
-                    await fs.writeFile(local, content);
-                    logInfo('akari', `download ${remote} to local ${local}`);
-                } catch (error) {
-                    logError('akari', `download ${remote} failed to write file ${local}`, error);
-                }
+            const [remote, local] = resolveNameMapping(line.substring(9).trim());
+            if (!remote || !local) {
+                logError('akari', `missing path, expect 'download LOCAL:REMOTE`);
             } else {
-                const text = content.toString('utf-8');
-                logInfo('akari', `download ${remote} received ${text.length} bytes`);
-                console.log(text);
+                const [content] = await downloadWithRemoteConnection(ecx, [remote]);
+                if (content) {
+                    try {
+                        await fs.writeFile(local, content);
+                        logInfo('akari', `download ${remote} to ${local} received ${content.length} bytes`);
+                    } catch (error) {
+                        logError('akari', `download ${remote} to ${local} failed to write file`, error);
+                    }
+                } // else should have raised error
             }
+        } else if (line.startsWith('!')) {
+            const shellCommand = line.slice(1).trim();
+            await new Promise<void>(resolve => {
+                const child = spawn(shellCommand, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+                child.stdout.on('data', data => process.stdout.write(data));
+                child.stderr.on('data', data => process.stderr.write(data));
+                child.on('close', code => {
+                    logInfo('shell', `shell command process exited with code ${code}`);
+                    resolve();
+                });
+                child.on('error', error => {
+                    logError('shell', 'failed to start shell command:', error);
+                    resolve();
+                });
+            });
         } else {
-            logError('akari', `unknown command`);
+            let guess = didYouMean(line, ['connect', 'rself', 'core', 'user', 'short', 'upload static', 'upload', 'download']);
+            logError('akari', `unknown command${guess ? `, did you mean '${guess}'?`: ''}, type help for help`);
         }
         ecx.readline.prompt();
     }
 }
 
-// TODO migrate all outside deploy operations to use wss not ssh, stop use akari.json
+// the command line arguments is not used for now, but leave this function here for future need
 async function dispatch(command: string[]) {
     if (command[0] == 'rself') {
         // the original command for bootstraping is 'self', and the original command
@@ -1605,6 +1611,7 @@ async function dispatch(command: string[]) {
     }
 }
 
-// this script is expected to be run with this, if you left this project for some time and forget
-// docker run -it --rm --name akari1 -v .:/work -v /etc/fine:/etc/fine -h FINE-NODE -w /work my/node:1
 dispatch(process.argv.slice(2));
+
+// this script is expected to be run with this, if you left this project for some time and forget
+// docker run -it --rm --name akari1 -v ~/repo:/work -v /etc/fine:/etc/fine -w /work/fine --entrypoint node my/node:1 akari.ts
