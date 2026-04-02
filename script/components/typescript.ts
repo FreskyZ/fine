@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
+import { styleText } from 'node:util';
 import ts from 'typescript';
 import { logInfo, logError } from './common.ts';
 import chalk from 'chalk-template';
-import chalkNotTemplate from 'chalk';
 
 export interface TypeScriptContext {
     entry: string | string[],
@@ -13,6 +13,7 @@ export interface TypeScriptContext {
     // in old days I enabled this and meet huge amount of false positives,
     // so instead of always on/off, occassionally use this to check for potential issues
     strict?: boolean,
+    types?: string[],
     additionalOptions?: ts.CompilerOptions,
     additionalLogHeader?: string,
     program?: ts.Program,
@@ -77,6 +78,9 @@ export function transpile(tcx: TypeScriptContext): TypeScriptContext {
     const logheader = `tsc${tcx.additionalLogHeader ?? ''}`;
     logInfo(logheader, 'transpiling');
 
+    // ts 6.0 is strict default to true
+    tcx.strict = typeof tcx.strict == 'boolean' && tcx.strict;
+
     // design considerations
     // - the original tool distinguishes ecma module and commonjs, now everything is esm!
     //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage
@@ -93,8 +97,14 @@ export function transpile(tcx: TypeScriptContext): TypeScriptContext {
     tcx.program = ts.createProgram(Array.isArray(tcx.entry) ? tcx.entry : [tcx.entry], {
         lib: ['lib.esnext.d.ts'].concat(tcx.target == 'browser' ? ['lib.dom.d.ts'] : []),
         jsx: tcx.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
+        // ts 6.0 types default to [],
+        // original value is enumerate packages under node_modules/@types,
+        // add this to my tcx to allow targets to use only needed type packages
+        // UPDATE: why akari itself, core, user and rself works with my default value?
+        types: tcx.types ?? ['node'],
         target: ts.ScriptTarget.ESNext,
         module: ts.ModuleKind.NodeNext,
+        // TODO check whether ModuleResolutionKind.Bundler is more suitable for a bundler
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         skipLibCheck: true,
         noEmitOnError: true,
@@ -158,13 +168,13 @@ export function transpile(tcx: TypeScriptContext): TypeScriptContext {
     tcx.success = diagnostics.length == 0;
     (diagnostics.length ? logError : logInfo)(logheader, `completed with ${message}`);
     for (const { category, code, messageText, file, start } of diagnostics) {
-        const displayColor = {
-            [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
-            [ts.DiagnosticCategory.Error]: chalkNotTemplate.red,
-            [ts.DiagnosticCategory.Suggestion]: chalkNotTemplate.green,
-            [ts.DiagnosticCategory.Message]: chalkNotTemplate.cyan,
-        }[category];
-        const displayCode = displayColor(`  TS${code} `);
+        const displayColor = ({
+            [ts.DiagnosticCategory.Warning]: 'red',
+            [ts.DiagnosticCategory.Error]: 'red',
+            [ts.DiagnosticCategory.Suggestion]: 'green',
+            [ts.DiagnosticCategory.Message]: 'cyan',
+        } as Record<ts.DiagnosticCategory, Parameters<typeof styleText>[0]>)[category];
+        const displayCode = styleText(displayColor, `  TS${code} `);
 
         let fileAndPosition = '';
         if (file && start) {

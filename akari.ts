@@ -7,10 +7,10 @@ import crypto, { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Interface } from 'node:readline/promises';
+import { styleText } from 'node:util';
 import { zstdCompress, zstdCompressSync, zstdDecompress } from 'node:zlib';
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
-import chalkNotTemplate from 'chalk';
 import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 import { ESLint } from 'eslint';
@@ -43,9 +43,9 @@ function logCritical(header: string, message: string): never {
     return process.exit(1);
 }
 
-// there was a dedicated config for local akari, also use by make-akari by the way
-// mainly for ssh related config, but sftp deploy does not work with containerized environment,
-// so it is discarded and directly use local-mapped config (see upload core config and download core config command)
+// there was a dedicated config for local akari, mainly for ssh related configs,
+// but sftp deploy does not work with containerized environment, so it is discarded
+// and directly use local-mapped config (see upload core config and download core config commands)
 // still named scriptconfig to avoid conflict with codegenconfig, etc.
 interface ScriptConfig {
     domain: string,
@@ -69,6 +69,7 @@ interface TypeScriptContext {
     // in old days I enabled this and meet huge amount of false positives,
     // so instead of always on/off, occassionally use this to check for potential issues
     strict?: boolean,
+    types?: string[],
     additionalOptions?: ts.CompilerOptions,
     additionalLogHeader?: string,
     program?: ts.Program,
@@ -133,6 +134,9 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
     const logheader = `tsc${tcx.additionalLogHeader ?? ''}`;
     logInfo(logheader, 'transpiling');
 
+    // ts 6.0 is strict default to true
+    tcx.strict = typeof tcx.strict == 'boolean' && tcx.strict;
+
     // design considerations
     // - the original tool distinguishes ecma module and commonjs, now everything is esm!
     //   the target: esnext, module: nodenext, moduleres: nodenext seems suitable for all usage
@@ -149,8 +153,14 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
     tcx.program = ts.createProgram(Array.isArray(tcx.entry) ? tcx.entry : [tcx.entry], {
         lib: ['lib.esnext.d.ts'].concat(tcx.target == 'browser' ? ['lib.dom.d.ts'] : []),
         jsx: tcx.target == 'browser' ? ts.JsxEmit.ReactJSX : undefined,
+        // ts 6.0 types default to [],
+        // original value is enumerate packages under node_modules/@types,
+        // add this to my tcx to allow targets to use only needed type packages
+        // UPDATE: why akari itself, core, user and rself works with my default value?
+        types: tcx.types ?? ['node'],
         target: ts.ScriptTarget.ESNext,
         module: ts.ModuleKind.NodeNext,
+        // TODO check whether ModuleResolutionKind.Bundler is more suitable for a bundler
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         skipLibCheck: true,
         noEmitOnError: true,
@@ -214,13 +224,13 @@ function transpile(tcx: TypeScriptContext): TypeScriptContext {
     tcx.success = diagnostics.length == 0;
     (diagnostics.length ? logError : logInfo)(logheader, `completed with ${message}`);
     for (const { category, code, messageText, file, start } of diagnostics) {
-        const displayColor = {
-            [ts.DiagnosticCategory.Warning]: chalkNotTemplate.red,
-            [ts.DiagnosticCategory.Error]: chalkNotTemplate.red,
-            [ts.DiagnosticCategory.Suggestion]: chalkNotTemplate.green,
-            [ts.DiagnosticCategory.Message]: chalkNotTemplate.cyan,
-        }[category];
-        const displayCode = displayColor(`  TS${code} `);
+        const displayColor = ({
+            [ts.DiagnosticCategory.Warning]: 'red',
+            [ts.DiagnosticCategory.Error]: 'red',
+            [ts.DiagnosticCategory.Suggestion]: 'green',
+            [ts.DiagnosticCategory.Message]: 'cyan',
+        } as Record<ts.DiagnosticCategory, Parameters<typeof styleText>[0]>)[category];
+        const displayCode = styleText(displayColor, `  TS${code} `);
 
         let fileAndPosition = '';
         if (file && start) {
@@ -1350,7 +1360,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY b6e846bd5e77e64ad0b442dbdfe10932de93af8636afd780ff4ff9aab5beba57
+// END LIBRARY 9d372d4aecf87d2cae2867f533a842fd282ffed8d29a5c8c2f2aaa21f07e477a
 
 dayjs.extend(utc);
 
