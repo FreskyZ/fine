@@ -360,7 +360,7 @@ function ManageTab({ user, handleSetUserName, handleSetSessionName, handleSignOu
         }
 
         setSigningOut(true);
-        const response = await fetch(`https://api.example.com/user-sessions/${user.sessionId}`, {
+        const response = await fetch(`https://api.example.com/user-sessions?id=${user.sessionId}`, {
             method: 'DELETE',
             headers: getAuthorizationHeader(),
         });
