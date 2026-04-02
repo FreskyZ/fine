@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import pg from 'pg';
-import { authenticator } from 'otplib';
+import * as otplib from 'otplib';
+import { crypto as OtplibCryptoPlugin } from '@otplib/plugin-crypto-node';
 import qrcode from 'qrcode';
 import type { UserSession } from '../shared/access-types.js';
 import type { RequestState } from '../shared/action-types.js';
@@ -276,7 +277,7 @@ async function handleSignIn(ctx) {
 
     if (!user.active) {
         throw new MyError('common', 'invalid user name or password');
-    } else if (!authenticator.check(password, user.secret)) {
+    } else if (!(await otplib.verify({ secret: user.secret, token: password, crypto: OtplibCryptoPlugin })).valid) {
         throw new MyError('common', 'invalid user name or password');
     }
 
@@ -309,7 +310,7 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
         }
     }
 
-    const secret = authenticator.generateSecret();
+    const secret = otplib.generateSecret({ crypto: OtplibCryptoPlugin });
     const text = `otpauth://totp/example.com:${username}?secret=${secret}&period=30&digits=6&algorithm=SHA1&issuer=example.com`;
     const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
 
@@ -340,7 +341,7 @@ async function handleSignUp(ctx) {
 
     if (!secret || !password) {
         throw new MyError('common', 'invalid user name or password');
-    } else if (!authenticator.check(password, secret)) {
+    } else if (!(await otplib.verify({ secret, token: password, crypto: OtplibCryptoPlugin })).valid) {
         throw new MyError('common', 'invalid user name or password');
     }
 
