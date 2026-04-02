@@ -148,6 +148,7 @@ WORKDIR /var/lib/pgsql
 COPY --chown=70:70 --chmod=700 database-setup.sh /var/lib/pgsql/initdb.sh
 COPY --chown=70:70 --chmod=600 database-auth.conf /var/lib/pgsql/pg_hba.conf
 COPY --chown=70:70 --chmod=600 database-main.conf /var/lib/pgsql/postgresql.auto.conf
+COPY --chown=70:70 --chmod=600 database-psqlrc /var/lib/pgsql/.psqlrc
 
 # client tools use these to connect
 # should be same as postgresql.auto.conf port
