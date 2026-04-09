@@ -1,16 +1,19 @@
 import { Pool, types } from 'pg';
 import dayjs from 'dayjs';
 
+// test client library usages,
+// also test custom build postgres server functionality
+
 const pool = new Pool({
-    host: '/run/fine',
-    port: 5432,
+    host: '/run/pgsql',
+    port: 6543,
     user: 'fine',
     database: 'fine',
-    application_name: 'fine', // application name is a column of csvlog
+    application_name: 'core', // application name is a column of csvlog
 });
 
 // case 1 connected
-(async () => {
+await (async () => {
     const result = await pool.query('SELECT $1::TEXT AS message', ['Hello world!']);
     console.log(result, JSON.stringify(result));
 });
@@ -19,10 +22,10 @@ const pool = new Pool({
 // - int get number, boolean get boolean, text get string, text array get array, timestamptz get iso8601 string
 // - without settypeparser, date is Date, with settypeparser, date is dayjs
 // - empty query result is empty array
-(async () => {
+await (async () => {
     // dayjs only defaults to parse iso8601 by the way
     types.setTypeParser(types.builtins.TIMESTAMPTZ, value => dayjs(value));
-    const result = await pool.query('SELECT * FROM "user" WHERE "id" = 2;');
+    const result = await pool.query('SELECT * FROM "user" WHERE "id" = 1;');
     console.log(JSON.stringify(result, undefined, 2));
     console.log(result.rows, result.fields);
     console.log(result.rows[0]['create_time'] instanceof Date, dayjs.isDayjs(result.rows[0]['create_time']));
@@ -30,7 +33,7 @@ const pool = new Pool({
 
 // case 3 insert
 // - result.rows is empty array, result.fields.is empty array
-(async () => {
+await (async () => {
     const accessToken = '012345678901234567890123456789012345678902'
     const result = await pool.query(
         'INSERT INTO "user_session" ("user_id", "name", ' +
@@ -48,7 +51,7 @@ const pool = new Pool({
 // - invalid ip address => throw invalid input syntax for type inet: "dead:xyza::0"
 // - valid non utc time => converted to utc
 // - invalid fk => throw insert or update on table "user_session" violates foreign key constraint "user_session_user_id_fkey"
-(async () => {
+await (async () => {
     const dummyToken = '345678901234567890123456789012345678901234';
     const result = await pool.query(
         'INSERT INTO "user_session" ("user_id", "name", ' +
@@ -63,13 +66,13 @@ const pool = new Pool({
 // - directly send dayjs object ok
 // - update char(42) with shorter value ok
 // - ipv4 compatible ipv6 address ok
-(async () => {
+await (async () => {
     types.setTypeParser(types.builtins.TIMESTAMPTZ, value => dayjs(value));
     const result = await pool.query('SELECT * FROM "user_session"');
     console.log(result.rows);
     const result1 = await pool.query(
         'UPDATE "user_session" SET "name" = $1, "access_token" = $2, "last_access_time" = $3, "last_access_address" = $4 WHERE "id" = 3',
-        ['newname1', 'newaccesstoken1', (result.rows[3].last_access_time as dayjs.Dayjs).subtract(1, 'month'), '::ffff:1.2.3.4'],
+        ['newname1', 'newaccesstoken1', (result.rows[1].last_access_time as dayjs.Dayjs).subtract(1, 'month'), '::ffff:1.2.3.4'],
     );
     console.log(JSON.stringify(result1, undefined, 2));
     console.log(result1.rowCount);
@@ -77,13 +80,13 @@ const pool = new Pool({
 
 // case 6, where name
 // - username: ok, UserName: no data, ILIKE: ok
-(async () => {
-    const result = await pool.query('SELECT * FROM "user" WHERE "name" ILIKE $1', ['username']);
+await (async () => {
+    const result = await pool.query('SELECT * FROM "user" WHERE "name" ILIKE $1', ['VISITOR1']);
     console.log(JSON.stringify(result, undefined, 2));
     console.log(result.rows);
 });
 
-// case 7: insert id
+// case 7: return insert id
 await (async () => {
     const accessToken = '567890123456789012345678901234567890123456';
     const result = await pool.query(
@@ -93,6 +96,6 @@ await (async () => {
     );
     console.log(JSON.stringify(result, undefined, 2));
     console.log(result.rows);
-})();
+});
 
 await pool.end();

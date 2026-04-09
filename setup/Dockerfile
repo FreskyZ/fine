@@ -49,29 +49,28 @@ apk update
 # according to https://github.com/FreskyZ/small/blob/main/devenv/llvm/Dockerfile
 #   musl-dev: needed to build helloworld
 # according to https://www.postgresql.org/docs/18/install-requirements.html
-#   openssl-dev, flex, bison, readline, readline-dev, zlib-dev, icu-dev
-#   zstd-dev: TODO try compress wal to reduce disk usage
-#   perl: perl is used in build process like python
-#   python3-dev: TODO try PL/Python
-#   util-linux-dev: seems to be for uuid
-#   no perl-dev: not interested in PL/Perl for now https://www.postgresql.org/docs/18/plperl-funcs.html
-#   no lz4: seems https://www.postgresql.org/docs/18/storage-toast.html is not relavent to me
-#   no curl-dev: why do I need OAuth to connect db?
-#   no tcl: what is tcl?
+#   flex, bison: need binary, do they have a -dev package? oh, there is flex-dev
+#   readline, readline-dev: why does this need binary?
+#   openssl-dev, zlib-dev, icu-dev, zstd-dev: these need -dev
+#   python3-dev: python3 package itself does not include -dev
+#   util-linux-dev: this is for e2fs use as uuid library, if you ask
+#   perl: this is build time tool, like the python3 package without -dev
+#         not to be confused with the rejected perl-dev package for plperl language
 # according to https://www.postgresql.org/docs/18/install-meson.html configuration options
 #   liburing-dev
-#   no libxml2-dev, libxlst-dev: no use of xml, if need some unstructured data I will use json
 # according to ninja error
 #   linux-headers
 apk add --no-cache python3 musl-dev ninja openssl-dev flex bison readline readline-dev
 apk add --no-cache icu-dev zlib-dev zstd-dev python3-dev util-linux-dev liburing-dev perl linux-headers
 # use lld
 ln -sf /usr/local/bin/ld.lld /usr/local/bin/ld
-# add libc++ to ld path
+# add libc++ so to ld path
 echo "/usr/lib:/usr/local/lib/x86_64-alpine-linux-musl" > /etc/ld-musl-x86_64.path
 EORUN
 
-COPY --from=my/llvm:stage2-dylib /llvm-install /usr/local
+# llvm compilers and runtime libraries
+# see if you don't find it in the future https://github.com/FreskyZ/small/blob/main/devenv/llvm/Dockerfile
+COPY --from=my/llvm:stage2 /llvm-install /usr/local
 
 RUN <<EORUN
 # configure
@@ -102,14 +101,15 @@ EORUN
 # docker build --target postgres --tag my/postgres:1 .
 FROM alpine:3.23.3 AS postgres
 
-# all these files are owned by root, they are 755 so non root user can still exec these commands
+# all these files will be owned by root in result container,
+# they are 755 so non root user can still run these commands
 COPY --from=my/postgres:build /postgres-install /usr/local
 
 # install dependencies
 # scan runtime dependencies learned from official dockerfile:
 # scanelf --needed --nobanner --format '%n#p' --recursive bin | tr ',' '\n' | sort -u
 # scanelf --needed --nobanner --format '%n#p' --recursive lib | tr ',' '\n' | sort -u
-# for now only find libc, libicu, libreadline, libssl, liburing, zlib, libzstd, libpython, libc++, libc++abi
+# for now result is libc, libc++, libc++abi, icu, readline, ssl, liburing, zlib, zstd, python
 # use https://pkgs.alpinelinux.org/contents to find whether package contains required file
 RUN <<EORUN
 set -ex
@@ -122,21 +122,25 @@ apk add --no-cache icu-libs icu-data-full readline openssl liburing zlib zstd-li
 EORUN
 
 # setup user
+# about permission of home directory /var/lib/pgsql:
+# official image make the home directory 1777
+# the leading 1: Sticky Bit When applied to a directory, it prevents users from deleting
+#   or renaming files they do not own, even if they have write permissions to the directory.
+#   This is typically used on shared directories like /tmp
+# the busybox adduser will set the home directory 2755
+# the loading 2: setgid (Set Group ID) When applied to a directory, any new files or
+#   subdirectories created within it will inherit the directory's group ownership, rather
+#   than the creator's primary group.
+# the difference should be ok when postgres server is run as postgres user
 RUN <<EORUN
 set -ex
-# this is not man 8 groupadd, see man 1 busybox
+# NOTE this is not man 8 groupadd, this is man 1 busybox
 # -g: gid, -S: system group
 addgroup -g 70 -S postgres
 # -u: uid, -S: system, -D: no password, -G: group, -h: home, -s: shell
-# about permission: official image make the home directory 1777
-# 1777: Sticky Bit When applied to a directory, it prevents users from deleting or renaming files they do not own,
-#       even if they have write permissions to the directory. This is typically used on shared directories like /tmp
-# the busybox adduser will set the home directory 2755
-# 2755:	setgid (Set Group ID) When applied to a directory, any new files or subdirectories created within it
-#       will inherit the directory's group ownership, rather than the creator's primary group.
-# should not be relavent when postgres server is run as postgres user and normal exec sh is postgres user
 adduser -u 70 -S -D -G postgres -h /var/lib/pgsql -s /bin/sh postgres
-# mkdir and chown, or else postgres cannot create file here
+# mkdir and chown, or else postgres cannot create files in these folders
+install -d -o postgres -g postgres /var/lib/pgsql/logs
 install -d -o postgres -g postgres /run/pgsql
 EORUN
 
@@ -158,17 +162,23 @@ ENV PGHOST=/run/pgsql
 # server tools use this to find server files
 ENV PGDATA=/var/lib/pgsql/data
 
-# if you volume from host fs, this folder will inherit the owner and permission,
-# if you volume from docker volume, this folder will keep existing owner and permission
-VOLUME /var/lib/pgsql
+# no need to actually declare a volume which only creates
+# a randomly named volume when you forget to -v and not remove the volume with --rm
+# by the way,
+# if you volume mount, these folders will keep existing owner and permission
+# if you bind mount, these folders will inherit the owner and permission from local fs, and postgres will throw error
+# VOLUME /var/lib/pgsql /var/lib/pgsql/data /run/pgsql
 
 # official document says use SIGINT and long stop timeout
 # see https://www.postgresql.org/docs/current/server-start.html
 # TODO setup --stop-timeout in docker compose (no need to set in temp shell container)
 STOPSIGNAL SIGINT
 
-# docker run -it --rm --name postgres-shell1 -v fine-database:/var/lib/pgsql -v fine-sockets:/run/pgsql --entrypoint /bin/sh my/postgres:1
-#   ./initdb.sh && psql
-#   pg_ctl stop -m fast # if you'd like to visit this database again
-# docker run -d --rm --name postgres1 -v fine-database:/var/lib/pgsql -v fine-sockets:/run/pgsql my/postgres:1
+# setup dev env: docker volume create database && docker volume create database-logs && docker volume create database-sockets
+# server shell: docker run -it --rm --name postgres-shell1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql --entrypoint sh my/postgres:1
+# initialize: ./initdb.sh
+# start service: docker run -d --rm --name postgres1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql my/postgres:1
+# client shell: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint sh my/postgres:1
+# psql: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint psql my/postgres:1
+# run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
 ENTRYPOINT ["postgres"]
