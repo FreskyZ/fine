@@ -1,0 +1,2 @@
+# the main domain that local akari and remote akari communicates
+domain: example.com

@@ -20,6 +20,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { minify } from 'terser';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
+import yaml from 'yaml';
 
 // -----------------------------------------
 // ------ script/components/common.ts ------
@@ -45,17 +46,10 @@ function logCritical(header: string, message: string): never {
     return process.exit(1);
 }
 
-// there was a dedicated config for local akari, mainly for ssh related configs,
-// but sftp deploy does not work with containerized environment, so it is discarded
-// and directly use local-mapped config (see upload core config and download core config commands)
-// still named scriptconfig to avoid conflict with codegenconfig, etc.
 interface ScriptConfig {
     domain: string,
 }
-const scriptconfig: ScriptConfig = await (async () => {
-    const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8'));
-    return { domain: Object.keys(config.certificates)[0] };
-})();
+const scriptconfig: ScriptConfig = yaml.parse(await fs.readFile('/etc/fine/akari.yml', 'utf-8'));
 
 // ---------------------------------------------
 // ------ script/components/typescript.ts ------
@@ -938,12 +932,12 @@ interface HasId {
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
-    path: string, // relative path from webroot
-    content: Buffer, // this is compressed
+    path: string,
+    content: Buffer, // this maybe compressed
 }
 interface BuildScriptMessageDownloadFile {
     kind: 'download',
-    path: string, // relative path from webroot
+    path: string,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -1226,7 +1220,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
     const messageId = ecx.nextMessageId;
     ecx.nextMessageId += 1;
 
-    let buffer: Buffer;
+    let buffer: Buffer<ArrayBuffer>;
     if (message.kind == 'upload') {
         buffer = Buffer.alloc(12 + message.path.length + message.content.length);
         buffer.write('NIRA', 0); // magic size 4
@@ -1362,7 +1356,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY f51e66158ee4652e1747c3fed8262cbe85c0b4be47635da2708172d311b9a08c
+// END LIBRARY e0e1e966ea3711bdd3fe61f5df384c3ff4494407b6f888abb8c47f84bfeb10fe
 
 dayjs.extend(utc);
 
@@ -1492,9 +1486,8 @@ function usage() {
 }
 // return [null, null] for invalid format
 function resolveNameMapping(raw: string): [string, string] {
-    if (raw.endsWith(':')) {
-        const local = raw.substring(0, raw.length - 1);
-        return [local, local];
+    if (!raw.includes(':')) {
+        return [raw, raw];
     }
     const splitted = raw.split(':');
     if (splitted.length != 2) {
@@ -1613,5 +1606,10 @@ async function dispatch(command: string[]) {
 
 dispatch(process.argv.slice(2));
 
-// this script is expected to be run with this, if you left this project for some time and forget
-// docker run -it --rm --name akari1 -v ~/repo:/work -v /etc/fine:/etc/fine -w /work/fine --entrypoint node my/node:1 akari.ts
+// run akari: docker run -it --rm --name akari1 -v ..:/work -v /etc/fine:/etc/fine -w /work/fine node akari.ts
+// run shell: docker run -it --rm --name akari-shell1 -v ..:/work -v /etc/fine:/etc/fine -w /work/fine -h AKARI-SHELL my/node:1
+//
+// and common upload/download commands
+// update compose.yml: upload setup/docker-compose.yml:/self/compose.yml
+// upload package.json: upload package.json && upload package-lock.json && npm i --omit=dev
+// upload core config: upload /etc/fine/core.yml

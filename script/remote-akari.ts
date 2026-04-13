@@ -13,6 +13,7 @@ import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { WebSocketServer, type WebSocket } from 'ws';
+import yaml from 'yaml';
 
 dayjs.extend(utc);
 
@@ -71,13 +72,11 @@ class RateLimit {
     }
 }
 
-const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')) as {
-    webroot: string,
-    certificates: Record<string, {/* not used here */}>,
+const config = yaml.parse(await fs.readFile('/etc/fine/akari.yml', 'utf-8')) as {
+    domain: string,
 };
-const mainDomain = Object.keys(config.certificates)[0];
 // TODO do I need fullchain.perm for now?
-const [keyFile, certFile] = await Promise.all(['privkey.pem', 'fullchain.pem'].map(n => fs.readFile(`/etc/letsencrypt/live/${mainDomain}/${n}`)));
+const [keyFile, certFile] = await Promise.all(['privkey.pem', 'fullchain.pem'].map(n => fs.readFile(`/etc/letsencrypt/live/${config.domain}/${n}`)));
 
 const websocketServer = new WebSocketServer({ noServer: true });
 const httpServer = https.createServer({ key: keyFile, cert: certFile });
@@ -88,7 +87,7 @@ httpServer.on('request', (request, response) => {
     // request.url contains query, but should be enough for this
     if (request.method == 'GET' && request.url == '/client-dev.js') {
         response.writeHead(200, 'OK');
-        response.end(`const w=new WebSocket(\`wss://${mainDomain}:8001\`,'browser');w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
+        response.end(`const w=new WebSocket(\`wss://${config.domain}:8001\`,'browser');w.onmessage=e=>{if(e.data=='reload'){location.reload();}};`);
     } else {
         // upgrade does not goto here, so direct 400 is ok
         response.writeHead(400, 'Bad Request');
@@ -118,12 +117,12 @@ export interface HasId {
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
-    path: string, // relative path from webroot
-    content: Buffer, // this is compressed
+    path: string,
+    content: Buffer, // this maybe compressed
 }
 interface BuildScriptMessageDownloadFile {
     kind: 'download',
-    path: string, // relative path from webroot
+    path: string,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -630,10 +629,8 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         sendBuildScriptMessageResponse(message.id, { kind: 'reload-browser' });
     } else if (message.kind == 'upload') {
         logInfo('fs', `upload ${message.path}`);
-        // NOTE originally this was using path.join which will
-        // make /var/fine + /var/log/fine/log.txt become /var/fine/var/log/fine/log.txt,
-        // change to path.resolve to respect absolute path in message.path, it is ok now because it is inside a container
-        const fullpath = path.resolve(config.webroot, message.path);
+        // resolve relative path to absolute path based on workdir
+        const fullpath = path.resolve(message.path);
         if (!syncfs.existsSync(path.dirname(fullpath))) {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
             return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
@@ -663,10 +660,8 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         });
     } else if (message.kind == 'download') {
         logInfo('fs', `download ${message.path}`);
-        // NOTE originally this was using path.join which will
-        // make /var/fine + /var/log/fine/log.txt become /var/fine/var/log/fine/log.txt,
-        // change to path.resolve to respect absolute path in message.path, it is ok now because it is inside a container
-        const fullpath = path.resolve(config.webroot, message.path);
+        // resolve relative path to absolute path based on workdir
+        const fullpath = path.resolve(message.path);
         if (!syncfs.existsSync(fullpath)) {
             logError('fs', `requested path ${fullpath} not exist`);
             return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });

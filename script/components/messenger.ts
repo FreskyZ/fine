@@ -36,12 +36,12 @@ export interface HasId {
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
-    path: string, // relative path from webroot
-    content: Buffer, // this is compressed
+    path: string,
+    content: Buffer, // this maybe compressed
 }
 interface BuildScriptMessageDownloadFile {
     kind: 'download',
-    path: string, // relative path from webroot
+    path: string,
 }
 interface BuildScriptMessageAdminInterfaceCommand {
     kind: 'admin',
@@ -324,7 +324,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
     const messageId = ecx.nextMessageId;
     ecx.nextMessageId += 1;
 
-    let buffer: Buffer;
+    let buffer: Buffer<ArrayBuffer>;
     if (message.kind == 'upload') {
         buffer = Buffer.alloc(12 + message.path.length + message.content.length);
         buffer.write('NIRA', 0); // magic size 4
