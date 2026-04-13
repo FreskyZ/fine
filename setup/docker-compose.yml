@@ -11,12 +11,27 @@ services:
   acme:
     image: my/certbot:1
     container_name: acme1
+    environment:
+      # make absolute paths more centralized
+      FINE_CONFIG_DIR: /etc/fine
+      FINE_SOCKET_DIR: /run/fine
     volumes:
       - certificates:/etc/letsencrypt
+      # why do you need to map this?
       - certbot-libs:/var/lib/letsencrypt
       - certbot-logs:/var/log/letsencrypt
-      - fine-sockets:/run/fine
-      - fine-configs:/etc/fine:ro
+      # socket dir can work with ro
+      - fine-sockets:/run/fine:ro
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/certbot.yml
+        volume: { subpath: certbot.yml }
+        read_only: true
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/domains.yml
+        volume: { subpath: domains.yml }
+        read_only: true
 
   # docker compose up -d database
   # or run shell: docker compose run --rm --name database-shell1 --entrypoint sh database
@@ -42,6 +57,8 @@ services:
     environment:
       # inline host in ps1 so that you don't need to specify host
       PS1: '[@AKARI-SHELL:\w]\n\$ '
+      # make absolute paths more centralized
+      FINE_CONFIG_DIR: /etc/fine
     # the volume list is same as main service, but most of them are not readonly
     volumes:
       - fine-program:/var/fine

@@ -1,0 +1,12 @@
+# hosted domains and their certificate config
+example.com:
+  # wildcard for acquire a certificate with example.com + *.example.com
+  wildcard: true
+
+example-2.com:
+  # alias for check for cname alias before manipulating dns records
+  alias: true
+  wildcard: true
+
+# wildcard default to false, alias default to false
+short-example.com:

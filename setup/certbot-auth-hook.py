@@ -1,5 +1,5 @@
 #!/usr/local/bin/python
-import os, json, time, urllib.request, dns.resolver
+import os, json, time, pathlib, yaml, urllib.request, dns.resolver
 
 # certbot auth and cleanup hooks for cloudflare DNS api with respect of DNS CNAME alias
 
@@ -25,27 +25,34 @@ if is_cleanup:
     for line in auth_output.splitlines():
         print(f'  > {line}')
 
-# interface Config {
-#     cloudflare: { token: string },
-#     // input domain should be in this domain list,
-#     // alias domain name need alias: true flag, will resolve cname record for _acme-challenge.example.com
-#     certificates: Record<string, {} | { alias: true }>,
-# }
-if not os.path.exists('/etc/fine/config.json'):
-    print('auth.py: not found /etc/fine/config.json, you may forget to map')
+if 'FINE_CONFIG_DIR' not in os.environ:
+    print('auth.py: missing FINE_CONFIG_DIR, don\'t forget to set var if you are manual testing')
     exit(1)
-with open('/etc/fine/config.json') as f:
-    config = json.load(f)
+config_path = pathlib.Path(os.environ['FINE_CONFIG_DIR'])
 
-api_token = config['cloudflare']['token']
-if not api_token:
-    print('auth.py: missing cloudflare api token, is config.json correct?')
+# example read result
+# {'cloudflare-api-token': '?'}
+if not (config_path / 'certbot.yml').exists():
+    print('auth.py: not found certbot.yml, you may forget to map')
     exit(1)
-config_domains = config['certificates'] # domain => { alias?: true }
+with open(config_path / 'certbot.yml') as f:
+    api_token = yaml.load(f, Loader=yaml.CLoader)['cloudflare-api-token']
+if not api_token:
+    print('auth.py: missing cloudflare api token, is certbot.yml correct?')
+    exit(1)
+
+# example read result
+# {'example.com': {'wildcard': True}, 'example-2.com': {'alias': True, 'wildcard': True}, 'short-example.com': None}
+if not (config_path / 'domains.yml').exists():
+    print('auth.py: not found domains.yml, you may forget to map')
+    exit(1)
+with open(config_path / 'domains.yml') as f:
+    config_domains = yaml.load(f, Loader=yaml.CLoader)
+
 if input_domain not in config_domains:
     print(f'auth.py: input domain {input_domain} not found in config, when will this happen?')
     exit(1)
-is_alias = 'alias' in config_domains[input_domain]
+is_alias = config_domains[input_domain] is not None and 'alias' in config_domains[input_domain]
 if is_alias:
     print('auth.py: alias mode')
 
@@ -136,8 +143,8 @@ else:
     print(f'auth.py cleanup mode: zone id: {zone_id}')
 
 # enable this exit() and test prepare part
-# CERTBOT_DOMAIN=example.com CERTBOT_VALIDATION=somerandomhash /auth.py
-# CERTBOT_DOMAIN=alias-example.com CERTBOT_VALIDATION=somerandomhash /auth.py
+# CERTBOT_DOMAIN=example.com CERTBOT_VALIDATION=somerandomhash FINE_CONFIG_DIR=/etc/fine /auth.py
+# CERTBOT_DOMAIN=alias-example.com CERTBOT_VALIDATION=somerandomhash FINE_CONFIG_DIR=/etc/fine /auth.py
 # echo 'not important content' > /auth-output.txt
 # echo 'auth.py: alias target: _acme-challenge.alias-example.com.example.com' >> /auth-output.txt
 # echo 'not important content v2' >> /auth-output.txt

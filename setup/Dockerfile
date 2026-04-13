@@ -1,9 +1,9 @@
 
-# build: docker build --target certbot --tag my/certbot:1 .
+# docker build --target certbot --tag my/certbot:1 .
 FROM certbot/certbot:v5.4.0 AS certbot
 
 # the evil pip install to global by default, which is convenient for this case
-RUN pip install dnspython
+RUN pip install --root-user-action=ignore dnspython pyyaml
 
 WORKDIR /
 # no need to put auth hook in /etc/letsencrypt, it is now tracked in git
@@ -11,13 +11,17 @@ COPY --chmod=700 certbot-auth-hook.py certbot-create-cert.py certbot-deploy-hook
 # cannot move deploy hook into /etc/letsencrypt here, or else it is masked by volume mounting
 RUN mv certbot-auth-hook.py auth.py && mv certbot-create-cert.py create.py && mv certbot-deploy-hook.py deploy.py && mv certbot-renew-schedule.py schedule.py
 
-# setup dev environment: mkdir testconfig testdata testlog testrun && cp ../real-config.json testconfig/config.json
-# test shell: docker run -it --rm --name certbot1 -v ./testrun:/run/fine -v ./testconfig:/etc/fine -v ./testdata:/etc/letsencrypt -v ./testlog:/var/log/letsencrypt --entrypoint /bin/sh my/certbot:1
-# test renew: docker run -d --name certbot1 -v ./testrun:/run/fine -v ./testconfig:/etc/fine -v ./testdata:/etc/letsencrypt -v ./testlog:/var/log/letsencrypt my/certbot:1
-# update auth hook: docker cp certbot-auth-hook.py certbot1:/auth.py
-# update setup script: docker cp certbot-create-cert.py certbot1:/create.py
-# update schedule script: docker cp certbot-renew-schedule.py certbot1:/schedule.py
-# update deploy hook: docker cp certbot-deploy-hook.py certbot1:/etc/letsencrypt/renewal-hooks/deploy/deploy.py
+# setup dev env: docker volume create certificates && docker volume create certbot-libs && docker volume create certbot-logs && docker volume create fine-configs
+# move certbot.yml and domains.yml into fine-configs
+# shell: docker run -it --rm --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine -e FINE_CONFIG_DIR=/etc/fine -e FINE_SOCKET_DIR=/run/fine --entrypoint sh my/certbot:1
+# test auth hook full process with certonly command
+#    certbot revoke --staging --non-interactive --cert-name example.com
+#    certbot certonly --preferred-challenges dns --manual --manual-auth-hook /auth.py --manual-cleanup-hook /auth.py --staging --non-interactive -d example.com
+# renew container: docker run -d --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine my/certbot:1
+# update auth hook: docker cp certbot-auth-hook.py acme1:/auth.py
+# update setup script: docker cp certbot-create-cert.py acme1:/create.py
+# update schedule script: docker cp certbot-renew-schedule.py acme1:/schedule.py
+# update deploy hook: docker cp certbot-deploy-hook.py acme1:/etc/letsencrypt/renewal-hooks/deploy/deploy.py
 ENTRYPOINT ["/schedule.py"]
 
 # reference https://github.com/docker-library/postgres/blob/master/18/alpine3.23/Dockerfile

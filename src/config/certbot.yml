@@ -1,0 +1,2 @@
+# for now only cloudflare api key to use in dns plugin
+cloudflare-api-token: '?'

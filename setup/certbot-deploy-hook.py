@@ -1,5 +1,5 @@
 #!/usr/local/bin/python
-import os, socket
+import os, pathlib, socket
 
 # certbot renew deploy hook which calls reload-certificate admin interface function
 
@@ -7,14 +7,18 @@ import os, socket
 # so this script always call the rpc function regardless of the parameter,
 # because that side (src/core/index.ts) always check all the certificates to update
 
-SOCKET_PATH = '/run/fine/fine.socket'
-if not os.path.exists(SOCKET_PATH):
+if 'FINE_SOCKET_DIR' not in os.environ:
+    print('deploy.py: missing FINE_SOCKET_DIR, don\'t forget to set var if you are manual testing')
+    exit(1)
+socket_dir = pathlib.Path(os.environ['FINE_SOCKET_DIR'])
+socket_path = socket_dir / 'fine.socket'
+if not socket_path.exists():
     print('deploy.py: socket file not found, skip')
     exit()
 
 connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:
-    connection.connect(SOCKET_PATH)
+    connection.connect(str(socket_path))
 except Exception as ex:
     print('deploy.py: failed to connect', ex)
     exit(1)
