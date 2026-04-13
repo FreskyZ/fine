@@ -1,0 +1,23 @@
+{
+  // Visit https://aka.ms/tsconfig to read more about this file
+  // this file is for vscode typescript language server,
+  // which fails to respect vscode js/ts.implicitProjectConfig setting after typescript 6.0,
+  // so have to use a real tsconfig.json to suppress that,
+  // no need to check all options precisely, it's done in script/components/typescript.ts not here
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "noUncheckedIndexedAccess": true,
+    "strictNullChecks": false,
+    "exactOptionalPropertyTypes": false,
+    "strict": false,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+  }
+}

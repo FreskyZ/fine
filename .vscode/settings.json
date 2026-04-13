@@ -1,7 +1,3 @@
 {
-    "js/ts.format.semicolons": "insert",
-    "js/ts.implicitProjectConfig.strict": false,
-    "js/ts.implicitProjectConfig.strictNullChecks": false,
-    "js/ts.implicitProjectConfig.target": "ESNext",
     "emmet.showExpandedAbbreviation": "never",
 }

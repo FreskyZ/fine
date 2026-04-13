@@ -473,6 +473,9 @@ these items are arbitrary ordered without categorization
 - implicit conversion issue,
   for text column with \d contents, where text_column = number literal will raise error
   vs mysql and mssql's will convert text_column to number and failed to use index
+- get insert id `RETURNING "id"`, the id part is same syntax as select, can return anything from affected rows
+  vs mysql `LAST_INSERT_ID()`
+  vs mssql `SCOPE_IDENTITY()` or `@@IDENTITY` 
 
 the list is not exhausitive...
 

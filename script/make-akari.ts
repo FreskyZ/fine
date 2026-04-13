@@ -55,7 +55,6 @@ const adknames = [
     'access-types.d.ts',
     'action-types.d.ts',
     'error.ts',
-    'database.ts',
     'validate.ts',
     'ipc-server.ts',
     'notification.ts',
