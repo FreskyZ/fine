@@ -15,8 +15,10 @@ import utc from 'dayjs/plugin/utc.js'; // why does this need .js?
 
 // because initialize require utc, while index do not use dayjs, so put it here
 dayjs.extend(utc);
-// logs are in logs directory, there is no meaning to configure it
-const logsDirectory = '/var/log/fine';
+// logs directory are configured in compose.yml, or default to ./logs
+const logsDirectory = path.resolve(process.env['FINE_LOGS_DIR'] ?? 'logs');
+// print this in startup output in case some error happens, or else it will be complex to diagnose
+console.log(`logs directory ${logsDirectory}`);
 
 interface LoggerOptions {
     readonly postfix: string, // file name postfix
@@ -31,17 +33,15 @@ class Logger {
     private notFlushCount: number = 0;
     // not null only when have not flush count
     private notFlushTimeout: NodeJS.Timeout = null;
+    public constructor(private readonly options: LoggerOptions) {}
 
-    constructor(private readonly options: LoggerOptions) {}
-
-    init() {
+    public init() {
         // no need mkdir-p because it is now volume mapped
         // syncfs.mkdirSync('logs', { recursive: true });
         this.handle = syncfs.openSync(path.join(logsDirectory,
             `${this.time.format('YYMMDD')}${this.options.postfix}.log`), 'a');
     }
-
-    deinit() {
+    public deinit() {
         if (this.handle) {
             syncfs.fsyncSync(this.handle);
             if (this.notFlushTimeout) {
@@ -51,7 +51,7 @@ class Logger {
         }
     }
 
-    flush() {
+    public flush() {
         // no if this.handle: according to flush strategy,
         // this function will not be called with this.handle == 0
 
@@ -71,8 +71,7 @@ class Logger {
             this.notFlushCount = null;
         }
     }
-
-    cleanup() {
+    public cleanup() {
         for (const filename of syncfs.readdirSync(logsDirectory)) {
             const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYMMDD');
             if (date.isValid() && date.add(this.options.reserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
@@ -85,7 +84,7 @@ class Logger {
         }
     }
 
-    write(c: string | object) {
+    public write(c: string | object) {
         if (!this.handle) {
             this.init();
         }

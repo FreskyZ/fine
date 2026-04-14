@@ -72,7 +72,8 @@ class RateLimit {
     }
 }
 
-const config = yaml.parse(await fs.readFile('/etc/fine/akari.yml', 'utf-8')) as {
+const configPath = path.resolve(process.env['FINE_CONFIG_DIR'] ?? '', 'akari.yml');
+const config = yaml.parse(await fs.readFile(configPath, 'utf-8')) as {
     domain: string,
 };
 // TODO do I need fullchain.perm for now?

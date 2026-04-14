@@ -13,7 +13,7 @@ import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shar
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import type { StaticContentConfig, ServerProviderConfig } from './content.js';
-import { setupWebroot, setupStaticContent, setupContentServers } from './content.js';
+import { setupStaticContent, setupContentServers } from './content.js';
 import { handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, setupDatabase } from './access.js';
 import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
@@ -34,12 +34,10 @@ process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
-    webroot: string,
     database: PoolConfig,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
 };
-setupWebroot(config.webroot);
 await setupStaticContent(config['static-content']);
 await setupContentServers(config.servers);
 setupDatabase(config.database);
@@ -47,7 +45,7 @@ setupAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);
 
 // admin interface
-const socketpath = '/run/fine/fine.socket';
+const socketpath = path.resolve(process.env['FINE_SOCKET_DIR'] ?? '', 'fine.socket');
 if (syncfs.existsSync(socketpath)) {
     await fs.unlink(socketpath);
 }

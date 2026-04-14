@@ -80,6 +80,9 @@ services:
     entrypoint: node index.js
     environment:
       # make absolute paths more centralized
+      FINE_WEBROOT: /var/fine
+      FINE_LOGS_DIR: /var/log/fine
+      FINE_SOCKET_DIR: /run/fine
       FINE_CONFIG_DIR: /etc/fine
     ports:
       - 80:80

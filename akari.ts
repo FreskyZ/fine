@@ -902,9 +902,8 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyP
 // messenger: message sender abbreviated as messenger
 
 // use this to avoid global variables because currently no other major global variables used
-/* eslint-disable @stylistic/quote-props -- ? */
 interface MessengerContext {
-    '?'?: boolean, // ?
+    initialized?: boolean,
     readline: Interface,
     connection?: WebSocket,
     // id to waker (the promise resolver)
@@ -1120,19 +1119,9 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 
 // return true for connected
 async function connectRemote(ecx: MessengerContext) {
-    if (!ecx['?']) {
-        // ???
-        // const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
-        // const originalCreateSecureContext = tls.createSecureContext;
-        // tls.createSecureContext = options => {
-        //     const originalResult = originalCreateSecureContext(options);
-        //     if (!options.ca) {
-        //         originalResult.context.addCACert(myCertificate);
-        //     }
-        //     return originalResult;
-        // };
-        ecx['?'] = true;
-        // this place exactly can use to initialize member fields
+    if (!ecx.initialized) {
+        ecx.initialized = true;
+        ecx.connection = null;
         ecx.reconnectCount = 0;
         ecx.nextMessageId = 1;
         ecx.wakers = {};
@@ -1160,6 +1149,7 @@ async function connectRemote(ecx: MessengerContext) {
         });
         websocket.addEventListener('close', async () => {
             logInfo('tunnel', `websocket disconnected`);
+            ecx.connection = null;
             if (!reconnectInvoked) {
                 ecx.reconnectCount += 1;
                 resolve(await connectRemote(ecx));
@@ -1168,6 +1158,7 @@ async function connectRemote(ecx: MessengerContext) {
         websocket.addEventListener('error', async () => {
             // this event have error parameter, but that does not have any meaningful property, so omit
             logError('tunnel', `websocket error`);
+            ecx.connection = null;
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));
@@ -1356,7 +1347,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY e0e1e966ea3711bdd3fe61f5df384c3ff4494407b6f888abb8c47f84bfeb10fe
+// END LIBRARY d63b165398cd9fe0486ac5edb1325000412e0573c2992241a52e3d32151f6182
 
 dayjs.extend(utc);
 
@@ -1612,4 +1603,6 @@ dispatch(process.argv.slice(2));
 // and common upload/download commands
 // update compose.yml: upload setup/docker-compose.yml:/self/compose.yml
 // upload package.json: upload package.json && upload package-lock.json && npm i --omit=dev
-// upload core config: upload /etc/fine/core.yml
+// upload content config: upload real-content.yml:/etc/fine/content.yml
+// download error log: download /var/log/fine/260414E.log:260414E.log
+// self: !node script/make-akari.ts .

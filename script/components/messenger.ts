@@ -6,9 +6,8 @@ import type { MyPackContext } from './mypack.ts';
 // messenger: message sender abbreviated as messenger
 
 // use this to avoid global variables because currently no other major global variables used
-/* eslint-disable @stylistic/quote-props -- ? */
 interface MessengerContext {
-    '?'?: boolean, // ?
+    initialized?: boolean,
     readline: Interface,
     connection?: WebSocket,
     // id to waker (the promise resolver)
@@ -224,19 +223,9 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 
 // return true for connected
 export async function connectRemote(ecx: MessengerContext) {
-    if (!ecx['?']) {
-        // ???
-        // const myCertificate = await fs.readFile(scriptconfig.certificate, 'utf-8');
-        // const originalCreateSecureContext = tls.createSecureContext;
-        // tls.createSecureContext = options => {
-        //     const originalResult = originalCreateSecureContext(options);
-        //     if (!options.ca) {
-        //         originalResult.context.addCACert(myCertificate);
-        //     }
-        //     return originalResult;
-        // };
-        ecx['?'] = true;
-        // this place exactly can use to initialize member fields
+    if (!ecx.initialized) {
+        ecx.initialized = true;
+        ecx.connection = null;
         ecx.reconnectCount = 0;
         ecx.nextMessageId = 1;
         ecx.wakers = {};
@@ -264,6 +253,7 @@ export async function connectRemote(ecx: MessengerContext) {
         });
         websocket.addEventListener('close', async () => {
             logInfo('tunnel', `websocket disconnected`);
+            ecx.connection = null;
             if (!reconnectInvoked) {
                 ecx.reconnectCount += 1;
                 resolve(await connectRemote(ecx));
@@ -272,6 +262,7 @@ export async function connectRemote(ecx: MessengerContext) {
         websocket.addEventListener('error', async () => {
             // this event have error parameter, but that does not have any meaningful property, so omit
             logError('tunnel', `websocket error`);
+            ecx.connection = null;
             reconnectInvoked = true;
             ecx.reconnectCount += 1;
             resolve(await connectRemote(ecx));

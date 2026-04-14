@@ -19,8 +19,7 @@ import { log } from './logger.js';
 // for the get part, while the actual 301/307 is not going to be supported in concrete apps,
 // it must be somewhere in core module, auth is already complex, forward is already kind of magic, so it is here
 
-let webroot: string;
-export function setupWebroot(value: string) { webroot = value; }
+const webroot = process.env['FINE_WEBROOT'] ?? '/var/fine';
 
 // content and access both use this config item, put it here because first used here
 export type ServerProviderConfig = Record<string, {
