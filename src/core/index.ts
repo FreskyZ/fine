@@ -3,10 +3,12 @@ import syncfs from 'node:fs';
 import http from 'node:http';
 import http2 from 'node:http2';
 import net from 'node:net';
+import path from 'node:path';
 import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import type { PoolConfig } from 'pg';
+import yaml from 'yaml';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
@@ -33,7 +35,6 @@ process.on('unhandledRejection', handleProcessRejection);
 
 const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
     webroot: string,
-    certificates: CertificateConfig,
     database: PoolConfig,
     'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
@@ -64,8 +65,22 @@ const adminInterfaceHandlers = [
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
     adminInterfaceConnections.push(connection);
-    const sendResponse = (id: number, result: AdminInterfaceResult) => { connection.write(JSON.stringify({ id, ...result })); };
 
+    const sendResponse = (id: number, result: AdminInterfaceResult) => {
+        if (Array.isArray(result.logs)) {
+            for (let index = 0; index < result.logs.length; index += 1) {
+                if (result.logs[index] instanceof Error) {
+                    // error by default is not stringified because these properties are enumerable: false
+                    result.logs[index] = {
+                        name: result.logs[index].name,
+                        message: result.logs[index].message,
+                        stack: result.logs[index].stack,
+                    };
+                }
+            }
+        }
+        connection.write(JSON.stringify({ id, ...result }));
+    };
     connection.on('close', () => {
         adminInterfaceConnections.splice(adminInterfaceConnections.indexOf(connection), 1);
     });
@@ -92,7 +107,7 @@ adminServer.on('connection', connection => {
             shutdown();
             return;
         } else if (command.kind == 'reload-certificate') {
-            await setupCertificates(JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')).certificates);
+            await setupCertificates();
             return sendResponse(command.id, { status: 'ok', logs: ['reloaded certificates', httpsCertificates] });
         }
         for (const handler of adminInterfaceHandlers) {
@@ -113,20 +128,17 @@ adminServer.on('connection', connection => {
     });
 });
 
-const httpServer = http.createServer((request, response) => {
-    response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
-});
-
-type CertificateConfig = { [domain: string]: { wildcard: boolean } };
+const domainsConfigPath = path.resolve(process.env['FINE_CONFIG_DIR'] ?? '', 'domains.yml');
 let httpsCertificates: { domain: string, context: tls.SecureContext }[] = [];
-async function setupCertificates(certificates: CertificateConfig) {
+async function setupCertificates() {
+    // only domain name (object keys) is used here, so no need to write complete type
+    const domains = Object.keys(yaml.parse(await fs.readFile(domainsConfigPath, 'utf-8')));
 
     // TODO do I need fullchain for now?
     const getKeyFilePath = (n: string) => `/etc/letsencrypt/live/${n}/privkey.pem`;
     const getCertFilePath = (n: string) => `/etc/letsencrypt/live/${n}/fullchain.pem`;
+    const files = domains.map(domain => [getKeyFilePath(domain), getCertFilePath(domain)]).flat();
 
-    const files = Object.keys(certificates)
-        .map(domain => [getKeyFilePath(domain), getCertFilePath(domain)]).flat();
     // tolerate read file error, one certificate error should not affect other domains
     const contents = Object.fromEntries((await Promise.all(files.map(async path => {
         try {
@@ -137,7 +149,7 @@ async function setupCertificates(certificates: CertificateConfig) {
         }
     }))).filter(x => x));
 
-    httpsCertificates = Object.keys(certificates).map(domain => {
+    httpsCertificates = domains.map(domain => {
         const [keyPath, certPath] = [getKeyFilePath(domain), getCertFilePath(domain)];
         if (!contents[keyPath]) {
             log.error({ cat: 'certificate', message: 'skip origin because read certificate error', domain, keyPath });
@@ -149,8 +161,11 @@ async function setupCertificates(certificates: CertificateConfig) {
         return { domain, context: tls.createSecureContext({ key: contents[keyPath], cert: contents[certPath] }) };
     }).filter(x => x);
 }
+await setupCertificates();
 
-await setupCertificates(config.certificates);
+const httpServer = http.createServer((request, response) => {
+    response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
+});
 const httpsServer = http2.createSecureServer({
     SNICallback: (servername, callback) => {
         const splitted = servername.split('.');

@@ -78,18 +78,31 @@ services:
     container_name: fine1
     working_dir: /var/fine
     entrypoint: node index.js
+    environment:
+      # make absolute paths more centralized
+      FINE_CONFIG_DIR: /etc/fine
     ports:
       - 80:80
       - 443:443
     volumes:
       - fine-program:/var/fine:ro
-      - node_modules:/var/fine/node_modules
+      # TODO does this work
+      - node_modules:/var/fine/node_modules:ro
       - fine-sockets:/run/fine
-      - database-sockets:/run/pgsql
+      - database-sockets:/run/pgsql:ro
       - fine-logs:/var/log/fine
       - certificates:/etc/letsencrypt:ro
       - fine-public:/var/fine/public:ro
-      - fine-configs:/etc/fine:ro
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/config.json
+        volume: { subpath: config.json }
+        read_only: true
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/domains.yml
+        volume: { subpath: domains.yml }
+        read_only: true
     # main program does not depend on database running (serve static contents)
     # main program does not depend on certificate renewer running (only depend on file exists)
 
