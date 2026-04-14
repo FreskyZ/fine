@@ -1,17 +1,20 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import dayjs from 'dayjs';
-import pg from 'pg';
 import {} from 'dayjs/plugin/utc.js'; // need empty include to add type
 import type * as koa from 'koa';
+import pg from 'pg';
+import yaml from 'yaml';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { RateLimit } from '../shared/ratelimit.js';
 
-const config = JSON.parse(await fs.readFile('/etc/fine/config.json', 'utf-8')) as {
+const configPath = path.resolve(process.env['FINE_CONFIG_DIR'] ?? '', 'short-link.yml');
+const config = yaml.parse(await fs.readFile(configPath, 'utf-8')) as {
+    domain: string,
     database: pg.PoolConfig,
-    'short-link': { domain: string }, // for now only a domain in config
 };
-const pool = new pg.Pool({ ...config.database });
-// pg.types is the same as in core/index.ts, should not set type parser again
+const pool = new pg.Pool(config.database);
+// pg.types is the same as in core/index.ts, should not set type parser again for in process servers
 
 interface ShortLinkData {
     id: number,
@@ -27,7 +30,7 @@ const ratelimit = new RateLimit('shortlink', 10, 1);
 const cleanupInterval = setInterval(() => ratelimit.cleanup(), 3600_000);
 
 export async function handleRequest(ctx: koa.Context): Promise<boolean> {
-    if (ctx.host != config['short-link'].domain) { return false; }
+    if (ctx.host != config.domain) { return false; }
 
     const redirect = (location: string) => {
         ctx.status = 307;
@@ -69,7 +72,7 @@ export async function handleRequest(ctx: koa.Context): Promise<boolean> {
     return true;
 }
 
-export async function cleanup() {
+export async function handleClenaup() {
     await pool.end();
     cache.items = [];
     ratelimit.cleanup();

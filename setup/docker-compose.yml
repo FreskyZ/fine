@@ -103,6 +103,12 @@ services:
         target: /etc/fine/domains.yml
         volume: { subpath: domains.yml }
         read_only: true
+      # NOTE in process servers need their config files manually add here TODO is this good?
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/short-link.yml
+        volume: { subpath: short-link.yml }
+        read_only: true
     # main program does not depend on database running (serve static contents)
     # main program does not depend on certificate renewer running (only depend on file exists)
 

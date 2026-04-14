@@ -1,0 +1,9 @@
+# short link domain
+domain: short-example.com
+# short link database connection
+database:
+  host: /run/pgsql
+  port: 5432
+  user: fine
+  password:
+  database: fine
