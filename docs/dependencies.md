@@ -1,6 +1,10 @@
-# Markdown Libraries
+# Dependencies
 
-ATTENTION this document is WORK IN PROGRESS
+dependencies technical selection and supply chain security?
+
+## Markdown Library
+
+ATTENTION this section is WORK IN PROGRESS
 
 Some of the apps use markdown and render markdown in react.
 
@@ -58,3 +62,15 @@ const inlineProcessedContent = blockProcessedContent.replace(
 );
 return inlineProcessedContent;
 }; also see https://github.com/remarkjs/react-markdown/issues/785 */}
+
+## YAML library
+
+yaml https://github.com/eemeli/yaml vs js-yaml https://github.com/nodeca/js-yaml
+
+- yaml have 126m weekly downloads, js-yaml have 181m weekly downloads, as of April 2026
+- yaml have 1.7k star, js-yaml have 6.6k star, as of April 2026
+- yaml readme example is using import syntax, js-yaml readme example is using require syntax
+- yaml use js style method name parse/stringify, js-yaml use python style method name load
+- yaml say it passes https://github.com/yaml/yaml-test-suite, js-yaml no say
+- yaml have types, js-yaml does not have types and need @types/js-yaml
+- yaml support preserve comments (or concrete syntax tree) so that you can edit a file with comments and write it back

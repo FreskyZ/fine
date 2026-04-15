@@ -476,6 +476,9 @@ these items are arbitrary ordered without categorization
 - get insert id `RETURNING "id"`, the id part is same syntax as select, can return anything from affected rows
   vs mysql `LAST_INSERT_ID()`
   vs mssql `SCOPE_IDENTITY()` or `@@IDENTITY` 
+- integer division SELECT 5 / 2 result in 2, floating point division 5.0 / 2 result in 2.5
+  vs mysql division SELECT 3 / 5 result in 0.6, integer division 5 DIV 2 result in 2
+  vs mssql same
 
 the list is not exhausitive...
 
