@@ -10,10 +10,21 @@ import type { RequestState } from '../shared/action-types.js';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { MyError } from '../shared/error.js';
 import { RateLimit } from '../shared/ratelimit.js';
-import type { ServerProviderConfig } from './content.js';
 
 // see docs/authentication.md
 // handle sign in, sign out, sign up and user info requests, and dispatch app api
+
+export type ServerProviderConfig = Record<string, {
+    // in format `appname.example.com` or `app.example.com`,
+    // no 'https://' prefix, no '/' postfix,
+    // `app.example.com` means this is on `https://app.example.com/appname`
+    // actions server will validate origin or referrer, content server does not use this
+    host: string,
+    // content server provider, nodejs script path
+    content: string,
+    // actions server provider, in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
+    actions: string,
+}>;
 
 let pool: pg.Pool;
 export function setupDatabase(config: pg.PoolConfig) {

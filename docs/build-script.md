@@ -239,10 +239,6 @@ rebuild, automatically deploy and hot reload, and automatically reloads web page
 of lacking file system watching works quite well and I don't need to avoid saving file when I don't want to the
 automatic process starting.
 
-By the way, (because seems no other place to talk about this), core module static content handling does not use file
-system watching, because that's too unreliable for the purpose, I struggled very long time in old days and finally
-settled down at the current fully external command triggered hot reloading design.
-
 ### TypeScript
 
 The typescript module is simple for now, you `ts.createProgram`, then `program.emit`, use the second parameter of the

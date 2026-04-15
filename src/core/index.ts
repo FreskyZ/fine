@@ -12,9 +12,8 @@ import yaml from 'yaml';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
-import type { StaticContentConfig, ServerProviderConfig } from './content.js';
-import { setupStaticContent, setupContentServers } from './content.js';
-import { handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
+import { setupContentControl, handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
+import type { ServerProviderConfig } from './access.js';
 import { setupAccessControl, setupDatabase } from './access.js';
 import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
 import { setupInterProcessActionServers, handleRequestActionServer, handleActionsCommand } from './action.js';
@@ -33,13 +32,11 @@ app.use(() => { throw new Error('unreachable'); }); // assert route correctly ha
 process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
+await setupContentControl();
 const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
     database: PoolConfig,
-    'static-content': StaticContentConfig,
     servers: ServerProviderConfig,
 };
-await setupStaticContent(config['static-content']);
-await setupContentServers(config.servers);
 setupDatabase(config.database);
 setupAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);

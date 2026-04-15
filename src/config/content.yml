@@ -1,0 +1,38 @@
+# static content items
+static:
+  # example home page
+  example.com:
+    # . for root virtual path
+    .: home.html
+    index.css: home.css
+    '404': 404.html
+    '418': 418.html
+  # app subdomain may be used to hold multiple small apps
+  app.example.com:
+    .: home.html
+    small-app1: chat.html
+    small-app2: note.html
+  # not small apps may use dedicated subdomain
+  app3.example.com:
+    .: app3/index.html
+    index.js: app3/index.js
+    # * matches other all
+    '*': 404.html
+  app4.example.com:
+    .: app4/index.html
+    # or map wildcard to path ends with wildcard (rewrite path?)
+    '*': app4/*
+  app5.example.com:
+    .: app4/index.html
+    # or map wildcard to path not ends with wildcard (front end routing)
+    'shared/*': app4/shared.html
+  # configure for multiple domains
+  example-2.com:
+    .: index2.html
+  short-example.com:
+    .: short.html
+
+# external content providers
+external:
+  short-link:
+    module: ./servers/short-link.js

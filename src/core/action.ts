@@ -4,7 +4,7 @@ import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admi
 import type { ActionServerRequest, ActionServerResponse } from '../shared/action-types.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
-import type { ServerProviderConfig } from './content.js';
+import type { ServerProviderConfig } from './access.js';
 import type { MyContext, ActionServerProvider } from './access.js';
 import { actionServerProviders } from './access.js';
 
