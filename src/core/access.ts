@@ -18,7 +18,7 @@ import { RateLimit } from '../shared/ratelimit.js';
 // include authentication sign in, sign out, sign up, user info, etc. related actions
 // also see docs/authentication.md
 
-interface RequestState {
+interface ContextState {
     // try use same request time
     time: dayjs.Dayjs,
     // user and session info, or is public api
@@ -29,7 +29,7 @@ interface RequestState {
     appconfig: ApplicationConfig,
 }
 // my access control context, abbreviated mycontext
-export type MyContext = koa.ParameterizedContext<RequestState>;
+export type MyContext = koa.ParameterizedContext<ContextState>;
 
 interface ApplicationConfig {
     name: string,

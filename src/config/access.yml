@@ -14,3 +14,7 @@ applications:
     # or use other subdomain to host the service, subdomain may not be same as service name
     host: app3coolsubdomain.example.com
     socket: /etc/app3/app3.socket
+  # see src/servers/demoapi.js
+  demo:
+    host: app.example.com
+    module: ./servers/demoapi.js

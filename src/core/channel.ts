@@ -272,6 +272,7 @@ export async function handleRequestApplicationServer(ctx: MyContext): Promise<vo
         time: ctx.state.time.toISOString(),
         userId: ctx.state.userId,
         method: ctx.method,
+        // skip the /{appname} prefix, not /{appname}/, or else the result will not start with /
         path: ctx.URL.pathname.substring(ctx.state.appconfig.name.length + 1),
         query: ctx.URL.search,
         body: ctx.request.body,
