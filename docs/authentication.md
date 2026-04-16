@@ -1,28 +1,31 @@
 # Authentication
 
-- Some applications are private and require authentication
-  or [Identity and Access Management (IAM)](https://learn.microsoft.com/en-us/entra/fundamentals/identity-fundamental-concepts).
-- To avoid duplicating IAM work in each application,
-  [Single Sign-On (SSO)](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/what-is-single-sign-on) is used.
-- SSO is a concept that requires concrete protocols and implementations.
-  In this project, [OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749)
-  and [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html) are not used.
+- first, some applications are private and require access control or Identity and Access Management (IAM),
+  also see https://www.cloudflare.com/learning/access-management/what-is-identity-and-access-management/
+- to avoid duplicating IAM work in each application, use Single Sign-On (SSO),
+  also see https://www.cloudflare.com/learning/access-management/what-is-sso/
+- SSO is a concept that requires concrete protocols and implementations,
+  in this project, OAuth 2.0 https://datatracker.ietf.org/doc/html/rfc6749
+  and OpenID Connect https://openid.net/specs/openid-connect-core-1_0.html are **NOT** used.
 
 ### OAuth 2.0 and OpenID Connect
 
-OAuth 2.0 is an industry-standard protocol for authorization, allowing applications to securely access resources
-on a user's behalf without sharing credentials. It provides a framework for delegated access, enabling users to
-grant limited permissions to third-party applications. OpenID Connect extends OAuth 2.0 with an identity layer,
-supporting authentication in addition to authorization. This enables applications to verify user identities and
-obtain basic profile information securely and consistently, making OAuth 2.0 and OpenID Connect fundamental to
-modern identity management.
+OAuth 2.0 is an *authorization* protocol, allow applications to securely access resources on a user's behalf,
+without directly sharing credentials, without immediately grant all permissions to 3rd party libraries with
+user configured scope limitation. OpenID Connect extends OAuth 2.0 with an identity layer, support
+*authentication* in addition to authorization. This enables applications to verify user identities and obtain
+basic profile information securely and consistently, making OAuth 2.0 and OpenID Connect widely used in modern
+identity management.
 
-OAuth 2.0 and OIDC is not used here because they do not fit the requirements. OAuth 2.0 is designed for scenarios
-involving three parties: an authorization server, a resource server, and a client. In this program, I'd like to
-manage users directly and typically use the same server for both the authentication and application proxy.
-The resource server concept is primarily for authorization, which is not needed here, and OIDC adds further
-complexity with additional protocol requirements and protection from more attack surfaces that are not relevant
-to this setup. Additionally, the use of the "JW*" family of standards
+> by the way, you can now oauth and oidc authenticate into postgresql
+
+OAuth 2.0 and OIDC is not used here because they do not fit the requirements. OAuth 2.0 is designed with *3*
+involving parties: an authorization server, a resource server, and a client. This project manage users on its
+own and use the same server for both the authentication, authorization and application proxy. The resource
+server concept is primarily for authorization, which is not needed here, and OIDC adds further complexity with
+additional protocol requirements and protection from more attack surfaces that are not relevant to this setup.
+
+Additionally, the use of the JW* family of standards
 
 - [JWS](https://datatracker.ietf.org/doc/html/rfc7515)
 - [JWE](https://datatracker.ietf.org/doc/html/rfc7516)
@@ -30,12 +33,11 @@ to this setup. Additionally, the use of the "JW*" family of standards
 - [JWA](https://datatracker.ietf.org/doc/html/rfc7518)
 - [JWT](https://datatracker.ietf.org/doc/html/rfc7519)
 
-requires complex cryptographic operations and specialized libraries. Open source implementations like
-[authentik](https://goauthentik.io/) and [authelia](https://www.authelia.com/) are comprehensive frameworks
-covering everything from database to UI, highlighting the overall complexity of these protocols.
+requires complex cryptographic operations and specialized libraries, open source implementations
+like [authentik](https://goauthentik.io/) and [authelia](https://www.authelia.com/) is very complex
+to learn and configure, indicating the complexity of these protocols
 
-> By the way, Cross Subdomain Single sign-on based on Cookie (CSSC)
-
+By the way, about Cross Subdomain Single sign-on based on Cookie (CSSC),
 If you blame this document you might notice I never managed to implement CSSC. While cookies are supposed
 to work across subdomains, browsers seem to *hate* this feature and rarely respect it in practice. I suspect
 browsers have a long-standing grudge against cookies - after all, in the early days of frontend engineering,
@@ -49,41 +51,44 @@ OIDC, I finally discovered the real answer to sharing authentication across subd
 
 ### OIDC Workflow
 
-for reference
+for reference and comparison
 
 1. An end user attempts to access a protected service.
 2. The Relying Party (RP, also known as the Client) initiates an authentication request by redirecting the
   user's browser to the OpenID Provider (OP, the authorization server). The request includes parameters:
-  - `scope`: Specifies the requested permissions; must include `openid` for OIDC.
-  - `response_type`: Typically set to `code` to indicate the authorization code flow.
-  - `client_id` and `redirect_uri`: Identify and validate the client and specify where the OP should send the response.
-  - `state`: A unique value to prevent CSRF attacks and maintain request integrity.
-3. The user authenticates with the OP, for example by entering a username and password or using another
-   authentication method and may include use of 2FA or MFA.
+  - `scope`: Specifies the requested permissions; must include `openid` for OIDC
+  - `response_type`: Typically set to `code` to indicate the authorization code flow
+  - `client_id` and `redirect_uri`: Identify and validate the client and specify OP return address
+  - `state`: A unique value to prevent CSRF attacks and maintain request integrity
+3. The user authenticates with the OP, for example by entering a username and password
+  or using other authentication schemes and may include use of 2FA or MFA.
 4. Upon successful authentication, the OP redirects the user back to the RP's `redirect_uri`,
-   including a temporary authorization code and the original `state` value.
+  including a temporary authorization code and the original `state` value.
 5. The RP's backend exchanges the authorization code for tokens by making a secure
-   server-to-server request to the OP, authenticating itself with its client credentials. The OP responds with:
+  server-to-server request to the OP, authenticating itself with its client credentials. The OP responds with:
   - An ID token (containing user identity claims)
   - An access token (for accessing protected resources)
   - Optionally, a refresh token
-6. The RP validates the ID token’s claims (such as `iss`, `sub`, `aud`, `exp`, `iat`) to ensure authenticity
-   and integrity, then uses the access token to request additional user information from the OP’s userinfo endpoint
-   if needed. The authentication process is now complete, and the RP can proceed with authorization as required.
+6. The RP validates the ID token's claims (such as `iss`, `sub`, `aud`, `exp`, `iat`) to ensure authenticity
+  and integrity, then uses the access token to request additional user information from the OP's userinfo endpoint
+  if needed.
+
+The authentication process is now complete, the RP can now proceed to access the resource with access token,
+optionally refresh the access token with refresh token
 
 ### Workflow
 
-the actual workflow implemented here
+the actual workflow implemented for this project
 
-1. An end user attempts to access a protected service.
+1. An end user attempts to access a private application.
 2. The application (app1.example.com) redirects end user to identity provider (id.example.com),
-   parameters only include `return=app1`, the return address will be calculated from this,
-   no need to use state parameter because if I accidentally save information to another user, I can fix that in db
+  parameters only include return address `return=https://${location.host}`,
+  no need to use state parameter, the allowed clients are all good and can be trusted
 3. The user authenticates with the identity provider
 4. Upon successful authentication, the identity provider returns to the application with a temporary authorization
    code (app1.example.com?code=randomhexvalue), the application server (or the identity provider server, this is not
    important here) directly checks valid authorization codes and issue an access token to the application client side
-5. The application use the access token to access its own api
+5. The application use the access token to access its api and resources
 
 ### Design Principles
 
@@ -92,11 +97,11 @@ the actual workflow implemented here
   so the ui is at `id.example.com`, no need to put ui at each application,
   this subdomain also looks better then auth.example.com or login.example.com
 - if `id.example.com` is opened with ?return, it will return when or after signed in,
-  if opened with no parameter, it is a user management page
+  if opened without such parameter, it is a user profile page
 - application may open with pathname and query, it should save the pathname or other state before redirection
   and recover after authenticated if need, this makes identity provider parameter looks better
 - no static password, only authenticator password (otp password),
-  when you don't have normal fixed password, you don't have to remember that and cannot leak password
+  when you don't have normal fixed password, you don't have to remember a password and cannot leak the password
 - identity provider's access token is stored at localstorage is long lived and auto refresh and
   stored in database, same as before
 - still use authorization code, not directly send token back, because showing the token on the user
@@ -105,8 +110,10 @@ the actual workflow implemented here
   it is one time use, any usage will invalidate the authorization code, include error
 - use random hex value token, no need to use jwt to convey user information,
   application can directly call the user information api to get user information,
-  jwt is designed for stateless, but to implement revoke feature you always need to store which
-  makes stateless feature meaningless
+  jwt is designed for stateless, but to support revoke, you always need to store which makes stateless design
+  meaningless, also there is a pattern that if a used authorization code is used again, it indicates a compromise
+  in the authentication process and you should revoke the access, this also need to save state, making
+  the jwt concept more meaningless
 - still auto refresh access token at server side, eliminate the requirements to refresh token workflow
 - application's access token is stored in memory and not in localstorage or similar storage,
   open page will automatically require new access token, this token is stored in server memory not database
@@ -168,63 +175,70 @@ CREATE TABLE "user_session" (
 
 ### API Reference
 
-TODO this api list is not complete and may contain outdated information,
-you may update this to a not this manual flavor format
+some of the related actions, may not be complete and may be out of date
 
-- `POST /api/signin`
-  - allow origin id.example.com
-  - use request header `authorization: Basic {base64 encoded username:password}`
-  - response status `200` body `{ accessToken: string }`
-  - expected errors include
-    - 400 username or password cannot be empty
-    - 400 unknown user or incorrect password
-  - always creates new device
-
-- `GET /api/signup/:username`
-  - allow origin id.example.com
-  - response body `{ data: string }` string is data url
-  - generate random authenticator token and return qr code image
-  - qrcode content `otpauth://totp/example.com:USERNAME?secret=SECRET&period=30&digits=6&algorithm=SHA1&issuer=example.com`
+- POST id.example.com/signin
+  - request header `authorization: Basic {base64 encoded username:password}`
+  - return 200 { accessToken: string }
+  - error 400 invalid user name or password (empty value, not exist user, inactive user, etc.)
+- GET id.example.com/signup
+  - return 200 { a: boolean } indicate allow sign up
+- GET id.example.com/signup?name={username}
+  - check user name
+  - generate an otp secret and return the secret and otp url as image as dataurl
+  - return 200 { secret: string, dataurl: string }
+  - error 400 empty user name
+  - error 400 user name already exists
+  - in theory should return an opaque id of secret to avoid secret leak, but not needed lazy for now
+  - path should change to POST /prepare-signup?
+- POST id.example.com/signup
+  - request header `authorization: Basic {base64 encoded username:secret:password}`
+  - return 200 { accessToken: string }
+  - error 400 empty user name
+  - error 400 user name already exists
+  - error 400 invalid password
   - this name is signup instead of register/adduser beceause it is same length as signin and have same beginning as signin
-
-- `POST /api/signup`
-  - allow origin id.example.com
-  - use request header `authorization: Basic {base64 encoded username:secret:password}`
-  - response status `200` body `{ accessToken: string }`
-  - expected errors include
-    - 400 invalid user name
-    - 400 incorrect password
-  - creates new device (sign in) at the same time
-
-- `GET /api/user-credential`
-  - allow origin id.example.com and app.example.com
-  - request authorization header `authorization: Bearer token`, all apis except signin/signup need this header
-  - response status `200` body `{ id: number, name: string, deviceId: number, deviceName: string }`
-
-- `PATCH /api/user-credential`
-  - allow origin id.example.com
-  - request body `{ name: string }`
-  - response status `201`
+- GET id.example.com/user-credential
+  - require authentication
+  - return 200 { id: number, name: string, sessionId: number, sessionId: string }
+- PATCH id.example.com/user-credential
+  - require authentication
+  - body { name: string }
   - update user name
-
-- `GET /api/user-devices`
-  - allow origin id.example.com
-  - response status `200` body `{ id: number, name: string }[]`
-
-- `PATCH /api/user-devices/:deviceid`
-  - allow origin id.example.com
-  - request body `{ name: string }`
-  - response status `201`
-  - update device name
-
-- `DELETE /api/user-devices/:deviceid`
-  - allow origin id.example.com
-  - remove an logged in user device
-  - if removed access token is id access token, this also log out id.example.com
-  - response status `204` (also for invalid deviceid)
-  - physical delete user device (same as `akari remove-device`)
-
-- `POST /api/signout`
-  - allow origin app.example.com
-  - response status `204`
-  - physically delete user device
+  - return 201
+  - error 400 user name already exist
+- GET id.example.com/user-sessions
+  - require authentication
+  - return 200 { id: number, name: string, lastAccessTime: string, lastAccessAddress: string }[]
+- PATCH id.example.com/user-sessions?id={session-id}
+  - require authentication
+  - body { name: string }
+  - update session name
+  - return 201
+  - error 400 invalid session id
+  - error 400 invalid session name
+- DELETE id.example.com/user-sessions?id={session-id}
+  - require authentication
+  - return 204
+  - revoke session
+  - error 400 invalid session id
+- POST id.example.com/generate-authorization-token
+  - require authentication
+  - body { return: string }
+  - validate return address and validate return address against user, create authorization code with 1min lifetime
+  - return 200 { code: string }
+  - error 403 user is not allowed to access the application
+- POST notid.example.com/signin
+  - request header `authorization: Basic {base64 encoded authorization code}`
+  - return 200 { accessToken: string }
+  - error 400 invalid authorization code
+  - error 401 (inactive user, app now allowed, revoked session)
+  - create application session, note this is same as session in id.example.com, this session is volatile
+- GET notid.example.com/user-credential
+  - require authentication
+  - return 200 { id: number, name: string }
+- POST notid.example.com/signout
+  - require authentication
+  - return 204
+  - sign out
+  - by the way, if you don't find id.example.com's sign out, that is DELETE user-session

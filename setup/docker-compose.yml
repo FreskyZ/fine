@@ -103,6 +103,11 @@ services:
         read_only: true
       - type: volume
         source: fine-configs
+        target: /etc/fine/access.yml
+        volume: { subpath: access.yml }
+        read_only: true
+      - type: volume
+        source: fine-configs
         target: /etc/fine/content.yml
         volume: { subpath: content.yml }
         read_only: true

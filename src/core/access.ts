@@ -1,58 +1,73 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import dayjs from 'dayjs';
 import koa from 'koa';
 import pg from 'pg';
 import * as otplib from 'otplib';
 import { crypto as OtplibCryptoPlugin } from '@otplib/plugin-crypto-node';
 import qrcode from 'qrcode';
-import type { UserSession } from '../shared/access-types.js';
-import type { RequestState } from '../shared/action-types.js';
+import yaml from 'yaml';
+import type { UserCredential, UserSession } from '../shared/access-types.js';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { MyError } from '../shared/error.js';
 import { RateLimit } from '../shared/ratelimit.js';
 
-// see docs/authentication.md
-// handle sign in, sign out, sign up and user info requests, and dispatch app api
+// access control, include authentication and some authorization
+// include authentication sign in, sign out, sign up, user info, etc. related actions
+// also see docs/authentication.md
 
-export type ServerProviderConfig = Record<string, {
-    // in format `appname.example.com` or `app.example.com`,
-    // no 'https://' prefix, no '/' postfix,
-    // `app.example.com` means this is on `https://app.example.com/appname`
-    // actions server will validate origin or referrer, content server does not use this
-    host: string,
-    // content server provider, nodejs script path
-    content: string,
-    // actions server provider, in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
-    actions: string,
-}>;
-
-let pool: pg.Pool;
-export function setupDatabase(config: pg.PoolConfig) {
-    pool = new pg.Pool({ ...config });
-    pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, value => dayjs(value));
+interface RequestState {
+    // try use same request time
+    time: dayjs.Dayjs,
+    // user and session info, or is public api
+    userId: number,
+    sessionId: number,
+    annonymous: boolean,
+    // result for basic authorization (whether user can access this app)
+    appconfig: ApplicationConfig,
 }
-
-// context and ctx.state used in this program,
-// they are assigned and used in this step or after this step, so put it here
+// my access control context, abbreviated mycontext
 export type MyContext = koa.ParameterizedContext<RequestState>;
 
-export interface ActionServerProvider {
-    readonly name: string,
-    readonly host: string,
-    readonly server: string,
-    version: number, // appended to dynamic import url to hot reload
+interface ApplicationConfig {
+    name: string,
+    host: string,
+    module?: string,
+    socket?: string,
 }
-export let actionServerProviders: ActionServerProvider[];
-export function setupAccessControl(config: ServerProviderConfig) {
-    actionServerProviders = Object.entries(config).filter(a => a[1].actions).map(c => ({
-        name: c[0],
-        host: c[1].host,
-        server: c[1].actions,
-        version: 0,
-    }));
-    ratelimits.apps = Object.fromEntries(actionServerProviders.map(a => [a.name, new RateLimit('access-control:apps', 10, 1)]));
+const allApplications: ApplicationConfig[] = [];
+
+interface AccessControlConfig {
+    database: pg.PoolConfig,
+    applications: Record<string, {
+        // value may be
+        // - app.example.com, this service is hosted on app.example.com/{appname}
+        // - othersubdomain.example.com, this service is hosted on this subdomain,
+        //   ATTENTION subdomain may not be same as app name
+        host: string,
+        // nodejs module path for hmr server...
+        module?: string,
+        // or socket file path for ipc server
+        socket?: string,
+    }>,
+}
+export const accessControlConfigPath = path.resolve(process.env['FINE_CONFIG_DIR'] ?? '', 'access.yml');
+export async function setupAccessControl() {
+    const config = yaml.parse(await fs.readFile(accessControlConfigPath, 'utf-8')) as AccessControlConfig;
+
+    pool = new pg.Pool(config.database);
+    pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, value => dayjs(value));
+
+    allApplications.push(...Object.entries(config.applications ?? {}).map(([name, config]) => ({
+        name,
+        host: config.host,
+        module: config.module,
+        socket: config.socket,
+    })));
+    ratelimits.apps = Object.fromEntries(allApplications.map(a => [a.name, new RateLimit('access-control:apps', 10, 1)]));
     // fullamount=2: generate-authorization-code and application's signin are both using this, if 1 then /signin will fail
-    ratelimits.appSignIn = Object.fromEntries(actionServerProviders.map(a => [a.name, new RateLimit('access-control:app-signin', 2, 1)]));
+    ratelimits.appSignIn = Object.fromEntries(allApplications.map(a => [a.name, new RateLimit('access-control:app-signin', 2, 1)]));
 }
 
 // rate limit various aspects
@@ -82,7 +97,7 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
 
     // validate origin and assign ctx.state.app
     if (ctx.origin == 'https://id.example.com') {
-        ctx.state.app = 'id'; // use id (identity provider) for id.example.com
+        ctx.state.appconfig = { name: 'id' } as ApplicationConfig; // use id (identity provider) for id.example.com
     } else if (ctx.origin == 'https://app.example.com') {
         const referrer = ctx.get('Referer');
         // - cannot validate against request path when requesting /user-credentials and /signin, referrer seems work
@@ -90,17 +105,19 @@ export async function handleRequestCrossOrigin(ctx: MyContext, next: koa.Next): 
         //   also have this beginning part in referer, need to be exactly longer than that
         // - don't forget don't count this example.com string length,
         //   that will be replaced at build time, amazingly terser will optimize that to be constant number
+        let appname: string;
         if (referrer && referrer.startsWith('https://app.example.com/') && referrer.length > 'https://app.example.com/'.length) {
-            ctx.state.app = new URL(referrer).pathname.substring(1).split('/')[0].trim();
+            appname = new URL(referrer).pathname.substring(1).split('/')[0].trim();
         } else {
-            ctx.state.app = ctx.path.substring(1).split('/')[0].trim();
+            appname = ctx.path.substring(1).split('/')[0].trim();
         }
+        ctx.state.appconfig = allApplications.find(a => a.name == appname && a.host == 'app.example.com');
         // direct return and do not set access-control-* and let browser reject it
-        if (!actionServerProviders.some(a => a.name == ctx.state.app && a.host == 'app.example.com')) { return; }
+        if (!ctx.state.appconfig) { return; }
     } else {
-        ctx.state.app = actionServerProviders.find(a => ctx.origin == `https://${a.host}`)?.name;
+        ctx.state.appconfig = allApplications.find(a => ctx.origin == `https://${a.host}`);
         // direct return and do not set access-control-* and let browser reject it
-        if (!ctx.state.app) { return; }
+        if (!ctx.state.appconfig) { return; }
     }
 
     ctx.vary('Origin');
@@ -150,8 +167,10 @@ interface UserSessionData {
     last_access_time: dayjs.Dayjs,
     last_access_address: string,
 }
+// database connection pool
+let pool: pg.Pool;
 // cache database data, entries will not expire,
-// because I should and will not directly update db User and UserSession table
+// no need to update from or sync with database because I'm not likely to directly update db table
 const userStorage: UserData[] = [];
 const userSessionStorage: UserSessionData[] = [];
 
@@ -160,14 +179,14 @@ const userSessionStorage: UserSessionData[] = [];
 interface AuthorizationCodeData {
     userId: number,    // check user inactive when sign in
     sessionId: number, // check session revoke when sign in
-    app: string,       // check app match when sign in
+    appname: string,   // check app match when sign in
     value: string,
     expireTime: dayjs.Dayjs,
 }
 interface ApplicationSessionData {
     userId: number,    // check user inactive when authenticate
     sessionId: number, // this is UserSession.Id database column value, not id of this data, check session revoke when authenticate
-    app: string,       // check app match when authenticate
+    appname: string,   // check app match when authenticate
     accessToken: string,
     lastAccessTime: dayjs.Dayjs,
 }
@@ -239,13 +258,13 @@ async function createUserSession(ctx: MyContext, userId: number): Promise<{ acce
         user_id: userId,
         name: '<unnamed>',
         access_token: accessToken,
-        last_access_time: ctx.state.now,
+        last_access_time: ctx.state.time,
         last_access_address: ctx.socket.remoteAddress,
     };
     const insertResult = await pool.query<{ id: number }>(
         'INSERT INTO "user_session" ("user_id", "name", "access_token",'
         + ' "last_access_time", "last_access_address") VALUES ($1, $2, $3, $4, $5) RETURNING "id"',
-        [session.user_id, session.name, session.access_token, ctx.state.now, session.last_access_address]);
+        [session.user_id, session.name, session.access_token, ctx.state.time, session.last_access_address]);
     session.id = insertResult.rows[0].id;
     userSessionStorage.push(session);
 
@@ -303,7 +322,7 @@ async function handleGetAllowSignUp(ctx) {
 }],
 
 [{ kind: 'id-before', method: 'GET', path: /^\/signup\?name=(?<username>\w+)$/ },
-async function handleGetAuthenticatorSecret(ctx, parameters) {
+async function handlePrepareSignUp(ctx, parameters) {
     if (!AllowSignUp) { throw new MyError('not-found', 'action not found'); } // makes it look like normal unknown api
 
     const username = parameters['username'];
@@ -326,6 +345,9 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
     const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
 
     ctx.status = 200;
+    // TODO in theory you should not return secret but save it here and
+    // return another id to use in later real sign up, but not needed and lazy for now
+    // or generate secret and dataurl at client side?
     ctx.body = { secret, dataurl };
 }],
 
@@ -333,7 +355,6 @@ async function handleGetAuthenticatorSecret(ctx, parameters) {
 async function handleSignUp(ctx) {
     if (!AllowSignUp) { throw new MyError('not-found', 'action not found'); } // makes it look like normal unknown api
 
-    // it's ok to allow client side provide secret, as long as secret and password match
     const [username, secret, password] = getBasicAuthorization(ctx);
     if (!username) {
         throw new MyError('common', 'user name cannot be empty');
@@ -368,8 +389,10 @@ async function handleSignUp(ctx) {
 // this is same as in kind: app-after, it's ok to duplicate because it's really small
 [{ kind: 'id-after', method: 'GET', path: /^\/user-credential$/ },
 async function handleGetUserCredential(ctx) {
+    const user = userStorage.find(u => u.id == ctx.state.userId);
+    const session = userSessionStorage.find(s => s.id == ctx.state.sessionId);
     ctx.status = 200;
-    ctx.body = ctx.state.user;
+    ctx.body = { id: user.id, name: user.name, sessionId: session.id, sessionName: session.name } as UserCredential;
 }],
 
 [{ kind: 'id-after', method: 'POST', path: /^\/generate-authorization-code$/ },
@@ -378,26 +401,26 @@ async function handleGenerateAuthorizationCode(ctx) {
     const returnAddress = (ctx.request.body as { return: string })?.return;
     if (!returnAddress) { throw new MyError('common', 'invalid return address'); }
 
-    const app = actionServerProviders.find(a =>
-        returnAddress.startsWith(a.host == 'app.example.com' ? `https://${a.host}/${a.name}` : `https://${a.host}`))?.name;
+    const app = allApplications.find(a =>
+        returnAddress.startsWith(a.host == 'app.example.com' ? `https://${a.host}/${a.name}` : `https://${a.host}`));
     if (!app) { throw new MyError('common', 'invalid return address'); }
 
-    ratelimits.appSignIn[app].request(ctx.ip);
+    ratelimits.appSignIn[app.name].request(ctx.ip);
 
-    const user = await getUserById(ctx.state.user.id);
+    const user = await getUserById(ctx.state.userId);
     if (!user.active) {
         throw new MyError('common', 'invalid user');
-    } else if (user.id != 1 && !user.apps.includes(app)) {
+    } else if (user.id != 1 && !user.apps.includes(app.name)) {
         throw new MyError('access-control');
     }
 
     const code = generateRandomText(64);
     authorizationCodeStorage.push({
-        userId: ctx.state.user.id,
-        sessionId: ctx.state.user.sessionId,
-        app,
+        userId: ctx.state.userId,
+        sessionId: ctx.state.sessionId,
+        appname: app.name,
         value: code,
-        expireTime: ctx.state.now.add(1, 'minute'),
+        expireTime: ctx.state.time.add(1, 'minute'),
     });
 
     ctx.status = 200;
@@ -411,7 +434,7 @@ async function handleUpdateUserName(ctx) {
     const newUserName = (ctx.request.body as { name: string })?.name;
     if (!newUserName) { throw new MyError('common', 'invalid new user name'); }
 
-    const user = await getUserById(ctx.state.user.id);
+    const user = await getUserById(ctx.state.userId);
     if (user.name == newUserName) { ctx.status = 201; return; } // ignore no change but allow case change
 
     if (userStorage.some(u => u.id != user.id && !collator.compare(u.name, newUserName))) {
@@ -438,11 +461,11 @@ async function handleGetUserSessions(ctx) {
 
     const queryResult = await pool.query<UserSessionData>(
         'SELECT "id", "user_id", "name", "access_token", "last_access_time", "last_access_address" FROM "user_session" WHERE "user_id" = $1',
-        [ctx.state.user.id]);
+        [ctx.state.userId]);
     // update storage
     // // this is how you filter by predicate in place
-    while (userSessionStorage.some(d => d.user_id == ctx.state.user.id)) {
-        userSessionStorage.splice(userSessionStorage.findIndex(d => d.user_id == ctx.state.user.id), 1);
+    while (userSessionStorage.some(d => d.user_id == ctx.state.userId)) {
+        userSessionStorage.splice(userSessionStorage.findIndex(d => d.user_id == ctx.state.userId), 1);
     }
     userSessionStorage.push(...queryResult.rows);
 
@@ -454,7 +477,7 @@ async function handleGetUserSessions(ctx) {
         lastAccessTime: d.last_access_time.format('YYYY-MM-DDTHH:mm:ss[Z]'),
         lastAccessAddress: d.last_access_address,
     })).concat(applicationSessionStorage.map<UserSession>(a => ({
-        app: a.app,
+        app: a.appname,
         // use custom format to avoid millisecond part
         lastAccessTime: a.lastAccessTime.format('YYYY-MM-DDTHH:mm:ss[Z]'),
     })));
@@ -469,7 +492,7 @@ async function handleUpdateSessionName(ctx, parameters) {
     const session = userSessionStorage.find(d => d.id == sessionId);
     if (!session) {
         throw new MyError('common', 'invalid session id');
-    } else if (session.user_id != ctx.state.user.id) {
+    } else if (session.user_id != ctx.state.userId) {
         throw new MyError('common', 'invalid session id');
     }
 
@@ -491,7 +514,7 @@ async function handleRemoveSession(ctx, parameters) {
     const session = userSessionStorage.find(d => d.id == sessionId);
     if (!session) {
         throw new MyError('common', 'invalid session id');
-    } else if (session.user_id != ctx.state.user.id) {
+    } else if (session.user_id != ctx.state.userId) {
         throw new MyError('common', 'invalid session id');
     }
 
@@ -512,16 +535,16 @@ async function handleApplicationSignIn(ctx) {
     // always remove from valid authorization codes
     authorizationCodeStorage.splice(authorizationCodeStorage.findIndex(c => c.value == code), 1);
 
-    if (ctx.state.app != data.app || ctx.state.now.isAfter(data.expireTime)) {
+    if (ctx.state.appconfig.name != data.appname || ctx.state.time.isAfter(data.expireTime)) {
         throw new MyError('auth', undefined, 'invalid authorization code');
     }
 
-    ratelimits.appSignIn[data.app].request(ctx.ip);
+    ratelimits.appSignIn[data.appname].request(ctx.ip);
 
     const user = await getUserById(data.userId);
     if (!user.active) {
         throw new MyError('auth', undefined, 'user is not active');
-    } else if (user.id != 1 && user.apps.includes(ctx.state.app)) {
+    } else if (user.id != 1 && user.apps.includes(ctx.state.appconfig.name)) {
         throw new MyError('auth', undefined, 'app not allowed');
     } else if (!userSessionStorage.some(s => s.id == data.sessionId)) {
         throw new MyError('auth', undefined, 'invalid session id');
@@ -531,9 +554,9 @@ async function handleApplicationSignIn(ctx) {
     applicationSessionStorage.push({
         userId: data.userId,
         sessionId: data.sessionId,
-        app: data.app,
+        appname: data.appname,
         accessToken,
-        lastAccessTime: ctx.state.now,
+        lastAccessTime: ctx.state.time,
     });
 
     ctx.status = 200;
@@ -543,8 +566,10 @@ async function handleApplicationSignIn(ctx) {
 // this is same as in kind: id-after, it's ok to duplicate because it's really small
 [{ kind: 'app-after', method: 'GET', path: /^\/user-credential$/ },
 async function handleGetUserCredential(ctx) {
+    const user = userStorage.find(u => u.id == ctx.state.userId);
+    const session = userSessionStorage.find(s => s.id == ctx.state.sessionId);
     ctx.status = 200;
-    ctx.body = ctx.state.user;
+    ctx.body = { id: user.id, name: user.name, sessionId: session.id, sessionName: session.name } as UserCredential;
 }],
 
 [{ kind: 'app-after', method: 'POST', path: /^\/signout$/ },
@@ -573,7 +598,7 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         userSessionStorage.push(session);
     }
 
-    if (session.last_access_time.add(30, 'day').isBefore(ctx.state.now)) {
+    if (session.last_access_time.add(30, 'day').isBefore(ctx.state.time)) {
         // check expires or update last access time
         await pool.query('DELETE FROM "user_session" WHERE "id" = $1', [session.id]);
         userSessionStorage.splice(userSessionStorage.findIndex(d => d.id == session.id), 1);
@@ -586,7 +611,7 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         throw new MyError('auth', undefined, 'authorization inactive');
     }
 
-    session.last_access_time = ctx.state.now;
+    session.last_access_time = ctx.state.time;
     session.last_access_address = ctx.ip || 'unknown';
     // avoid ipv4 compatible ipv6 address, e.g. ::ffff:1.2.3.4, why do koa default to this?
     if (session.last_access_address.startsWith('::ffff:') && /^\d+\.\d+\.\d+\.\d+$/.test(session.last_access_address.substring(7))) {
@@ -596,7 +621,8 @@ async function authenticateIdentityProvider(ctx: MyContext) {
         'UPDATE "user_session" SET "last_access_time" = $1, "last_access_address" = $2 WHERE "id" = $3',
         [session.last_access_time, session.last_access_address, session.id]);
 
-    ctx.state.user = { id: user.id, name: user.name, sessionId: session.id, sessionName: session.name };
+    ctx.state.userId = user.id;
+    ctx.state.sessionId = session.id;
 }
 
 async function authenticateApplication(ctx: MyContext) {
@@ -605,11 +631,11 @@ async function authenticateApplication(ctx: MyContext) {
     const session = applicationSessionStorage.find(d => d.accessToken == accessToken);
     if (!session) { throw new MyError('auth', undefined, 'invalid access token'); }
 
-    if (session.app != ctx.state.app) {
+    if (session.appname != ctx.state.appconfig.name) {
         throw new MyError('auth', undefined, 'app mismatch');
     }
     // NOTE application access token lifetime 1 hour
-    if (session.lastAccessTime.add(1, 'hour').isBefore(ctx.state.now)) {
+    if (session.lastAccessTime.add(1, 'hour').isBefore(ctx.state.time)) {
         applicationSessionStorage.splice(applicationSessionStorage.findIndex(d => d.accessToken == accessToken), 1);
         throw new MyError('auth', undefined, 'session expired');
     }
@@ -619,17 +645,17 @@ async function authenticateApplication(ctx: MyContext) {
         throw new MyError('auth', undefined, 'user inactive');
     } else if (!userSessionStorage.some(s => s.id == session.sessionId)) {
         throw new MyError('auth', undefined, 'user session not found, when will this happen?');
-    } if (user.id != 1 && user.apps.includes(ctx.state.app)) {
+    } if (user.id != 1 && user.apps.includes(ctx.state.appconfig.name)) {
         throw new MyError('access-control');
     }
 
-    session.lastAccessTime = ctx.state.now;
-    ctx.state.user = { id: user.id, name: user.name };
+    session.lastAccessTime = ctx.state.time;
+    ctx.state.userId = user.id;
 }
 
 export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next): Promise<any> {
     ratelimits.all.request('');
-    ctx.state.now = dayjs.utc();
+    ctx.state.time = dayjs.utc();
 
     if (ctx.origin == 'https://id.example.com') {
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'id-before')) {
@@ -645,7 +671,7 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
         }
         throw new MyError('not-found', 'action not found'); // id.example.com api invocation should end here
     } else {
-        ratelimits.apps[ctx.state.app].request(ctx.ip || 'unknown');
+        ratelimits.apps[ctx.state.appconfig.name].request(ctx.ip || 'unknown');
 
         // special actions are all private
         for (const [{ method, path }, handler] of specialActions.filter(a => a[0].kind == 'app-before')) {
@@ -662,16 +688,16 @@ export async function handleRequestAuthentication(ctx: MyContext, next: koa.Next
         }
 
         // NOTE need the trailing /, if you want to call any path, the trailing / is always needed
-        if (!ctx.path.startsWith(`/${ctx.state.app}/`)) {
+        if (!ctx.path.startsWith(`/${ctx.state.appconfig.name}/`)) {
             throw new MyError('not-found', 'action not found');
         }
-        // also need the trailing /
-        ctx.state.public = ctx.path.startsWith(`/${ctx.state.app}/public/`);
-        if (!ctx.state.public) {
+        // don't forget the trailing / in startswith parameter
+        ctx.state.annonymous = ctx.path.startsWith(`/${ctx.state.appconfig.name}/public/`);
+        if (!ctx.state.annonymous) {
             await authenticateApplication(ctx);
         }
 
-        return await next(); // goto forward api
+        return await next(); // goto application server
     }
 }
 

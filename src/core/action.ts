@@ -4,13 +4,38 @@ import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admi
 import type { ActionServerRequest, ActionServerResponse } from '../shared/action-types.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
-import type { ServerProviderConfig } from './access.js';
-import type { MyContext, ActionServerProvider } from './access.js';
-import { actionServerProviders } from './access.js';
+import type { MyContext } from './access.js';
 
 // communicate with action servers,
 // support in process server and separate process server in theory,
 // // but separate process server haven't been used for very long time
+
+export interface ActionServerProvider {
+    readonly name: string,
+    readonly host: string,
+    readonly server: string,
+    version: number, // appended to dynamic import url to hot reload
+}
+let actionServerProviders: ActionServerProvider[];
+export type ServerProviderConfig = Record<string, {
+    // in format `appname.example.com` or `app.example.com`,
+    // no 'https://' prefix, no '/' postfix,
+    // `app.example.com` means this is on `https://app.example.com/appname`
+    // actions server will validate origin or referrer, content server does not use this
+    host: string,
+    // content server provider, nodejs script path
+    content: string,
+    // actions server provider, in format `nodejs:/absolute/path/to/server.js` or `socket:/absolute/path/to/socket.sock`
+    actions: string,
+}>;
+export function setupOldAccessControl(config: ServerProviderConfig) {
+    actionServerProviders = Object.entries(config).filter(a => a[1].actions).map(c => ({
+        name: c[0],
+        host: c[1].host,
+        server: c[1].actions,
+        version: 0,
+    }));
+}
 
 interface PoolItem {
     connection: net.Socket,
@@ -119,7 +144,7 @@ function release(pool: Pool, connection: net.Socket) {
 async function invokeSocket(ctx: MyContext, provider: ActionServerProvider, request: ActionServerRequest) {
 
     // pools and allowedOrigins initialized from same data source so must exist
-    const pool = socketPools[ctx.state.app];
+    const pool = socketPools[ctx.state.appconfig.name];
     const requestDisplay = `request ${ctx.method} ${ctx.host}${ctx.url} (${JSON.stringify(ctx.state)})`;
     const connection = await acquire(provider.server.substring(7), pool, requestDisplay);
 
@@ -196,17 +221,18 @@ async function invokeScript(ctx: MyContext, provider: ActionServerProvider, requ
 
 export async function handleRequestActionServer(ctx: MyContext): Promise<void> {
     // handleRequestCrossDomain already checked origin is allowed and assigned known state.app
-    if (!ctx.state.app || !actionServerProviders.some(a => a.name == ctx.state.app)) {
+    if (!ctx.state.appconfig || !actionServerProviders.some(a => a.name == ctx.state.appconfig.name)) {
         throw new MyError('unreachable', undefined, 'request action server');
     }
 
     const request = {
         method: ctx.method,
-        path: ctx.url.substring(ctx.state.app.length + 1),
-        state: ctx.state,
+        path: ctx.url.substring(ctx.state.appconfig.name.length + 1),
+        // ATTENTION this will not work
+        state: ctx.state as unknown as ActionServerRequest['state'],
         body: ctx.request.body,
     } as ActionServerRequest;
-    const provider = actionServerProviders.find(a => a.name == ctx.state.app);
+    const provider = actionServerProviders.find(a => a.name == ctx.state.appconfig.name);
     await (provider.server.startsWith('nodejs:') ? invokeScript : invokeSocket)(ctx, provider, request);
 }
 

@@ -77,8 +77,8 @@ interface ExternalProvider {
     readonly name: string,
     readonly module: string,
     version: number,
-    // these handlers may not exist if load or reload process meet error,
-    // but when they are not null, the are always function (typeof == 'function')
+    // these handlers may be null if load or reload process meet error,
+    // but when they are not null, they are always function (typeof == 'function')
     handleRequest?: (ctx: koa.Context) => Promise<boolean>,
     handleCleanup?: () => Promise<void>,
     handleAdminCommand?: (command: AdminInterfaceCommand, result: AdminInterfaceResult) => Promise<void>,

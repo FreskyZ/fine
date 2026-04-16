@@ -7,16 +7,14 @@ import path from 'node:path';
 import tls from 'node:tls';
 import koa from 'koa';
 import bodyParser from 'koa-bodyparser';
-import type { PoolConfig } from 'pg';
 import yaml from 'yaml';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import { setupContentControl, handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
-import type { ServerProviderConfig } from './access.js';
-import { setupAccessControl, setupDatabase } from './access.js';
-import { handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
-import { setupInterProcessActionServers, handleRequestActionServer, handleActionsCommand } from './action.js';
+import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
+import type { ServerProviderConfig } from './action.js';
+import { setupOldAccessControl, setupInterProcessActionServers, handleRequestActionServer, handleActionsCommand } from './action.js';
 
 const app = new koa();
 
@@ -33,12 +31,11 @@ process.on('uncaughtException', handleProcessException);
 process.on('unhandledRejection', handleProcessRejection);
 
 await setupContentControl();
+await setupAccessControl();
 const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
-    database: PoolConfig,
     servers: ServerProviderConfig,
 };
-setupDatabase(config.database);
-setupAccessControl(config.servers);
+setupOldAccessControl(config.servers);
 setupInterProcessActionServers(config.servers);
 
 // admin interface
