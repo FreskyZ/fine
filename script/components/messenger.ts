@@ -26,7 +26,8 @@ export interface HasId {
 
 // local to remote packet format
 // - magic: b'NIRA', packet id: u16le, kind: u8
-// - kind: 1 (upload), path length: u8, path: not zero terminated, content length: u32le, content
+// - kind: 1 (upload), path length: u8, path: not zero terminated,
+//                     compressed flag: u8 (0 not compressed, 1 compressed), content length: u32le, content
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
@@ -37,6 +38,9 @@ interface BuildScriptMessageUploadFile {
     kind: 'upload',
     path: string,
     content: Buffer, // this maybe compressed
+    compressed: boolean,
+    // by the way, if you change upload and download file
+    // and something broke, you have to go back to sftp upload and docker cp to fix that
 }
 interface BuildScriptMessageDownloadFile {
     kind: 'download',
@@ -63,7 +67,8 @@ type BuildScriptMessage =
 // remote to local packet format
 // - magic: b'NIRA', packet id: u16le, kind: u8
 // - kind: 1 (upload), status: u8 (1: ok, 2: error, 3: nodiff)
-// - kind: 2 (download), content length: u32le (maybe 0 for error or empty), content
+// - kind: 2 (download), compressed flag: u8 (0 not compressed, 1 compressed),
+//                       content length: u32le (maybe 0 for error or empty), content
 // - kind: 3 (admin), ok: u8 (0 not ok, 1 ok)
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
@@ -77,10 +82,11 @@ interface BuildScriptMessageResponseDownloadFile {
     kind: 'download',
     // path is not in returned data but assigned at local side
     path?: string,
-    // this is compressed
+    // this maybe compressed
     // empty means error or empty
     // error message is not in returned data but displayed here
     content: Buffer,
+    compressed: boolean,
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
@@ -114,11 +120,13 @@ class BuildScriptMessageResponseParser {
         | 'packet-id'
         | 'packet-kind'
         | 'upload-status'
+        | 'download-content-flag'
         | 'download-content-length'
         | 'download-content'
         | 'admin-command-status' = 'magic';
     private packetId: number;
     private packetKind: number;
+    private downloadContentFlag: boolean;
     private downloadContentLength: number;
 
     private hasEnoughLength(expect: number) {
@@ -172,7 +180,7 @@ class BuildScriptMessageResponseParser {
                     this.state = 'upload-status';
                 } else if (this.packetKind == 2) {
                     if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} download`); }
-                    this.state = 'download-content-length';
+                    this.state = 'download-content-flag';
                 } else if (this.packetKind == 3) {
                     if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, packet kind ${this.packetKind} admin`); }
                     this.state = 'admin-command-status';
@@ -192,9 +200,15 @@ class BuildScriptMessageResponseParser {
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, status ${uploadStatus} (${statusName})`); }
                 this.reset();
                 return { id: this.packetId, kind: 'upload', status: statusName };
+            } else if (this.state == 'download-content-flag') {
+                if (!this.hasEnoughLength(1)) { return null; }
+                this.downloadContentFlag = this.chunk.readUInt8(this.position) != 0;
+                this.position += 1;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = download, compressed flag ${this.downloadContentFlag}`); }
+                this.state = 'download-content-length';
             } else if (this.state == 'download-content-length') {
                 if (!this.hasEnoughLength(4)) { return null; }
-                this.downloadContentLength = this.chunk.readUint32LE(this.position);
+                this.downloadContentLength = this.chunk.readUInt32LE(this.position);
                 this.position += 4;
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = download, content length ${this.downloadContentLength}`); }
                 this.state = 'download-content';
@@ -204,7 +218,7 @@ class BuildScriptMessageResponseParser {
                 this.position += this.downloadContentLength;
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = download, content full filled`); }
                 this.reset();
-                return { id: this.packetId, kind: 'download', content };
+                return { id: this.packetId, kind: 'download', content, compressed: this.downloadContentFlag };
             } else if (this.state == 'admin-command-status') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 const commandStatus = this.chunk.readUInt8(this.position);
@@ -317,15 +331,16 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
 
     let buffer: Buffer<ArrayBuffer>;
     if (message.kind == 'upload') {
-        buffer = Buffer.alloc(12 + message.path.length + message.content.length);
+        buffer = Buffer.alloc(13 + message.path.length + message.content.length);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(1, 6); // kind size 1
         buffer.writeUInt8(message.path.length, 7); // path length size 1
         buffer.write(message.path, 8);
-        buffer.writeUInt32LE(message.content.length, message.path.length + 8); // content length size 4
-        message.content.copy(buffer, 12 + message.path.length, 0);
-        logInfo('tunnel', `send #${messageId} upload ${message.path} compress size ${message.content.length} bytes`);
+        buffer.writeUInt8(message.compressed ? 1 : 0, message.path.length + 8); // compressed flag size 1
+        buffer.writeUInt32LE(message.content.length, message.path.length + 9); // content length size 4
+        message.content.copy(buffer, 13 + message.path.length, 0);
+        logInfo('tunnel', `send #${messageId} upload ${message.path} ${message.compressed ? 'compressed ' : ''}size ${message.content.length} bytes`);
     } else if (message.kind == 'download') {
         buffer = Buffer.alloc(8 + message.path.length);
         buffer.write('NIRA', 0); // magic size 4
@@ -381,7 +396,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
                 logInfo('tunnel', `receive #${messageId} upload ${message.path} status ${response.status}`);
             } else if (message.kind == 'download' && response.kind == 'download') {
                 response.path = message.path;
-                logInfo('tunnel', `receive #${messageId} download ${message.path} compress size ${response.content.length}`);
+                logInfo('tunnel', `receive #${messageId} download ${message.path} size ${response.content.length}`);
             } else if (message.kind == 'admin' && response.kind == 'admin') {
                 response.command = message.command;
                 logInfo('tunnel', `receive #${messageId} admin response ${response.ok ? 'ok' : 'not ok'}`);
@@ -397,7 +412,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         new Promise<BuildScriptMessageResponse>(resolve => {
             timeout = setTimeout(() => {
                 delete ecx.wakers[messageId];
-                logError('tunnel', `message ${messageId} timeout`);
+                logError('tunnel', `message #${messageId} timeout`);
                 resolve(null);
             }, 30_000);
         }),
@@ -406,7 +421,8 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
 
 export interface UploadAsset {
     data: string | Buffer,
-    remote: string, // relative path to webroot
+    // remote path, if this path ends with .tar.xz or .tar.gz, the file will not be compressed
+    remote: string,
 }
 // upload through websocket connection eliminate the time to establish tls connection and ssh connection
 // this also have centralized handling of example.com replacement
@@ -414,9 +430,13 @@ export interface UploadAsset {
 export async function uploadWithRemoteConnection(ecx: MessengerContext, assets: UploadAsset[]): Promise<BuildScriptMessageResponseUploadFile[]> {
     // compare to the old ssh2-sftp-client package or sftp protocol (this is gone for now), this is designed to be parallel
     return await Promise.all(assets.map(async asset => {
+        if (!asset.data) { return null; }
         // webroot base path and parent path mkdir is handled in remote akari
         if (!Buffer.isBuffer(asset.data)) {
             asset.data = Buffer.from(asset.data.replaceAll('example.com', scriptconfig.domain));
+        }
+        if (asset.data.length < 1024 || ['.tar.xz', '.tar.gz'].some(ext => asset.remote.endsWith(ext))) {
+            return await sendRemoteMessage(ecx, { kind: 'upload', path: asset.remote, content: asset.data, compressed: false });
         }
         const data = await new Promise<Buffer>(resolve => zstdCompress(asset.data, (error, data) => {
             if (error) {
@@ -427,7 +447,7 @@ export async function uploadWithRemoteConnection(ecx: MessengerContext, assets: 
             }
         }));
         if (data) {
-            return await sendRemoteMessage(ecx, { kind: 'upload', path: asset.remote, content: data });
+            return await sendRemoteMessage(ecx, { kind: 'upload', path: asset.remote, content: data, compressed: true });
         } else {
             return null;
         }
@@ -438,7 +458,7 @@ export async function uploadWithRemoteConnection(ecx: MessengerContext, assets: 
 export async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: string[]): Promise<Buffer[]> {
     return await Promise.all(filepaths.map(async filepath => {
         const response = await sendRemoteMessage(ecx, { kind: 'download', path: filepath });
-        return response.content.length == 0 ? response.content : await new Promise<Buffer>(resolve => zstdDecompress(
+        return !response.compressed ? response.content : await new Promise<Buffer>(resolve => zstdDecompress(
             response.content,
             (error, decompressedContent) => {
                 if (error) {

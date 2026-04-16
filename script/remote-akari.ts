@@ -109,7 +109,8 @@ export interface HasId {
 
 // local to remote packet format
 // - magic: b'NIRA', packet id: u16le, kind: u8
-// - kind: 1 (upload), path length: u8, path: not zero terminated, content length: u32le, content
+// - kind: 1 (upload), path length: u8, path: not zero terminated,
+//                     compressed flag: u8 (0 not compressed, 1 compressed), content length: u32le, content
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
@@ -120,6 +121,9 @@ interface BuildScriptMessageUploadFile {
     kind: 'upload',
     path: string,
     content: Buffer, // this maybe compressed
+    compressed: boolean,
+    // by the way, if you change upload and download file
+    // and something broke, you have to go back to sftp upload and docker cp to fix that
 }
 interface BuildScriptMessageDownloadFile {
     kind: 'download',
@@ -146,7 +150,8 @@ type BuildScriptMessage =
 // remote to local packet format
 // - magic: b'NIRA', packet id: u16le, kind: u8
 // - kind: 1 (upload), status: u8 (1: ok, 2: error, 3: nodiff)
-// - kind: 2 (download), content length: u32le (maybe 0 for error or empty), content
+// - kind: 2 (download), compressed flag: u8 (0 not compressed, 1 compressed),
+//                       content length: u32le (maybe 0 for error or empty), content
 // - kind: 3 (admin), ok: u8 (0 not ok, 1 ok)
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageResponseUploadFile {
@@ -160,10 +165,11 @@ interface BuildScriptMessageResponseDownloadFile {
     kind: 'download',
     // path is not in returned data but assigned at local side
     path?: string,
-    // this is compressed
+    // this maybe compressed
     // empty means error or empty
     // error message is not in returned data but displayed here
     content: Buffer,
+    compressed: boolean,
 }
 interface BuildScriptMessageResponseAdminInterfaceCommand {
     kind: 'admin',
@@ -197,6 +203,7 @@ class BuildScriptMessageParser {
         | 'packet-kind'
         | 'upload-path-length'
         | 'upload-path'
+        | 'upload-content-flag'
         | 'upload-content-length'
         | 'upload-content'
         | 'download-path-length'
@@ -212,6 +219,7 @@ class BuildScriptMessageParser {
     private packetKind: number;
     private uploadPathLength: number;
     private uploadPath: string;
+    private uploadContentFlag: boolean;
     private uploadContentLength: number;
     private downloadPathLength: number;
     private adminCommandKind: number;
@@ -293,10 +301,16 @@ class BuildScriptMessageParser {
                 this.uploadPath = this.chunk.toString('utf-8', this.position, this.position + this.uploadPathLength);
                 this.position += this.uploadPathLength;
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, path ${this.uploadPath}`); }
+                this.state = 'upload-content-flag';
+            } else if (this.state == 'upload-content-flag') {
+                if (!this.hasEnoughLength(1)) { return null; }
+                this.uploadContentFlag = this.chunk.readUInt8(this.position) != 0;
+                this.position += 1;
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, compressed flag ${this.uploadContentFlag}`); }
                 this.state = 'upload-content-length';
             } else if (this.state == 'upload-content-length') {
                 if (!this.hasEnoughLength(4)) { return null; }
-                this.uploadContentLength = this.chunk.readUint32LE(this.position);
+                this.uploadContentLength = this.chunk.readUInt32LE(this.position);
                 this.position += 4;
                 if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = upload, content length ${this.uploadContentLength}`); }
                 this.state = 'upload-content';
@@ -304,9 +318,9 @@ class BuildScriptMessageParser {
                 if (!this.hasEnoughLength(this.uploadContentLength)) { return null; }
                 const content = this.chunk.subarray(this.position, this.position + this.uploadContentLength);
                 this.position += this.uploadContentLength;
-                logInfo('websocket', `receive #${this.packetId} upload ${this.uploadPath} content compress size ${content.length} bytes`);
+                logInfo('websocket', `receive #${this.packetId} upload ${this.uploadPath} content size ${content.length} bytes`);
                 this.reset();
-                return { id: this.packetId, kind: 'upload', path: this.uploadPath, content }; 
+                return { id: this.packetId, kind: 'upload', path: this.uploadPath, content, compressed: this.uploadContentFlag }; 
             } else if (this.state == 'download-path-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
                 this.downloadPathLength = this.chunk.readUInt8(this.position);
@@ -593,13 +607,14 @@ function sendBuildScriptMessageResponse(messageId: number, response: BuildScript
         logInfo('websocket', `return #${messageId} upload status ${response.status}`);
     } else if (response.kind == 'download') {
         const contentLength = response.content?.length ?? 0;
-        buffer = Buffer.alloc(11 + contentLength);
+        buffer = Buffer.alloc(12 + contentLength);
         buffer.write('NIRA', 0); // magic size 4
         buffer.writeUInt16LE(messageId, 4); // packet id size 2
         buffer.writeUInt8(2, 6); // kind size 1
-        buffer.writeUInt32LE(contentLength, 7); // content length size 4
-        if (contentLength) { response.content.copy(buffer, 11, 0); }
-        logInfo('websocket', `return #${messageId} download compress size ${contentLength} bytes`);
+        buffer.writeUInt8(response.compressed ? 1 : 0, 7); // compressed flag size 1
+        buffer.writeUInt32LE(contentLength, 8); // content length size 4
+        if (contentLength) { response.content.copy(buffer, 12, 0); }
+        logInfo('websocket', `return #${messageId} download ${response.compressed ? 'compressed ' : ''}size ${contentLength} bytes`);
     } else if (response.kind == 'admin') {
         buffer = Buffer.alloc(8);
         buffer.write('NIRA', 0); // magic size 4
@@ -636,49 +651,61 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
             return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
         }
-        zlib.zstdDecompress(message.content, async (error, messageContent) => {
-            if (error) {
-                logError('fs', `file content decompress error`, error);
-                return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
-            }
-            try {
-                if (syncfs.existsSync(fullpath)) {
-                    const originalContent = await fs.readFile(fullpath);
-                    if (Buffer.compare(messageContent, originalContent) == 0) {
-                        logInfo('fs', `${fullpath} nodiff`);
-                        return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'nodiff' });
-                    }
+        const messageContent = !message.compressed ? message.content
+            : await new Promise<Buffer<ArrayBuffer>>(resolve => zlib.zstdDecompress(message.content, (error, decompressedContent) => {
+                if (error) {
+                    logError('fs', `file content decompress error`, error);
+                    sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
+                    resolve(null);
+                } else {
+                    logInfo('fs', `compressed size ${message.content.length} bytes, decompress size ${decompressedContent.length} bytes`);
+                    resolve(decompressedContent);
                 }
-                // if (!syncfs.existsSync(path.dirname(fullpath))) {
-                //     await fs.mkdir(path.dirname(fullpath), { recursive: true });
-                // }
-                await fs.writeFile(fullpath, messageContent);
-                sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'ok' });
-            } catch (error) {
-                logError('fs', `seems file system operation error`, error);
-                sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
+            }));
+        if (!messageContent) { return; } // decompress have error and already send response
+        try {
+            if (syncfs.existsSync(fullpath)) {
+                const originalContent = await fs.readFile(fullpath);
+                if (Buffer.compare(messageContent, originalContent) == 0) {
+                    logInfo('fs', `${fullpath} nodiff`);
+                    return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'nodiff' });
+                }
             }
-        });
+            // attention not this, do not create arbitrary folder if not exist, see the check above
+            // if (!syncfs.existsSync(path.dirname(fullpath))) {
+            //     await fs.mkdir(path.dirname(fullpath), { recursive: true });
+            // }
+            await fs.writeFile(fullpath, messageContent);
+            sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'ok' });
+        } catch (error) {
+            logError('fs', `seems file system operation error`, error);
+            sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
+        }
     } else if (message.kind == 'download') {
         logInfo('fs', `download ${message.path}`);
         // resolve relative path to absolute path based on workdir
         const fullpath = path.resolve(message.path);
         if (!syncfs.existsSync(fullpath)) {
             logError('fs', `requested path ${fullpath} not exist`);
-            return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
+            return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null, compressed: false });
         }
         try {
             const content = await fs.readFile(fullpath);
-            zlib.zstdCompress(content, async (error, compressedContent) => {
-                if (error) {
-                    logError('fs', `file content compress error`, error);
-                    return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
-                }
-                sendBuildScriptMessageResponse(message.id, { kind: 'download', content: compressedContent });
-            });
+            if (content.length < 1024 || ['.tar.xz', '.tar.gz'].some(ext => message.path.endsWith(ext))) {
+                sendBuildScriptMessageResponse(message.id, { kind: 'download', content, compressed: false });
+            } else {
+                zlib.zstdCompress(content, async (error, compressedContent) => {
+                    if (error) {
+                        logError('fs', `file content compress error`, error);
+                        return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null, compressed: false });
+                    }
+                    logInfo('fs', `original size ${content.length} bytes, compressed size ${compressedContent.length} bytes`);
+                    sendBuildScriptMessageResponse(message.id, { kind: 'download', content: compressedContent, compressed: true });
+                });
+            }
         } catch (error) {
             logError('fs', `seems file system operation error (2)`, error);
-            sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null });
+            sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null, compressed: false });
         }
     }
 });
