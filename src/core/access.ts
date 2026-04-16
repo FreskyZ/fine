@@ -12,6 +12,7 @@ import type { UserCredential, UserSession } from '../shared/access-types.js';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { MyError } from '../shared/error.js';
 import { RateLimit } from '../shared/ratelimit.js';
+// import { log } from './logger.js'; // you don't use log in this file?
 
 // access control, include authentication and some authorization
 // include authentication sign in, sign out, sign up, user info, etc. related actions
@@ -399,11 +400,11 @@ async function handleGetUserCredential(ctx) {
 async function handleGenerateAuthorizationCode(ctx) {
 
     const returnAddress = (ctx.request.body as { return: string })?.return;
-    if (!returnAddress) { throw new MyError('common', 'invalid return address'); }
+    if (!returnAddress) { throw new MyError('common', 'invalid return address', returnAddress); }
 
     const app = allApplications.find(a =>
         returnAddress.startsWith(a.host == 'app.example.com' ? `https://${a.host}/${a.name}` : `https://${a.host}`));
-    if (!app) { throw new MyError('common', 'invalid return address'); }
+    if (!app) { throw new MyError('common', 'invalid return address', JSON.stringify(allApplications)); }
 
     ratelimits.appSignIn[app.name].request(ctx.ip);
 

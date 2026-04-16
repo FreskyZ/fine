@@ -89,18 +89,13 @@ services:
       - 443:443
     volumes:
       - fine-program:/var/fine:ro
-      # TODO does this work
+      # this seems work, if some error happens, remove ro
       - node_modules:/var/fine/node_modules:ro
       - fine-sockets:/run/fine
-      - database-sockets:/run/pgsql:ro
       - fine-logs:/var/log/fine
+      - database-sockets:/run/pgsql:ro
       - certificates:/etc/letsencrypt:ro
       - fine-public:/var/fine/public:ro
-      - type: volume
-        source: fine-configs
-        target: /etc/fine/config.json
-        volume: { subpath: config.json }
-        read_only: true
       - type: volume
         source: fine-configs
         target: /etc/fine/access.yml
@@ -116,7 +111,7 @@ services:
         target: /etc/fine/domains.yml
         volume: { subpath: domains.yml }
         read_only: true
-      # NOTE in process servers need their config files manually add here TODO is this good?
+      # NOTE hmr servers need their config files manually add here, is this good?
       - type: volume
         source: fine-configs
         target: /etc/fine/short-link.yml
@@ -147,7 +142,7 @@ volumes:
     name: fine-database-sockets
   certificates:
     name: certificates
-  certbot-libs: # why do certbot/certbot want me to map /var/lib/letsencrypt?
+  certbot-libs:
     name: certbot-libs
   certbot-logs:
     name: certbot-logs

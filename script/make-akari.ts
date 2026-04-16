@@ -53,10 +53,9 @@ if (!await eslint({ files: 'script/components/*', ignore: ['script/components/te
 let hasError = false;
 const adknames = [
     'access-types.d.ts',
-    'action-types.d.ts',
     'error.ts',
-    'validate.ts',
-    'ipc-server.ts',
+    'server-helper-hmr.ts',
+    'server-helper-ipc.ts',
     'notification.ts',
     'client-startup.tsx',
 ];
@@ -66,6 +65,7 @@ for (const name of adknames) {
         logError('make', `adk name ${name} not found in src/shared`);
     }
 }
+if (!await validateSharedTypeDefinition('src/shared/server-helper-hmr.ts', 'src/shared/server-helper-ipc.ts', 'ApplicationServerRequest')) { }
 
 interface ExternalReference {
     moduleName: string,

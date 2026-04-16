@@ -5,26 +5,31 @@ import syncfs from 'node:fs';
 import net from 'node:net';
 import dayjs from 'dayjs';
 import { MyError } from './error.js';
-import { UserCredential } from './access-types.js';
 
 export const dateFormat = 'YYYYMMDD';
 export const timeFormat = 'YYYYMMDDHHmmdd';
 
-export interface RequestState {
-    user: UserCredential,
-}
-
-export interface ActionServerContext {
+// BEGIN SHARED TYPE ApplicationServerRequest
+export interface ApplicationServerRequest {
+    // iso8601 request time
+    time: string,
+    userId: number,
     method: string,
-    // GET api.domain.com/app1/v1/getsomething
-    //           this part:   ^^^^^^^^^^^^^^^^
+    // GET api.example.com/appname/v1/something?param1=value1&param2=value2
+    //                 this part: ^^^^^^^^^^^^^
+    // GET api.example.com/appname/public/v1/something?param1=value1
+    //                 this part: ^^^^^^^^^^^^^^^^^^^^
     path: string,
+    query: string,
     body: any,
-    state: RequestState,
-    status?: number,
-    error?: MyError,
 }
+export interface ApplicationServerResponse {
+    body?: any,
+    error?: Error,
+}
+// END SHARED TYPE ApplicationServerRequest
 
+// TODO migrate to the same ParameterValidator like -hmr
 export function validateNumber(name: string, raw: string): number {
     const result = parseInt(raw);
     if (isNaN(result)) {
@@ -72,7 +77,7 @@ export function setupAPIServer(
     // log input any: implementation to distinguish string or Error to log specifically
     // log output any: log may be async, but here does not care about waiting for log to complete
     onerror: (kind: string, error: any) => any,
-    dispatch: (ctx: ActionServerContext) => Promise<void>,
+    dispatch: (request: ApplicationServerRequest) => Promise<ApplicationServerResponse>,
 ) {
     server = net.createServer();
     server.on('error', error => {
@@ -90,27 +95,25 @@ export function setupAPIServer(
         connection.on('data', async data => {
             const payload = data.toString('utf-8');
 
-            let ctx = {} as ActionServerContext;
+            let request = {} as ApplicationServerRequest;
             try {
-                ctx = JSON.parse(payload);
+                request = JSON.parse(payload);
             } catch (error) {
                 onerror('parse payload', error);
             }
 
+            let response: ApplicationServerResponse = {};
             try {
-                await dispatch(ctx);
+                response = await dispatch(request);
             } catch (error) {
                 onerror('dispatch', error);
                 if (error instanceof MyError) {
-                    ctx.error = error;
+                    response.error = error;
                 } else {
-                    ctx.error = new MyError('internal', error.message);
+                    response.error = new MyError('internal', error.message);
                 }
             } finally {
-                delete ctx.path;
-                delete ctx.state;
-                delete ctx.method;
-                connection.write(JSON.stringify(ctx));
+                connection.write(JSON.stringify(response));
             }
         });
     });

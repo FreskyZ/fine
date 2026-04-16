@@ -1,7 +1,26 @@
 import { MyError } from './error.js';
 
-// server side parameter validator
+// BEGIN SHARED TYPE ApplicationServerRequest
+export interface ApplicationServerRequest {
+    // iso8601 request time
+    time: string,
+    userId: number,
+    method: string,
+    // GET api.example.com/appname/v1/something?param1=value1&param2=value2
+    //                 this part: ^^^^^^^^^^^^^
+    // GET api.example.com/appname/public/v1/something?param1=value1
+    //                 this part: ^^^^^^^^^^^^^^^^^^^^
+    path: string,
+    query: string,
+    body: any,
+}
+export interface ApplicationServerResponse {
+    body?: any,
+    error?: Error,
+}
+// END SHARED TYPE ApplicationServerRequest
 
+// server side parameter validator
 export class ParameterValidator {
     public constructor(private readonly parameters: URLSearchParams) {}
 

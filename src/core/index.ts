@@ -13,8 +13,7 @@ import { log } from './logger.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import { setupContentControl, handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
-import type { ServerProviderConfig } from './action.js';
-import { setupOldAccessControl, setupInterProcessActionServers, handleRequestActionServer, handleActionsCommand } from './action.js';
+import { handleRequestApplicationServer, handleChannelCommand } from './channel.js';
 
 const app = new koa();
 
@@ -24,7 +23,7 @@ app.use(handleRequestCrossOrigin);
 app.use(bodyParser());
 app.use(handleRequestAuthentication);
 app.use(handleResponseCompression);
-app.use(handleRequestActionServer);
+app.use(handleRequestApplicationServer);
 app.use(() => { throw new Error('unreachable'); }); // assert route correctly handled
 
 process.on('uncaughtException', handleProcessException);
@@ -32,11 +31,6 @@ process.on('unhandledRejection', handleProcessRejection);
 
 await setupContentControl();
 await setupAccessControl();
-const config = JSON.parse(syncfs.readFileSync('/etc/fine/config.json', 'utf-8')) as {
-    servers: ServerProviderConfig,
-};
-setupOldAccessControl(config.servers);
-setupInterProcessActionServers(config.servers);
 
 // admin interface
 const socketpath = path.resolve(process.env['FINE_SOCKET_DIR'] ?? '', 'fine.socket');
@@ -52,7 +46,7 @@ const handleSocketServerError = (error: Error) => {
 const adminInterfaceHandlers = [
     handleContentCommand,
     handleAccessCommand,
-    handleActionsCommand,
+    handleChannelCommand,
 ];
 const adminInterfaceConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
