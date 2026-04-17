@@ -1,0 +1,12 @@
+# databases to backup
+databases:
+  # username:database
+  - fine:fine
+
+aliyunoss:
+  region: cn-shanghai
+  bucket: backup
+  access-key-id:
+  access-key-secret:
+  # sub path to put the fiiles, if provided should be absolute
+  path:

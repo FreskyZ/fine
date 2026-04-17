@@ -120,17 +120,24 @@ services:
     # main program does not depend on database running (serve static contents)
     # main program does not depend on certificate renewer running (only depend on file exists)
 
-  # TODO
+  # docker compose up -d backup
   backup:
-    image: node
-    container_name: backup1
+    image: my/fine-backup:1
+    container_name: fine-backup1
+    environment:
+      # make absolute paths more centralized
+      FINE_CONFIG_DIR: /etc/fine
     volumes:
+      # actually you can map main node_modules if need, for now no need
+      # - node_modules:/work/node_modules:ro
       - certificates:/data/certificates:ro
       - fine-configs:/data/configs:ro
       - fine-program:/data/program:ro
-      - certbot-logs:/logs/certbot:ro
-      - database-logs:/logs/database:ro
-      - fine-logs:/logs/fine:ro
+      # you may map them into another folder
+      # for more precise management, for now simply bundle them together
+      - certbot-logs:/data/certbot-logs:ro
+      - database-logs:/data/database-logs:ro
+      - fine-logs:/data/fine-logs:ro
       - database-sockets:/run/pgsql:ro
 
 volumes:

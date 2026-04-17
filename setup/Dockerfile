@@ -186,3 +186,41 @@ STOPSIGNAL SIGINT
 # psql: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint psql my/postgres:1
 # run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
 ENTRYPOINT ["postgres"]
+
+# docker build --target backup --tag my/fine-backup:1 .
+FROM node:25.8.2-alpine3.23 AS backup
+
+# copy these files are enough for backup and restore
+COPY --from=my/postgres:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=my/postgres:build /postgres-install/bin/pg_restore /usr/local/bin/pg_restore
+# this is symlink in source container, and the copy operation copies the original file?
+COPY --from=my/postgres:build /postgres-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
+
+RUN <<EORUN
+set -ex
+cat <<'EOCAT' > /etc/apk/repositories
+https://mirrors.aliyun.com/alpine/v3.23/main
+https://mirrors.aliyun.com/alpine/v3.23/community
+EOCAT
+apk update
+# libz, libzstd: pg_dump and pg_restore runtime dependencies
+# by the way, you may want to use zstd instead of xz for tar,
+# but the zstd package only contains zstd binary that statically links
+# see https://pkgs.alpinelinux.org/contents?file=&path=&name=zstd&branch=edge&repo=&arch=
+apk add --no-cache xz zlib zstd-libs
+# install in global to avoid package.json and node_modules
+npm install -g yaml
+# directory for database dump files
+mkdir -p /data/base
+EORUN
+
+# should be same as in my/postgres
+ENV PGPORT=6543
+# should be same as in my/postgres
+ENV PGHOST=/run/pgsql
+
+ADD backup-auto.ts /backup.ts
+
+# docker run -it --rm --name backup1 -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -e FINE_CONFIG_DIR=/etc/fine --entrypoint sh my/fine-backup:1
+# node backup.ts
+ENTRYPOINT ["/backup.ts"]
