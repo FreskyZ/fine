@@ -19,5 +19,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
+    "jsx": "react-jsx"
   }
 }

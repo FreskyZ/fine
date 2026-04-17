@@ -169,6 +169,7 @@ in manual dns plugin https://eff-certbot.readthedocs.io/en/latest/using.html#man
   - why is this using try catch and don't know the error object type?
 - the sdk wraps aliyun dns api which uses a signing mechanism which is a complete piece of *shit*,
   described at https://help.aliyun.com/zh/sdk/product-overview/v3-request-structure-and-signature#c1aca127aeru1,
+  (UPDATE: these links are not for oss, see backup-auto.ts for oss related document links)
   implemented at https://github.com/aliyun/darabonba-openapi/blob/master/python/alibabacloud_tea_openapi/client.py,
   or https://github.com/aliyun/darabonba-openapi/blob/master/ts/src/utils.ts#L881,
   which is completely different from modern authentication scheme that use http request header authorization to

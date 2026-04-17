@@ -782,9 +782,7 @@ for await (const raw of interactiveReader) {
         interactiveReader.prompt();
     } else if (line.startsWith('!')) {
         const shellCommand = line.slice(1).trim();
-        const child = spawn(shellCommand, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        child.stdout.on('data', data => process.stdout.write(data));
-        child.stderr.on('data', data => process.stderr.write(data));
+        const child = spawn(shellCommand, { shell: true, stdio: 'inherit' });
         child.on('close', code => {
             logInfo('shell', `shell command process exited with code ${code}`);
             interactiveReader.prompt();

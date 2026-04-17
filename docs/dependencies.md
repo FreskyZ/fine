@@ -74,3 +74,5 @@ yaml https://github.com/eemeli/yaml vs js-yaml https://github.com/nodeca/js-yaml
 - yaml say it passes https://github.com/yaml/yaml-test-suite, js-yaml no say
 - yaml have types, js-yaml does not have types and need @types/js-yaml
 - yaml support preserve comments (or concrete syntax tree) so that you can edit a file with comments and write it back
+
+so, js-yaml is the legacy and stable package and yaml is the new, standard conforming and feature rich package, so yaml is used here
