@@ -5,8 +5,10 @@ databases:
 
 aliyunoss:
   region: cn-shanghai
+  # is internal access
+  internal: true
   bucket: backup
   access-key-id:
   access-key-secret:
-  # sub path to put the fiiles, if provided should be absolute
+  # sub path to put the files, if provided should be absolute
   path:

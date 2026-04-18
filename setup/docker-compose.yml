@@ -121,15 +121,22 @@ services:
     # main program does not depend on certificate renewer running (only depend on file exists)
 
   # docker compose up -d backup
+  # or cat: docker run -it --rm --name helper1 -v fine-backup-logs:/data/backup-logs alpine cat /data/backup-logs/backup-20260418-130228.log
   backup:
     image: my/fine-backup:1
-    container_name: fine-backup1
+    container_name: backup1
+    working_dir: /work
     environment:
       # make absolute paths more centralized
       FINE_CONFIG_DIR: /etc/fine
+      BACKUP_LOGS_DIR: /data/backup-logs
     volumes:
-      # actually you can map main node_modules if need, for now no need
-      # - node_modules:/work/node_modules:ro
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/backup.yml
+        volume: { subpath: backup.yml }
+        read_only: true
+      - node_modules:/work/node_modules:ro
       - certificates:/data/certificates:ro
       - fine-configs:/data/configs:ro
       - fine-program:/data/program:ro
@@ -138,6 +145,8 @@ services:
       - certbot-logs:/data/certbot-logs:ro
       - database-logs:/data/database-logs:ro
       - fine-logs:/data/fine-logs:ro
+      # every backup operation backups previous backup logs?
+      - backup-logs:/data/backup-logs
       - database-sockets:/run/pgsql:ro
 
 volumes:
@@ -165,3 +174,5 @@ volumes:
     name: fine-public
   node_modules:
     name: fine-node_modules
+  backup-logs:
+    name: fine-backup-logs

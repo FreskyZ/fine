@@ -219,8 +219,10 @@ ENV PGPORT=6543
 # should be same as in my/postgres
 ENV PGHOST=/run/pgsql
 
-ADD backup-auto.ts /backup.ts
+WORKDIR /work
+ADD backup-auto.ts /work/backup.ts
 
-# docker run -it --rm --name backup1 -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -e FINE_CONFIG_DIR=/etc/fine --entrypoint sh my/fine-backup:1
+# docker run -it --rm --name backup1 -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs --entrypoint sh my/fine-backup:1
 # node backup.ts
-ENTRYPOINT ["/backup.ts"]
+# docker run -d --rm --name backup1  -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs my/fine-backup:1
+ENTRYPOINT ["node", "backup.ts"]
