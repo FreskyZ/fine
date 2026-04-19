@@ -2,6 +2,8 @@
 # docker build --target certbot --tag my/certbot:1 .
 FROM certbot/certbot:v5.4.0 AS certbot
 
+LABEL org.opencontainers.image.version=20260414
+
 # the evil pip install to global by default, which is convenient for this case
 RUN pip install --root-user-action=ignore dnspython pyyaml
 
@@ -105,6 +107,8 @@ EORUN
 # docker build --target postgres --tag my/postgres:1 .
 FROM alpine:3.23.3 AS postgres
 
+LABEL org.opencontainers.image.version=20260409
+
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
 COPY --from=my/postgres:build /postgres-install /usr/local
@@ -190,6 +194,10 @@ ENTRYPOINT ["postgres"]
 # docker build --target backup --tag my/fine-backup:1 .
 FROM node:25.8.2-alpine3.23 AS backup
 
+# remember to change this before commit is enough,
+# use automatic mechanism to record build time will invalidate cache
+LABEL org.opencontainers.image.version=20260419
+
 # copy these files are enough for backup and restore
 COPY --from=my/postgres:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
 COPY --from=my/postgres:build /postgres-install/bin/pg_restore /usr/local/bin/pg_restore
@@ -220,9 +228,10 @@ ENV PGPORT=6543
 ENV PGHOST=/run/pgsql
 
 WORKDIR /work
-ADD backup-auto.ts /work/backup.ts
+ADD alioss.ts /work/alioss.ts
+ADD backup-schedule.ts /work/schedule.ts
 
 # docker run -it --rm --name backup1 -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs --entrypoint sh my/fine-backup:1
 # node backup.ts
 # docker run -d --rm --name backup1  -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs my/fine-backup:1
-ENTRYPOINT ["node", "backup.ts"]
+ENTRYPOINT ["node", "schedule.ts"]

@@ -121,6 +121,7 @@ services:
     # main program does not depend on certificate renewer running (only depend on file exists)
 
   # docker compose up -d backup
+  # or run shell: docker compose run --rm --name backup2 --entrypoint sh backup
   # or cat: docker run -it --rm --name helper1 -v fine-backup-logs:/data/backup-logs alpine cat /data/backup-logs/backup-20260418-130228.log
   backup:
     image: my/fine-backup:1
