@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import syncfs from 'node:fs';
+import npfs from 'node:fs';
 import http from 'node:http';
 import http2 from 'node:http2';
 import net from 'node:net';
@@ -34,7 +34,7 @@ await setupAccessControl();
 
 // admin interface
 const socketpath = path.resolve(process.env['FINE_SOCKET_DIR'] ?? '', 'fine.socket');
-if (syncfs.existsSync(socketpath)) {
+if (npfs.existsSync(socketpath)) {
     await fs.unlink(socketpath);
 }
 

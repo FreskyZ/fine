@@ -12,3 +12,7 @@ aliyunoss:
   access-key-secret:
   # sub path to put the files, if provided should be absolute
   path:
+
+local-copy:
+  # NOTE you are running related script in container! don't forget to map
+  directory: ~/.auto-backup

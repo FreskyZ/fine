@@ -1,4 +1,4 @@
-import syncfs from 'node:fs';
+import npfs from 'node:fs';
 import path from 'node:path';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js'; // why does this need .js?
@@ -38,16 +38,16 @@ class Logger {
     public init() {
         // no need mkdir-p because it is now volume mapped
         // syncfs.mkdirSync('logs', { recursive: true });
-        this.handle = syncfs.openSync(path.join(logsDirectory,
+        this.handle = npfs.openSync(path.join(logsDirectory,
             `${this.time.format('YYMMDD')}${this.options.postfix}.log`), 'a');
     }
     public deinit() {
         if (this.handle) {
-            syncfs.fsyncSync(this.handle);
+            npfs.fsyncSync(this.handle);
             if (this.notFlushTimeout) {
                 clearTimeout(this.notFlushTimeout);
             }
-            syncfs.closeSync(this.handle);
+            npfs.closeSync(this.handle);
         }
     }
 
@@ -56,7 +56,7 @@ class Logger {
         // this function will not be called with this.handle == 0
 
         this.notFlushCount = 0;
-        syncfs.fsyncSync(this.handle);
+        npfs.fsyncSync(this.handle);
 
         if (this.notFlushTimeout) {
             // clear timeout incase this flush is triggered by write
@@ -66,17 +66,17 @@ class Logger {
         }
         if (!this.time.isSame(dayjs.utc(), 'date')) {
             this.time = dayjs.utc();
-            syncfs.closeSync(this.handle);
+            npfs.closeSync(this.handle);
             this.init(); // do not repeat init file handle
             this.notFlushCount = null;
         }
     }
     public cleanup() {
-        for (const filename of syncfs.readdirSync(logsDirectory)) {
+        for (const filename of npfs.readdirSync(logsDirectory)) {
             const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYMMDD');
             if (date.isValid() && date.add(this.options.reserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
                 try {
-                    syncfs.unlinkSync(path.resolve(logsDirectory, filename));
+                    npfs.unlinkSync(path.resolve(logsDirectory, filename));
                 } catch {
                     // ignore
                 }
@@ -89,7 +89,7 @@ class Logger {
             this.init();
         }
         const content = typeof c == 'string' ? c : JSON.stringify(c);
-        syncfs.writeSync(this.handle, `${dayjs.utc().format('HH:mm:ss')} ${content}\n`);
+        npfs.writeSync(this.handle, `${dayjs.utc().format('HH:mm:ss')} ${content}\n`);
         if (this.notFlushCount + 1 > this.options.flushByCount) {
             this.flush();
         } else {

@@ -1,4 +1,4 @@
-import syncfs from 'node:fs';
+import npfs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -211,7 +211,7 @@ async function handleReloadStaticContentConfig(config: ContentControlConfig['sta
         } else if (realpath.endsWith('/*')) {
             const realdir = realpath.slice(0, realpath.length - 2);
             const absoluteDirectory = path.join(webroot, 'static', realdir);
-            if (!syncfs.existsSync(absoluteDirectory)) {
+            if (!npfs.existsSync(absoluteDirectory)) {
                 result.status = 'error';
                 result.logs.push(`realpath not exist: ${host} + ${virtualpath} => ${realpath}`);
                 return;
@@ -294,7 +294,7 @@ async function handleReloadExternalProvider(provider: ExternalProvider, result: 
     }
 }
 
-export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<any> {
+export async function handleRequestContent(ctx: koa.ParameterizedContext<DefaultState, DefaultContext, Buffer>, next: koa.Next): Promise<void> {
     if (ctx.subdomains[0] == 'api') { return await next(); } // goto api
     if (ctx.method != 'GET') { throw new MyError('method-not-allowed'); } // reject not GET
 
@@ -306,12 +306,19 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         return;
     }
 
-    const cacheKey = `${ctx.host}${ctx.path == '/' ? '' : ctx.path}`;
+    // / is empty in contentdata
+    let requestPath = ctx.path == '/' ? '' : ctx.path;
+    // return 404 for uri decode error
+    try { requestPath = decodeURIComponent(requestPath); } catch { ctx.status = 404; return; }
+    // reject any \0
+    if (requestPath.includes('\0')) { ctx.status = 404; return; }
+
+    const cacheKey = `${ctx.host}${requestPath}`;
     const item = contentdata.virtualmap[cacheKey]
         ?? contentdata.wildcardToNonWildcardMap.find(m => cacheKey.startsWith(m.virtual))?.item;
     if (item) {
         if (item.content === null) {
-            if (!syncfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
+            if (!npfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
             item.content = await fs.readFile(item.absolutePath);
         }
         // https://www.rfc-editor.org/rfc/rfc7232#section-4.1
@@ -367,22 +374,28 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         ctx.set('Content-Length', item.content.length.toString());
     } else {
         // ignore query part
-        const pathname = ctx.URL.pathname;
+        let pathname = ctx.URL.pathname;
+        // regard uri decode error as not found
+        try { pathname = decodeURIComponent(pathname); } catch { ctx.status = 404; return; }
+        // normalize unicode, is this really needed?
+        pathname = pathname.normalize();
         // trim trailing slash
-        const trimmedPathName = pathname.endsWith('/') ? pathname.substring(0, pathname.length - 1) : pathname;
-        // when '.' is not configured for a host, it goes to here, which should result in not found
-        if (!trimmedPathName) { ctx.status = 404; return; }
+        if (pathname.endsWith('/')) { pathname = pathname.substring(0, pathname.length - 1); }
+        // when '.' is not configured in static content, it goes to here, which should result in not found
+        if (!pathname) { ctx.status = 404; return; }
 
-        const realpath = path.join(path.join(webroot, 'public'), trimmedPathName);
+        const realpath = path.join(path.join(webroot, 'public'), pathname);
         // do not allow access to parent folder
         if (!realpath.startsWith(path.join(webroot, 'public'))) { ctx.status = 404; return; }
+        // regard dot files as not exist
+        if (path.basename(realpath).startsWith('.')) { ctx.status = 404; return; }
 
-        // only allow normal file, ignore rejection and regard as not normal file
+        // only allow normal file (reject symlink), if file not exist or other io error, regard as not found
         if (await fs.stat(realpath).then(s => s.isFile()).catch(() => false)) {
             ctx.set('Cache-Control', 'public');
             ctx.type = path.extname(realpath);
-            // no response compression here,
-            // image/video themselves are already compressed, while other not important text files should be small
+            // no response compression here, small text files don't need compression,
+            // for large multimedia files, most common formats are compressed by nature
             ctx.body = await fs.readFile(realpath);
         } else {
             // external providers are after public file
@@ -429,7 +442,7 @@ async function handleReloadStaticContent(key: string, result: AdminInterfaceResu
 
     for (const item of contentdata.items.filter(i => i.realpath.startsWith(key))) {
         result.logs.push(`for item ${item.realpath}: `);
-        if (!syncfs.existsSync(item.absolutePath)) {
+        if (!npfs.existsSync(item.absolutePath)) {
             result.logs.push(`realpath not exist, remove`);
             contentdata.items.splice(contentdata.items.findIndex(i => i.realpath == item.realpath), 1);
         } else if (item.content === null) {
@@ -452,12 +465,12 @@ async function handleReloadStaticContent(key: string, result: AdminInterfaceResu
 
     for (const { host, realdir } of contentdata.wildcardToWildcard.filter(w => w.realdir.startsWith(key))) {
         const absolutedir = path.join(webroot, 'static', realdir);
-        if (!syncfs.existsSync(absolutedir)) {
+        if (!npfs.existsSync(absolutedir)) {
             // wildcard directory may be completely removed
             result.logs.push(`wildcard to wildcard dir not exist: ${host} => * => ${realdir}`);
             continue;
         }
-        for (const entry of syncfs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
+        for (const entry of npfs.readdirSync(absolutedir, { withFileTypes: true }).filter(e => e.isFile())) {
             if (path.extname(entry.name) in extensionToContentType) {
                 result.logs.push(`wildcard to wildcard load ${entry.name}`);
                 contentdata.virtualmap[path.join(host, entry.name)] = getCacheItem(contentdata.items, path.join(realdir, entry.name));
