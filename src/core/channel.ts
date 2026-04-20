@@ -290,8 +290,7 @@ export async function handleRequestApplicationServer(ctx: MyContext): Promise<vo
 // key is app name, the entries are lazy, it is loaded after first time reload command is executed
 const serverFileContents: Record<string, Buffer> = {};
 export async function handleChannelCommand(command: AdminInterfaceCommand, result: AdminInterfaceResult): Promise<void> {
-    // TODO rename command
-    if (command.kind == 'actions-server:reload') {
+    if (command.kind == 'application-server:reload') {
         const module = moduleHandlers.find(a => a.name == command.name);
         if (module) {
             const newFileContent = await fs.readFile(module.path);

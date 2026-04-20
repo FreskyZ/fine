@@ -114,8 +114,8 @@ export interface HasId {
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
-//   - command kind: 2 (content-server:reload), name length: u8, name: not zero terminated
-//   - command kind: 3 (actions-server:reload), name length: u8, name: not zero terminated
+//   - command kind: 2 (external-content:reload), name length: u8, name: not zero terminated
+//   - command kind: 3 (application-server:reload), name length: u8, name: not zero terminated
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
@@ -135,8 +135,8 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // explicitly write these kinds also explicitly limit local admin command kinds, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'content-server:reload', name: string }
-        | { kind: 'actions-server:reload', name: string },
+        | { kind: 'external-content:reload', name: string }
+        | { kind: 'application-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -211,10 +211,10 @@ class BuildScriptMessageParser {
         | 'admin-command-kind'
         | 'admin-static-content-key-length'
         | 'admin-static-content-key'
-        | 'admin-content-server-name-length'
-        | 'admin-content-server-name'
-        | 'admin-actions-server-name-length'
-        | 'admin-actions-server-name' = 'magic';
+        | 'admin-external-content-name-length'
+        | 'admin-external-content-name'
+        | 'admin-application-server-name-length'
+        | 'admin-application-server-name' = 'magic';
     private packetId: number;
     private packetKind: number;
     private uploadPathLength: number;
@@ -224,8 +224,8 @@ class BuildScriptMessageParser {
     private downloadPathLength: number;
     private adminCommandKind: number;
     private staticContentKeyLength: number;
-    private contentServerNameLength: number;
-    private actionsServerNameLength: number;
+    private externalContentNameLength: number;
+    private applicationServerNameLength: number;
 
     private hasEnoughLength(expect: number) {
         return this.chunk.length - this.position >= expect;
@@ -342,11 +342,11 @@ class BuildScriptMessageParser {
                     if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} static-content:reload`); }
                     this.state = 'admin-static-content-key-length';
                 } else if (this.adminCommandKind == 2) {
-                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} content-server:reload`); }
-                    this.state = 'admin-content-server-name-length';
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} external-content:reload`); }
+                    this.state = 'admin-external-content-name-length';
                 } else if (this.adminCommandKind == 3) {
-                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} actions-server:reload`); }
-                    this.state = 'admin-actions-server-name-length';
+                    if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command kind ${this.adminCommandKind} application-server:reload`); }
+                    this.state = 'admin-application-server-name-length';
                 }else {
                     logError('parser', `state = ${this.state}, kind = admin, command kind ${this.packetKind} invalid`);
                     this.state = 'skip-to-next-magic';
@@ -364,32 +364,32 @@ class BuildScriptMessageParser {
                 logInfo('websocket', `receive #${this.packetId} static-content:reload ${key}`);
                 this.reset();
                 return { id: this.packetId, kind: 'admin', command: { kind: 'static-content:reload', key } };
-            } else if (this.state == 'admin-content-server-name-length') {
+            } else if (this.state == 'admin-external-content-name-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.contentServerNameLength = this.chunk.readUInt8(this.position);
+                this.externalContentNameLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = content-server:reload, name length ${this.contentServerNameLength}`); }
-                this.state = 'admin-content-server-name';
-            } else if (this.state == 'admin-content-server-name') {
-                if (!this.hasEnoughLength(this.contentServerNameLength)) { return null; }
-                const name = this.chunk.toString('utf-8', this.position, this.position + this.contentServerNameLength);
-                this.position += this.contentServerNameLength;
-                logInfo('websocket', `receive #${this.packetId} content-server:reload ${name}`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = external-content:reload, name length ${this.externalContentNameLength}`); }
+                this.state = 'admin-external-content-name';
+            } else if (this.state == 'admin-external-content-name') {
+                if (!this.hasEnoughLength(this.externalContentNameLength)) { return null; }
+                const name = this.chunk.toString('utf-8', this.position, this.position + this.externalContentNameLength);
+                this.position += this.externalContentNameLength;
+                logInfo('websocket', `receive #${this.packetId} external-content:reload ${name}`);
                 this.reset();
-                return { id: this.packetId, kind: 'admin', command: { kind: 'content-server:reload', name } };
-            } else if (this.state == 'admin-actions-server-name-length') {
+                return { id: this.packetId, kind: 'admin', command: { kind: 'external-content:reload', name } };
+            } else if (this.state == 'admin-application-server-name-length') {
                 if (!this.hasEnoughLength(1)) { return null; }
-                this.actionsServerNameLength = this.chunk.readUInt8(this.position);
+                this.applicationServerNameLength = this.chunk.readUInt8(this.position);
                 this.position += 1;
-                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = actions-server:reload, name length ${this.actionsServerNameLength}`); }
-                this.state = 'admin-actions-server-name';
-            } else if (this.state == 'admin-actions-server-name') {
-                if (!this.hasEnoughLength(this.actionsServerNameLength)) { return null; }
-                const name = this.chunk.toString('utf-8', this.position, this.position + this.actionsServerNameLength);
-                this.position += this.actionsServerNameLength;
-                logInfo('websocket', `receive #${this.packetId} actions-server:reload ${name}`);
+                if (DebugBuildScriptMessageParser) { logInfo('parser', `state = ${this.state}, kind = admin, command = application-server:reload, name length ${this.applicationServerNameLength}`); }
+                this.state = 'admin-application-server-name';
+            } else if (this.state == 'admin-application-server-name') {
+                if (!this.hasEnoughLength(this.applicationServerNameLength)) { return null; }
+                const name = this.chunk.toString('utf-8', this.position, this.position + this.applicationServerNameLength);
+                this.position += this.applicationServerNameLength;
+                logInfo('websocket', `receive #${this.packetId} application-server:reload ${name}`);
                 this.reset();
-                return { id: this.packetId, kind: 'admin', command: { kind: 'actions-server:reload', name } };
+                return { id: this.packetId, kind: 'admin', command: { kind: 'application-server:reload', name } };
             } else {
                 logError('parser', `invalid state? ${this.state}`);
             }
@@ -499,6 +499,7 @@ export type AdminInterfaceCommand =
     | { kind: 'reload-certificate' }
     | { kind: 'static-content:reload', key: string }
     | { kind: 'static-content:reload-config' }
+    | { kind: 'external-content:reload', name: string }
     | { kind: 'access-control:revoke', sessionId: number }
     | { kind: 'access-control:user:enable', userId: number }
     | { kind: 'access-control:user:disable', userId: number }
@@ -507,13 +508,12 @@ export type AdminInterfaceCommand =
     | { kind: 'access-control:display-rate-limits' }
     | { kind: 'access-control:display-user-sessions' } // with new responseful design, you can get
     | { kind: 'access-control:display-application-sessions' } // with new responseful design, you can get
-    | { kind: 'content-server:reload', name: string }
-    | { kind: 'actions-server:reload', name: string }
+    | { kind: 'application-server:reload', name: string }
     | { kind: 'short-link-server:reload' };
 
 export interface AdminInterfaceResult {
     status: 'unhandled' | 'ok' | 'error',
-    logs: any[], // put object should be ok
+    logs: any[], // may include arbitrary objects
 }
 // END SHARED TYPE AdminInterfaceCommand
 
@@ -718,8 +718,8 @@ function usage() {
     // console.log('  - reload certificate  reload-certificate'); // TODO should not need manual invocation in future
     console.log('  - reload user   # shorthand for reload static user');
     console.log('  - reload static KEY');
-    console.log('  - reload content server KEY');
-    console.log('  - reload actions server KEY');
+    console.log('  - reload external content KEY');
+    console.log('  - reload application server KEY');
     console.log('  - display user sessions');
     console.log('  - display application sessions');
     console.log('  - display rate limits');
@@ -765,11 +765,11 @@ for await (const raw of interactiveReader) {
     } else if (line.startsWith('reload static ')) {
         await sendAdminCommand({ kind: 'static-content:reload', key: line.substring(14).trim() });
         interactiveReader.prompt();
-    } else if (line.startsWith('reload content server ')) {
-        await sendAdminCommand({ kind: 'content-server:reload', name: line.substring(22).trim() });
+    } else if (line.startsWith('reload external content ')) {
+        await sendAdminCommand({ kind: 'external-content:reload', name: line.substring(24).trim() });
         interactiveReader.prompt();
-    } else if (line.startsWith('reload actions server ')) {
-        await sendAdminCommand({ kind: 'actions-server:reload', name: line.substring(22).trim() });
+    } else if (line.startsWith('reload application server ')) {
+        await sendAdminCommand({ kind: 'application-server:reload', name: line.substring(26).trim() });
         interactiveReader.prompt();
     } else if (line == 'display user sessions') {
         await sendAdminCommand({ kind: 'access-control:display-user-sessions' });

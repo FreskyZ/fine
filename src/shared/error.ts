@@ -13,9 +13,9 @@ export type MyErrorKind =
     | 'gateway-timeout';
 
 // a common error type for all known errors
-// - for core module, content servers and action servers
-// - because core module, content servers and action servers are separate compilation units,
-//   the class definitions are duplicate and cannot use instanceof to check known errors, so use .name
+// - for core module and all external content providers and application servers
+// - set .name because core module and each server are separate compilation units,
+//   the class definitions are duplicated and cannot use instanceof to check known errors
 export class MyError extends Error {
     // TODO review use of constructor parameter and distinguish between user message and internal log message
     constructor(

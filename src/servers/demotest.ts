@@ -101,5 +101,5 @@ await request('GET', '/v1/sessions');
 client.close();
 // deploy demoapi: upload static src/servers/demoapi.js:servers/demoapi.js
 // add demo: { host: app.example.com, module: ./servers/demoapi.js } to access.yml and restart container
-// hot reload server: reload actions server demo, this may change to avoid actions server in future
+// hot reload server: reload application server demo
 // before run this script, replace example.com with real domain

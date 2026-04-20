@@ -13,7 +13,7 @@ file structures of...
   - `public`: simple public files like `robots.txt`, they are simply copied to deployment location
   - `static`: builtin pages include the home page and authentication related pages
   - `shared`: shared types for admin/auth, they are now linked to app, too
-  - `servers`: builtin content servers or action servers
+  - `servers`: builtin external content providers or application servers
 
 ## Main Container
 

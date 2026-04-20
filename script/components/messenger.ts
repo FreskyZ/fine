@@ -31,8 +31,8 @@ export interface HasId {
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
-//   - command kind: 2 (content-server:reload), name length: u8, name: not zero terminated
-//   - command kind: 3 (actions-server:reload), name length: u8, name: not zero terminated
+//   - command kind: 2 (external-content:reload), name length: u8, name: not zero terminated
+//   - command kind: 3 (application-server:reload), name length: u8, name: not zero terminated
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
@@ -52,8 +52,8 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // explicitly write these kinds also explicitly limit local admin command kinds, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'content-server:reload', name: string }
-        | { kind: 'actions-server:reload', name: string },
+        | { kind: 'external-content:reload', name: string }
+        | { kind: 'application-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -359,7 +359,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
             logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
-        } else if (message.command.kind == 'content-server:reload') {
+        } else if (message.command.kind == 'external-content:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
@@ -367,8 +367,8 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(2, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} content-server:reload ${message.command.name}`);
-        } else if (message.command.kind == 'actions-server:reload') {
+            logInfo('tunnel', `send #${messageId} external-content:reload ${message.command.name}`);
+        } else if (message.command.kind == 'application-server:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
@@ -376,7 +376,7 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
             buffer.writeUInt8(3, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} actions-server:reload ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} application-server:reload ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);

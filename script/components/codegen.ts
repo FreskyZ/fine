@@ -26,6 +26,8 @@ interface WebInterfaceActionParameter {
     type: 'id' | 'guid', // for now only this
     optional: boolean,
 }
+// the name of "action" comes from my naming convetion of write database model in "data-config.xml" and write api http endpoints in "data-action.xml",
+// it is not too short and not too long and distinguishable comparing to "api", "interface", "endpoint", "function", "definition", etc.
 interface WebInterfaceAction {
     // finally you need something to group actions
     // for now =main is main, =share is for share page
@@ -268,7 +270,7 @@ function checkPartialGeneratedContentHash(config: CodeGenerationConfig, taskName
 // index.ts, return null for not ok
 function generateWebInterfaceServer(config: CodeGenerationConfig, originalContent: string): string {
 
-    const manualContent = checkPartialGeneratedContentHash(config, 'actions-server', originalContent);
+    const manualContent = checkPartialGeneratedContentHash(config, 'application-server', originalContent);
     if (!manualContent) { return null; }
     let sb = '';
     sb += '// --------------------------------------\n';

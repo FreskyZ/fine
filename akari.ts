@@ -927,8 +927,8 @@ interface HasId {
 // - kind: 2 (download), path length: u8, path: not zero terminated
 // - kind: 3 (admin), command kind: u8
 //   - command kind: 1 (static-content:reload), key length: u8, key: not zero terminated
-//   - command kind: 2 (content-server:reload), name length: u8, name: not zero terminated
-//   - command kind: 3 (actions-server:reload), name length: u8, name: not zero terminated
+//   - command kind: 2 (external-content:reload), name length: u8, name: not zero terminated
+//   - command kind: 3 (application-server:reload), name length: u8, name: not zero terminated
 // - kind: 4 (reload-browser)
 interface BuildScriptMessageUploadFile {
     kind: 'upload',
@@ -948,8 +948,8 @@ interface BuildScriptMessageAdminInterfaceCommand {
         // remote-akari knows AdminInterfaceCommand type, local akari don't
         // explicitly write these kinds also explicitly limit local admin command kinds, which is ok
         | { kind: 'static-content:reload', key: string }
-        | { kind: 'content-server:reload', name: string }
-        | { kind: 'actions-server:reload', name: string },
+        | { kind: 'external-content:reload', name: string }
+        | { kind: 'application-server:reload', name: string },
 }
 interface BuildScriptMessageReloadBrowser {
     kind: 'reload-browser',
@@ -1255,7 +1255,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(message.command.key.length, 8); // key length size 1
             buffer.write(message.command.key, 9);
             logInfo('tunnel', `send #${messageId} static-content:reload ${message.command.key}`);
-        } else if (message.command.kind == 'content-server:reload') {
+        } else if (message.command.kind == 'external-content:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
@@ -1263,8 +1263,8 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(2, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} content-server:reload ${message.command.name}`);
-        } else if (message.command.kind == 'actions-server:reload') {
+            logInfo('tunnel', `send #${messageId} external-content:reload ${message.command.name}`);
+        } else if (message.command.kind == 'application-server:reload') {
             buffer = Buffer.alloc(9 + message.command.name.length);
             buffer.write('NIRA', 0); // magic size 4
             buffer.writeUInt16LE(messageId, 4); // packet id size 2
@@ -1272,7 +1272,7 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
             buffer.writeUInt8(3, 7); // command kind size 1
             buffer.writeUInt8(message.command.name.length, 8); // name length size 1
             buffer.write(message.command.name, 9);
-            logInfo('tunnel', `send #${messageId} actions-server:reload ${message.command.name}`);
+            logInfo('tunnel', `send #${messageId} application-server:reload ${message.command.name}`);
         }
     } else if (message.kind == 'reload-browser') {
         buffer = Buffer.alloc(7);
@@ -1367,7 +1367,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY e0c7fa231e200cf38dd8b6acc4bd94e0163db00752900ef5cb2dedad83bb5276
+// END LIBRARY 7d868406b3da43851e32f0f97e51bf0544912286b7b5719a0ebb42d9c2d3df4f
 
 dayjs.extend(utc);
 
@@ -1408,9 +1408,15 @@ async function deployRemoteSelf(ecx?: MessengerContext) {
     }
 }
 
-// identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md 
+// identity provider is the formal name for id.example.com, user.html and user.js, see authentication.md
 async function buildIdentityProvider(ecx: MessengerContext) {
     logInfo('akari', chalk`build {cyan user page}`);
+
+    // TODO try fix the react importmap issue because of use of cdn,
+    // by really packing 3rd party libraries? I mean flat them should be impossible, but
+    // by collect their bundled .min.js?
+    // or try use normal function wrapper to build them?
+    // or resolve unified version and pre-download from cdn and serve by my own?
 
     const tcx = transpile({ entry: 'src/static/user.tsx', target: 'browser' });
     if (!tcx.success) { logError('akari', chalk`{cyan user page} failed at transpile`); return; }
@@ -1448,7 +1454,11 @@ async function buildCore(ecx: MessengerContext) {
 
     if (!await eslint({ files: 'src/core/*' })) { /* return; */ }
 
+    // add a build time, other containers in compose file use label as a rough version,
+    // main container does not use a custom image and add build time to index.js should be reasonable
+    mcx.resultJs += `\n// build: ${dayjs.utc().toISOString()}\n`;
     const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'index.js' }];
+
     const [uploadResult] = await uploadWithRemoteConnection(ecx, assets);
     if (!uploadResult || uploadResult.status == 'error') {
         logError('akari', chalk`{cyan core} failed at upload`); return;
@@ -1476,7 +1486,7 @@ async function buildShortLinkServer(ecx: MessengerContext) {
     } else if (uploadResult.status == 'nodiff') {
         logInfo('akari', chalk`build {cyan short} completed with no change`); return;
     } else {
-        const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'content-server:reload', name: 'short-link' } });
+        const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'external-content:reload', name: 'short-link' } });
         if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan short} failed at reload`); return false; }
     }
 
@@ -1628,3 +1638,4 @@ dispatch(process.argv.slice(2));
 // download error log: download /var/log/fine/260414E.log:260414E.log
 // self: !node script/make-akari.ts .
 // display line range in index.js according to error message line: cat -n index.js | sed -n '195,205p'
+// check index.js build time: !tail -1 index.js

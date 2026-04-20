@@ -489,8 +489,8 @@ export async function handleContentCommand(command: AdminInterfaceCommand, resul
     } else if (command.kind == 'static-content:reload-config') {
         const config: ContentControlConfig = yaml.parse(await fs.readFile(contentConfigPath, 'utf-8'));
         await handleReloadStaticContentConfig(config.static, result);
-    // reload external content provider TODO rename command
-    } else if (command.kind == 'content-server:reload') {
+    // reload external content provider
+    } else if (command.kind == 'external-content:reload') {
         const index = contentdata.externalProviders.findIndex(s => s.name == command.name);
         if (index >= 0) {
             await handleReloadExternalProvider(contentdata.externalProviders[index], result);
