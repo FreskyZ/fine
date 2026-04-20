@@ -260,34 +260,46 @@ function runTests() {
 class MyError extends Error {
     constructor(kind, message, additionalInfo) { super(message); this.kind = kind; this.name = 'MyError'; this.additionalInfo = additionalInfo; }
 }
-class ParameterValidator {
-    constructor(parameters) { this.parameters = parameters; }
+class RequestContext {
+    constructor(request) {
+        this.request = request;
+        this.parameters = new URLSearchParams(request.query);
+    }
+    get ax() {
+        return { time: dayjs.utc(this.request.time), userId: this.request.userId };
+    }
+    get body() {
+        if (!this.request.body) { throw new MyError('common', 'invalid empty body'); }
+        return this.request.body;
+    }
     validate(name, optional, convert, validate) {
         if (!this.parameters.has(name)) {
-            if (optional) { return null; } else { throw new MyError('common', `missing required parameter ${name}`); }
+            if (optional) { return null; } else { throw new MyError('common', `parameter ${name} missing`); }
         }
         const raw = this.parameters.get(name);
         const result = convert(raw);
-        if (validate(result)) { return result; } else { throw new MyError('common', `invalid parameter ${name} value ${raw}`); }
+        if (validate(result)) { return result; } else { throw new MyError('common', `parameter ${name} invalid value ${raw}`); }
     }
     id(name) { return this.validate(name, false, parseInt, v => !isNaN(v) && v > 0); }
     idopt(name) { return this.validate(name, true, parseInt, v => !isNaN(v) && v > 0); }
     string(name) { return this.validate(name, false, v => v, v => !!v); }
+    number(name) { return this.validate(name, false, parseInt, v => !isNaN(v)); }
+    date(name) { return this.validate(name, false, v => dayjs.utc(v, 'YYYYMMDD'), v => v.isValid()); }
+    datetime(name) { return this.validate(name, false, v => dayjs.utc(v, 'YYYYMMDDHHmmdd'), v => v.isValid()); }
 }
+const actionmap = {
+    'GET /v1/sessions': r => getSessions(r.ax),
+    'GET /v1/session': r => getSession(r.ax, r.id('sessionId')),
+    // 'GET /public/v1/session': r => publicGetSession(r.ax, r.string('shareId')),
+    'PUT /v1/add-session': r => addSession(r.ax, r.body),
+    'POST /v1/update-session': r => updateSession(r.ax, r.body),
+    'DELETE /v1/remove-session': r => removeSession(r.ax, r.id('sessionId')),
+    'PUT /v1/add-message': r => addMessage(r.ax, r.id('sessionId'), r.body),
+    'POST /v1/update-message': r => updateMessage(r.ax, r.id('sessionId'), r.body),
+};
 export async function dispatch(request) {
-    const v = new ParameterValidator(new URLSearchParams(request.query));
-    const ax = { time: request.time, userId: request.userId };
-    const action = {
-        'GET /v1/sessions': () => getSessions(ax),
-        'GET /v1/session': () => getSession(ax, v.id('sessionId')),
-        // 'GET /public/v1/session': () => publicGetSession(ax, v.string('shareId')),
-        'PUT /v1/add-session': () => addSession(ax, request.body),
-        'POST /v1/update-session': () => updateSession(ax, request.body),
-        'DELETE /v1/remove-session': () => removeSession(ax, v.id('sessionId')),
-        'PUT /v1/add-message': () => addMessage(ax, v.id('sessionId'), request.body),
-        'POST /v1/update-message': () => updateMessage(ax, v.id('sessionId'), request.body),
-    }[`${request.method} ${request.path}`];
-    return action ? { body: await action() } : { error: new MyError('not-found', 'action not found') };
+    const key = `${request.method} ${request.path}`;
+    return key in actionmap ? { body: await actionmap[key](new RequestContext(request)) } : { error: new MyError('not-found', 'action not found') };
 }
 
 // TODO start a service if run this script run alone, testing ipc communication

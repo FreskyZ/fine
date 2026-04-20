@@ -61,6 +61,7 @@ interface CodeGenerationConfig {
     dbname: string,
     tables: DatabaseModelTable[],
     appname: string,
+    channel: 'hmr' | 'ipc',
     actions: WebInterfaceAction[],
     actionTypes: WebInterfaceActionType[],
 }
@@ -82,6 +83,11 @@ export async function readCodeGenerationConfig(options: CodeGenerationOptions): 
 
     const appname = rawShapes[1][':@'].app;
     const dbname = rawShapes[1][':@'].database;
+
+    const channel = rawShapes[1][':@'].type;
+    if (channel != 'hmr' && channel != 'ipc') {
+        logError('codegen', 'shapes.xml: unknown channel type');
+    }
 
     const tables: DatabaseModelTable[] = [];
     const actions: WebInterfaceAction[] = [];
@@ -134,12 +140,12 @@ export async function readCodeGenerationConfig(options: CodeGenerationOptions): 
         // ? you cannot get tag name in preserveOrder?
         } else if (!('----------------------------------------------' in c)) {
             hasError = true;
-            logError('codegen', 'database.xml: unknown element tag, expect table/type/action');
+            logError('codegen', 'shapes.xml: unknown element tag, expect table/type/action');
         }
     });
     // console.log(tables, JSON.stringify(actionTypes, undefined, 2), actions);
 
-    return hasError ? null : { options, dbname, tables, appname, actions, actionTypes };
+    return hasError ? null : { options, dbname, tables, appname, channel, actions, actionTypes };
 }
 
 // database.d.ts, return null for not ok
@@ -272,34 +278,38 @@ function generateWebInterfaceServer(config: CodeGenerationConfig, originalConten
 
     const manualContent = checkPartialGeneratedContentHash(config, 'application-server', originalContent);
     if (!manualContent) { return null; }
+
     let sb = '';
     sb += '// --------------------------------------\n';
     sb += '// ------ ATTENTION AUTO GENERATED ------\n';
     sb += '// --------------------------------------\n';
     sb += '\n';
-    sb += 'export async function dispatch(ctx: ActionServerRequest): Promise<ActionServerResponse> {\n';
-    // NOTE no need to wrap try in this function because it correctly throws into overall request error handler
-    sb += `    const { pathname, searchParams } = new URL(ctx.path, 'https://example.com');\n`;
-    sb += `    const v = new ParameterValidator(searchParams);\n`;
-    sb += `    const ax: ActionContext = { now: ctx.state.now, userId: ctx.state.user?.id, userName: ctx.state.user?.name };\n`;
-    sb += `    const action = ({\n`;
+    sb += `const actionmap = {\n`;
     for (const action of config.actions) {
         const functionName = action.name.charAt(0).toLowerCase() + action.name.substring(1);
-        sb += `        '${action.method} ${action.public ? '/public' : ''}/v1/${action.path}': () => ${functionName}(ax, `;
+        sb += `    '${action.method} ${action.public ? '/public' : ''}/v1/${action.path}': r => ${functionName}(r.ax, `;
         for (const parameter of action.parameters) {
             const optional = parameter.name.endsWith('?');
             const parameterName = optional ? parameter.name.substring(0, parameter.name.length - 1) : parameter.name;
             const method = parameter.type == 'id' ? 'id' : 'string';
-            sb += `v.${method}${optional ? 'opt' : ''}('${parameterName}'), `;
+            sb += `r.${method}${optional ? 'opt' : ''}('${parameterName}'), `;
         }
         if (action.body) {
-            sb += 'ctx.body, ';
+            sb += 'r.body, ';
         }
         sb = sb.substring(0, sb.length - 2) + '),\n';
     }
-    sb += `    } as Record<string, () => Promise<any>>)[\`\${ctx.method} \${pathname}\`];\n`;
-    sb += `    return action ? { body: await action() } : { error: new MyError('not-found', 'action not found') };\n`;
-    sb += `}\n`;
+    sb += `} as Record<string, (request: RequestContext) => Promise<any>>;\n`;
+
+    // this is amazingly simple, hmr need this small dispatch function,
+    // ipc will manually call the listen function and only need actionmap
+    if (config.channel == 'hmr') {
+        // NOTE no need to try in this function because it already wrapped in channel.ts
+        sb += 'export async function dispatch(request: ApplicationServerRequest): Promise<ApplicationServerResponse> {\n';
+        sb += `    const key = \`\${request.method} \${request.path}\`\n`;
+        sb += `    return key in actionmap ? { body: await actionmap[key](new RequestContext(request)) } : { error: new MyError('not-found', 'action not found') };\n`;
+        sb += `}\n`;
+    }
 
     const hash = crypto.hash('sha256', sb);
     return `${manualContent}// AUTOGEN ${hash}\n${sb}`;

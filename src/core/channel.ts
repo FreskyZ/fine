@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import type { AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
-import type { ApplicationServerRequest, ApplicationServerResponse } from '../shared/server-helper-hmr.js';
+import type { ApplicationServerRequest, ApplicationServerResponse } from '../shared/server-types.js';
 import { MyError } from '../shared/error.js';
 import { log } from './logger.js';
 import type { MyContext } from './access.js';
