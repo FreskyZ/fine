@@ -1,93 +1,82 @@
-# Multi App Structure
+# Multiple Application Structure
 
-ATTENTION WORK IN PROGRESS
+this project starts as a simple website hosting serveral applications of my interest, with the
+initial motivation to learn internals of frontend engineering by implementing related libraries and
+programs on my own, then over the years and over the gaps between the development of this project
+halt and restart again (it's more than 8 years at the time of writing since the first line of code
+in this project, if you ask), applications of my interest drifts from here to there, add new, take
+down and development of applications disrupt the using and running of existing applications
 
-app servers were originally designed to be in-process and loaded by simple `require` function,
-but new apps become complex and have its own other services to host, it is hard to unload
-the services (incorrect unload leads to memory leak, resource leak or error (like port in use)),
-and critical error makes the core module unstable (unhandled error and unhandled rejection leads to restart),
-so these new apps are deployed on their own, communicating with core process by domain socket, sending
-json as plain text, the socket connections are pooled to prevent frequent open and close
+so the hot reloading concept is adopted and change the remaining core module to something more like
+a reverse proxy program, handling common functionalities like application static files and access
+control, which still matches the motivation because reverse proxies are very close to front end
 
-> this is also why this project is categoried from "website" to "reverse proxy"
+currently there are 2 communication schemes, one by hot reloading nodejs module, by adding a query
+parameters in the module uri, which is simple and fast, but loading a new module does not actually
+remove old module from module cache, cause memory leaks and potential conflicts, one by unix domain
+socket, allowing a multiprocess architecture, which is complex but provides more isolation
 
-and writing api declaration twice (or sometimes more times) in front end and back end is boring and error prone,
-so there is code generation part to make front end calling back end looks like a function call (like *rpc*)
+### New Application Process
 
-TODO although major file download and upload service in drive.example.com will use oss direct transfer,
-but still need small file operation here, but that really need core module awareness?
+1. new folder in small project
+2. copy package.json from here or existing app, npm i
+3. add file structure src/server, src/client, src/shared
+4. copy akari.ts from here or existing app, setup components and adk, run make-akari
+5. write shapes.xml database types, prepare server index.ts and code generate
+6. write shapes.xml actions and types, prepare client index.tsx and code generate
+7. create folder static/appname
+8. configure content.yml and access.yml this application
+9. try deploy and use the application!
 
-### File Upload
+or even smaller application
 
-to prevent large file to be transmitted through domain socket, it is saved to real file system and send a path,
-app server may delete the file after use, or rename to its own place to keep it, core module will delete these
-files after, like 1 month, there should be no app server need them after this long time
+1. new folder in small project
+2. hand written index.html and hand written inline javascript or single index.js file,
+   copy from client-startup function to make authentication work
+3. hand written server index.js, copy server-helper classes
+4. configure content.yml and access.yml for this application
+5. try deploy and use the application
 
-### File Download
+these lists are incomplete and inaccurate because there is no active applications
+at the time of writing TODO improve the section to make new applications more smooth
 
-to prevent large file to be transmitted through domain socket, also implementing (should be) commonly used
-cache feature, core module knows all (will download) file requests (in memory and persist storage) and will
-not call app server when cache is fresh, use rename instead of copy by requesting app server's saved file's
-ownership will reduce one file copy, app servers use websocket's reverse domain socket to request for a slot
-for a file request, a slot (not the cache) is permanent for path (url path) in specific app, so furthur request
-(app server does not need to save the mapping for slot id and path) will only return previously allocated slot id,
-use slot id not path (include file name) will make the request look good (content.domain.com/{guid}) also prevent
-malisious (maybe not, just curious) try file path attempt, limiting content request to my own website only
+### Code Generation
 
-### TODO Streaming Response
+have a good section in build-script.md, see that
 
-although streaming response is not powerful as websocket, but LLM AI streaming completion need this
+the code generation process motivates my production work a lot, which grows into a really
+large and powerful toolset saving a lot of work times to let me think and work on more
+improvements of efficiency in my production work, which in turn provides more time and help
+me improve the code generation tool here in this project, recusively
 
-### Alive Connection
+### Application Development Kit
 
-I mean websocket, websocket will be implemented as 2 separate domain socket connection for different direction, the
-authentication part can be done via send access-token in Sec-Websocket-Protocol header, which is the only allowed
-customizable header in websocket's http upgrade request, custom header is not allowed, body is not allowed, and cookie
-is not available while cross origin (TODO: determine whether this part should be in auth.md), websocket is useful
-for both current actively developing apps
+abbreviated adk, for common functionalities of application servers that cannot directly
+handled in core module but need them to invoke, like the old database functions helper
+(which have long gone at the time of writing because postgresql don't need that!)
+and for now the client side authentication process and the server side communication part
 
-the not implemented separate process architecture
-old adk
-websocket api
-streaming response
+to deploy these files into application, the old build script use a...symlink to avoid
+desynchronization of these files, which is very inconvenient to setup and development
+inside the core module and application servers disrupt each other, the today build script
+use a...bundle file contents inside the build script and later extract them to application
+server development location approach, which works good actually, really
 
-## New Application Check List
+### Unix Domain Socket
 
-1. certificate, skip if no subdomain
-   1. check dns record for appname.example.com to CNAME to example.com
-   2. check dns record for _acme-challenge.appname.example.com to CNAME to _acme-challenge.example.com
-   3. request certificate, see certificate.md
-   4. claim permission sudo chown -R fine:fine /etc/letsencrypt/live/appname.example.com
-   5. claim permission sudo chown -R fine:fine /etc/letsencrypt/archive/appname.example.com
-   6. add to webroot/config certificates config
-2. source code
-   1. new folder in small/appname
-   2. copy package.json from existing app, npm i
-   3. add folder structure for src/server, src/client, src/shared
-   4. copy akari.ts from existing app, node script/make-akari.ts ../small/appname
-   10. copy akari.json from existing app
-   5. write database.xml
-   6. write empty index.ts `// AUTOGEN` TODO auto section imports should be auto
-   7. write api.xml
-   11. TODO missing src/server/dispatch.d.ts
-   8. write empty index.tsx `// AUTOGEN` TODO auto section imports should be auto
-   9. write empty index.html or copy from existing app
-3. static content and core module config
-   1. create webroot/static/appname folder
-   2. add to static content config
-   3. add to web app config
-4. run akari.ts
-   1. add empty implementations in index.ts
-   2. make akari.ts run
-   3. run remote akari.ts, run akari.ts with remote
+unix domain socket is a tcp-like full duplex continuous byte stream channel,
+this means you cannot reuse a connection to send multiple requests to application server at
+the same time, so you need a connection pool, there was a connection pool implemented in the
+project, which have not run for very long time, and the code is hard to understand and seems
+not that reliable, TODO update the unix domain socket connection pool and talk about here
 
-or not that major
+### TODO?
 
-1. new folder small/smallapp
-2. hand written index.html and hand written inline javascript, copy startup function and small modification
-3. hand written index.js, copy class MyError, handle written dispatch function, handle parse ctx.path, return { body } or { error }
-4. copy mysql.createPool, implement db query
-5. add static content app.example.com: smallapp: static/smallapp.html
-6. add app: host: app.example.com, server: smallapp.js
-7. akari.ts upload index.html: static/smallapp/index.html, index.js: servers/smallapp.js
-8. restart server
+currently all communications of application servers are json,
+it was designed to add non json features but not very motivated so they are still here as todo?
+
+- file download and upload, by the way, file download likely should use external content instead
+- websocket api
+- streaming response, this is motivated by llm ai, which is kind of new
+- and then, if application interface need these many features,
+  do application servers need to report to core module the special actions, in a structured way?
