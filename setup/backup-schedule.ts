@@ -38,6 +38,10 @@ async function dumpDatabases(logs: string[]) {
         log(`spawning pg_dump ${item}`);
         const child = spawn('pg_dump', ['--username', username, databaseName], { stdio: ['ignore', 'pipe', 'pipe'] });
         const content = await new Promise<string>(resolve => {
+            const timeout = setTimeout(() => {
+                log(`pg_dump ${item} timeout? that's 5min no resolve`); 
+                resolve(null);
+            }, 300_000);
             let content = '';
             child.stdout.on('data', data => {
                 content += data; // this seems to be string
@@ -47,12 +51,14 @@ async function dumpDatabases(logs: string[]) {
             });
             child.on('error', error => {
                 log(`pg_dump ${item} error? ${error}`);
+                if (timeout) { clearTimeout(timeout); }
                 resolve(null); // ignore error and continue other backup work
             });
             child.on('close', async (code, signal) => {
                 // document says one of code and signal will not be null
                 // if you code??signal, it will become null for code=0, so use signal??code
                 log(`pg_dump ${item} returned with ${signal ?? code}, received stdout ${content.length} bytes`);
+                if (timeout) { clearTimeout(timeout); }
                 resolve(content);
             });
         });
@@ -79,6 +85,10 @@ async function bundle(logs: string[]): Promise<Buffer<ArrayBuffer>> {
     // no specific data needed in stdout or stderr, use inherit
     const child = spawn('tar', ['cJf', '-', '/data'], { stdio: ['ignore', 'pipe', 'pipe'] });
     return await new Promise<Buffer<ArrayBuffer>>(resolve => {
+        const timeout = setTimeout(() => {
+            log(`tar timeout? that's 5min no resolve`); 
+            resolve(null);
+        }, 300_000);
         const chunks = [];
         child.stdout.on('data', data => {
             chunks.push(data);
@@ -89,11 +99,13 @@ async function bundle(logs: string[]): Promise<Buffer<ArrayBuffer>> {
         child.on('error', error => {
             log(`tar error? abort, ${error}`);
             console.log(`backup.ts: tar error? check logs for detail`);
+            if (timeout) { clearTimeout(timeout); }
             resolve(null);
         });
         child.on('close', async (code, signal) => {
             const data = Buffer.concat(chunks);
             log(`tar returned with ${signal ?? code}, received stdout ${data.length} bytes`);
+            if (timeout) { clearTimeout(timeout); }
             resolve(data);
         });
     });
@@ -156,6 +168,14 @@ async function schedule() {
     process.on('SIGINT', requestShutdown);
     process.on('SIGTERM', requestShutdown);
 
+    // align minute to 0 to make the execution time more predicatable
+    const time = dayjs.utc();
+    if (time.minute() != 0) {
+        sleeping = true;
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 1000 * (60 - time.minute())));
+        sleeping = false;
+    }
+
     // let mocktime = dayjs.utc();
     while (true) {
         if (shutdownRequested) {
@@ -168,7 +188,7 @@ async function schedule() {
         sleeping = false;
         // wakeup and find it's time and find no related success log for this date, initiate backup
 
-        let time = dayjs.utc(); // mock: mocktime = mocktime.add(1, 'hour'); to achieve add 1 hour per second
+        const time = dayjs.utc(); // mock: mocktime = mocktime.add(1, 'hour'); to achieve add 1 hour per second
         if (time.hour() < 18) { continue; } // use hour >= 18 to effectly allow 6 times of retry if some error happens
 
         let filenames: string[];

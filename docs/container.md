@@ -90,13 +90,123 @@ the cloudflare secret will not be affected
 
 ### Networks
 
-network related functionality is not used in the project,
-database service use domain socket and containers other than main web server do not expose ports
+network related functionality is not used in the project, database service
+use domain socket and containers other than main web server do not expose ports
 
-ATTENTION TODO ip is internal for default network setting,
-see real ip by running nc -l -p 8001 -v on host (not in docker),
-also check this issue when using ipv6,
-also see https://deavid.wordpress.com/2019/06/15/how-to-allow-docker-containers-to-see-the-source-ip-address/
+but the source ip in tcp socket connection, also available in http request, is a fixed internal ip by default,
+this is by design that external connections are proxied through docker engine for network functionalities like
+communication between containers, which is not at all used by this project, and is a complete security hazard
+that ip based validations and restrictions completely don't work
+
+before the following sections check that your environment really provides real ip by running a simple http or
+socket server on host (not in docker), e.g. nc -l -p 8001 -v, add -6 for ipv6
+
+the correct answer for **rootless** docker is at
+https://docs.docker.com/engine/security/rootless/troubleshoot/#docker-run--p-does-not-propagate-source-ip-addresses
+add this
+
+```ini
+[Service]
+Environment="DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta"
+Environment="DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=implicit"
+```
+
+to `~/.config/systemd/user/docker.service.d/network.conf`, create `docker.service.d` if not exist, which by
+default should not exist, other directories should exist, and `docker.service` file should exist, or else you
+(or your environment) are configuring user level systemd services in other location, you may see the file name
+is different from `override.conf` in the document, that's because you are free to name the file as long as the
+name is reasonable and not conflict with other override config files
+
+the pasta network driver is installed with apt install passt, if you find apt install pasta not work,
+the pasta project is at https://passt.top/passt/about/, if you find the name is too general to search
+
+without these settings the docker proxy will listen to ipv6 address if you simply specify -p 443:443, you can
+check this by running `sudo netstat -tulpn`, that both 0.0.0.0:443 and :::443 is listened by rootlesskit, but
+after this you need to explicitly add
+
+```ini
+Environment="DOCKERD_ROOTLESS_ROOTLESSKIT_FLAGS=--ipv6"
+```
+
+in the override config, this is not same as docker create network --ipv6 parameter and docker compose network
+enable_ipv6 flag (you still need them to make concrete container and compose project work, don't forget), and
+not at all mentioned in docker document https://docs.docker.com/engine/daemon/ipv6/
+
+the command line arguments have basic help information at `rootlesskit --help` command, *not* available in
+docker document https://docs.docker.com, the rootlesskit program source code is at
+https://github.com/rootless-containers/rootlesskit,
+not started with docker, no dedicated document site for rootlesskit, except a few markdown files in the repo,
+the dockerd environment variables for rootlesskit is *not* available in docker document and rootless document,
+I assume the most official document is at https://github.com/moby/moby/blob/master/contrib/dockerd-rootless.sh,
+which is not started with docker, and states itself as separation of open source components from docker and
+community contributions related with docker, the official site does not contain technical documents? the docs
+folder in the repository does not contain technical documents for programs and tools in the repository? the
+dockerd-rootless.sh script seems like entrypoint for rootlesskit program use in dockerd, it declares the env
+vars _NET and _PORT_DRIVER, but not declare _FLAGS? but use _FLAGS in result rootlesskit command line, it also
+contains a comprehensive comparison table between different network drivers and port drivers, which solves the
+issue about source ip, but this useful table is *not* available in docker document
+
+the rootlesskit contains a performance comparison between network drivers at
+https://github.com/rootless-containers/rootlesskit/blob/master/docs/network.md,
+which means docker rootless mode is completely not suitable for production level network heavy applications,
+and completely not acceptable performance overhead for non production level projects that don't need container
+communication etc. network features to trade for the non root security illusion
+
+the common answer in ai and search result to setup a reverse proxy outside containers to set x-forwarded-for
+etc. header, it is completely *incorrect*, it adds another performance overhead to parse http packet get socket
+information and create http packet again to use in containered applications, on top of the existing performance
+downgrade of default rootless network driver, and it is completely against the motivation for containerization
+that important programs run outside of container
+
+the common answer in ai and search result to disable userland-proxy is *incorrect*, it is completely not
+related to docker rootless network features, by the way, if you are deceived to use this setting, you may find
+error message: Error initializing network controller: error creating default "bridge" network: cannot restrict
+inter-container communication or run without the userland proxy: stat /proc/sys/net/bridge/bridge-nf-call-
+iptables: no such file or directory, you need run sudo modprobe br_netfilter for this issue, and check sudo
+sysctl net.bridge.bridge-nf-call-iptables is 1, and add br_netfilter to /etc/modules-load.d/docker.conf for
+long term change
+
+the common answer in ai and search result to use --network host, is completely *incorrect* for rootless mode,
+because rootless mode use kernel's user namespace feature, and the opened port is inside the user namespace,
+not available outside, you can find this by difference in netstat inside container and outside the container,
+and open another service to listen to same port outside container successfully runs, this is even difference
+issue from windows docker desktop --network host means the docker desktop specific wsl distro, not the normal
+distro you are using, running docker cli and docker normal -v and -p parameter is interactive with
+
+TODO I gues the correct answer for rootful docker is network host, also see this
+https://deavid.wordpress.com/2019/06/15/how-to-allow-docker-containers-to-see-the-source-ip-address/
+to check userland proxy false, investigate this in future
+
+### Rootless Docker
+
+there was a section that calmly talk about docker rootless mode, but after the investigation
+of network issues in docker rootless mode, the answer is **DO NOT** use docker rootless mode
+
+rootless mode is not docker default, and is very different from docker default and is very not well documented
+in docker documents, it is even more not documented than the actually-is-plugin docker compose and docker build
+
+rootless mode conform to linux default unpriviledged port setting, forbids your containerized application to
+listen to low ports, forcing you to use any kind of proxy outside container include sudo socat run as a service,
+sudo nginx run as a service, or systemd socket activation, adding performance and maintainance overhead, with the
+threatening that change sysctl net.ipv4.ip_unprivileged_port_start is not secure
+
+last year I'm deceived by the statement that root user is not secure and setup non root user and run my app to
+use systemd socket activation with strange operation in source code, and making running the application without
+systemd to diagnose issues very inconvenient, this year I'm deceived by the statement that rootless docker is
+more secure and spend many time fighting against the docker proxy hiding source ip address issue, and I reallized
+that, in a fully containerized environment
+
+> compromise of active non-root user is complete compromise of all the meaningful resource on the machine
+
+which is completely same as using root user, that even don't have so many special issues
+
+after previous paragraphs, if you are still deceived by rootless mode, there are a few remaining small tips
+
+- rootless config file is ~/.config/docker/daemon.json, replace common tutorial's /etc/docker/daemon.json
+- rootless service is in systemctl --user status docker, add a --user compare to normal systemctl command
+- ATTENTION don't install rootless docker after login as root and su normal user, because user level systemd
+  is not correctly initialized in this case and rootless docker does not register itself as a systemd service
+- also, sysctl net.ipv4.ip_unprivileged_port_start to avoid the port 80 problem
 
 ### Build Context
 
@@ -106,21 +216,10 @@ of cheap cloud server, build at local side and upload thme is easier, you can ea
 image with one line shell command docker save image:tag | ssh server 'docker load', also
 support add an intermediate compression to reduce network usage: docker | xz | ssh docker
 
-### Rootless Docker
-
-see https://docs.docker.com/engine/security/rootless/
-
-- rootless config file is ~/.config/docker/daemon.json, replace common tutorial's /etc/docker/daemon.json
-- but you still can run a container with bind mount and run root commands with a root user?
-- TODO is podman's security by default advertisement really fit me and this project?
-- ATTENTION don't install rootless docker after login as root and su normal user, because user level systemd
-  is not correctly initialized in this case and rootless docker does not register itself as a systemd service
-- also, sysctl net.ipv4.ip_unprivileged_port_start to avoid the port 80 problem,
-  it is meaningless to disallow non root applications to open low ports to guard from the non existence
-  "other human users" on the same machine
 
 ### Additional Topics
 
+- ATTENTION don't forget to stop containers before apt update and apt upgrade
 - add profile to akari container so that it is not started or stopped with plain docker compose up command
 - add version number to custom images, use the seems standard org.opencontainers.image.version label,
   it recommends semver in https://specs.opencontainers.org/image-spec/annotations/#pre-defined-annotation-keys,

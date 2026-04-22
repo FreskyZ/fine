@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
-import syncfs from 'node:fs';
-import http from 'node:http';
+import npfs from 'node:fs';
+import type * as http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import path from 'node:path';
@@ -647,7 +647,7 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         logInfo('fs', `upload ${message.path}`);
         // resolve relative path to absolute path based on workdir
         const fullpath = path.resolve(message.path);
-        if (!syncfs.existsSync(path.dirname(fullpath))) {
+        if (!npfs.existsSync(path.dirname(fullpath))) {
             logError('fs', `require path ${fullpath} parent folder not exist, it is by design to not create parent folder here`);
             return sendBuildScriptMessageResponse(message.id, { kind: 'upload', status: 'error' });
         }
@@ -664,7 +664,7 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
             }));
         if (!messageContent) { return; } // decompress have error and already send response
         try {
-            if (syncfs.existsSync(fullpath)) {
+            if (npfs.existsSync(fullpath)) {
                 const originalContent = await fs.readFile(fullpath);
                 if (Buffer.compare(messageContent, originalContent) == 0) {
                     logInfo('fs', `${fullpath} nodiff`);
@@ -685,7 +685,7 @@ buildScriptConnectionEventEmitter.addListener('message', async message => {
         logInfo('fs', `download ${message.path}`);
         // resolve relative path to absolute path based on workdir
         const fullpath = path.resolve(message.path);
-        if (!syncfs.existsSync(fullpath)) {
+        if (!npfs.existsSync(fullpath)) {
             logError('fs', `requested path ${fullpath} not exist`);
             return sendBuildScriptMessageResponse(message.id, { kind: 'download', content: null, compressed: false });
         }

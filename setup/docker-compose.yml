@@ -52,6 +52,9 @@ services:
   # or run shell: docker compose run --rm --name akari2 -v .:/self --entrypoint sh akari
   akari:
     image: node
+    # assign a special profile so this is excluded in docker compose up (without service name and profile),
+    # you mean this is even excluded in docker compose config? and only appears in docker compose --profile akari config
+    profiles: [akari]
     working_dir: /var/fine
     entrypoint: node akari.ts
     environment:
@@ -62,14 +65,14 @@ services:
     # the volume list is same as main service, but most of them are not readonly
     volumes:
       - fine-program:/var/fine
-      - node_modules:/var/fine/node_modules
-      - fine-sockets:/run/fine
-      - fine-logs:/var/log/fine
+      - node_modules:/var/fine/node_modules:ro
+      - fine-configs:/etc/fine
+      - fine-sockets:/run/fine:ro
+      - fine-logs:/var/log/fine:ro
       - certificates:/etc/letsencrypt:ro
       - fine-public:/var/fine/public
       - database-logs:/var/lib/pgsql/logs:ro
-      - certbot-logs:/var/log/letsencrypt
-      - fine-configs:/etc/fine
+      - certbot-logs:/var/log/letsencrypt:ro
 
   # docker compose up -d web
   # restart: docker compose restart web
@@ -177,3 +180,8 @@ volumes:
     name: fine-node_modules
   backup-logs:
     name: fine-backup-logs
+
+networks:
+  default:
+    name: fine1
+    enable_ipv6: true

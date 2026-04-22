@@ -196,7 +196,7 @@ FROM node:25.8.2-alpine3.23 AS backup
 
 # remember to change this before commit is enough,
 # use automatic mechanism to record build time will invalidate cache
-LABEL org.opencontainers.image.version=20260419
+LABEL org.opencontainers.image.version=20260421
 
 # copy these files are enough for backup and restore
 COPY --from=my/postgres:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
