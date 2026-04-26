@@ -189,7 +189,6 @@ for postgresql.conf, see https://www.postgresql.org/docs/18/runtime-config-loggi
 - log connections by log_connections = 'authorization, setup_durations'
   and log disconnections by log_disconnections = on
 - other what-to-log configuration items default values should be good, I guess
-- TODO maybe need to remove old logs by external tools or in backup schedule
 
 ### Write Ahead Logs
 

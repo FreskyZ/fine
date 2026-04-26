@@ -91,17 +91,22 @@ https.createServer({ key: fs.readFileSync('privkey.pem'), cert: fs.readFileSync(
 http2.createSecureServer({ key: fs.readFileSync('privkey.pem'), cert: fs.readFileSync('cert.pem') }, app);
 
 // if have difference certificates for multiple domains, use SNI callback
-// httpsCertificates: { default: { key: string, cert: string }, [domain: string]: { key: string, cert: string } }
+// httpsCertificates: { domain: string, context: tls.SecureContext }[]
 const httpsServer = http2.createSecureServer({
    key: httpsCertificates.default.key,
    cert: httpsCertificates.default.cert,
    SNICallback: (servername, callback) => {
-      // TODO match wildcard
-      const certificate = httpsCertificates[servername];
-      if (certificate) {
-         callback(null, tls.createSecureContext({ key: certificate.key, cert: certificate.cert }));
+      const splitted = servername.split('.');
+      if (splitted.length < 2) {
+          callback(new Error('SNI certificate request not found'));
       } else {
-         callback(new Error('SNI certificate request not found'));
+          const domain = `${splitted.at(-2)}.${splitted.at(-1)}`;
+          const context = httpsCertificates.find(c => c.domain.localeCompare(domain) == 0)?.context;
+          if (context) {
+              callback(null, context);
+          } else {
+              callback(new Error('SNI certificate request not found'));
+          }
       }
    },
 }, app);

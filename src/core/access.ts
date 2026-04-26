@@ -346,9 +346,10 @@ async function handlePrepareSignUp(ctx, parameters) {
     const dataurl = await qrcode.toDataURL(text, { type: 'image/webp' });
 
     ctx.status = 200;
-    // TODO in theory you should not return secret but save it here and
-    // return another id to use in later real sign up, but not needed and lazy for now
-    // or generate secret and dataurl at client side?
+    // you may think you need to store secret here and return something like secret id to work,
+    // but the returned qrcode already contains the literal secret,
+    // and the sign up operation works as long as the provided secret and 2fa is consistent, so no need to do that
+    // TODO generate token and url at client side?
     ctx.body = { secret, dataurl };
 }],
 

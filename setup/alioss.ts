@@ -248,7 +248,7 @@ export async function list(config: OSSConfig, options: ListOptions): Promise<Lis
             'list-type': '2',
             // 'start-after': sort and filter by name>start-after object
             ...(options.startAfter ? { 'start-after': options.startAfter } : {}),
-            // 'continuation-token': get from last result NextContinuationToken TODO multi page handling should be here
+            // 'continuation-token': get from last result NextContinuationToken
             // 'max-keys': max count, note that may return <max-keys even there are more records
             ...(options.count ? { 'max-keys': options.count.toString() } : {}),
             // 'prefix'

@@ -10,3 +10,6 @@ for now no specific topics here, cloud service provider configuration is out of 
 - ping from other machine with `ping -6`, curl from other machine with `curl -6`
 - try check ipv6 status from convenient online service like https://ready.chair6.net
 - in this program, refresh https://id.example.com to see last access ip address
+
+TODO cloudflare proxied dns record can redirect ipv4 to ipv6, so that you can use ipv6 single stack in cloud server,
+note that generally only work for 80 and 443, to connect ssh and akari from ipv4 machine, you need something like non proxied subdomain, ssh.example.com, etc.

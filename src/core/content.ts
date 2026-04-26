@@ -312,6 +312,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
     try { requestPath = decodeURIComponent(requestPath); } catch { ctx.status = 404; return; }
     // reject any \0
     if (requestPath.includes('\0')) { ctx.status = 404; return; }
+    // according to https://datatracker.ietf.org/doc/html/rfc3986#section-3.3, do not regard multiple slashes as single slash
 
     const cacheKey = `${ctx.host}${requestPath}`;
     const item = contentdata.virtualmap[cacheKey]
@@ -321,7 +322,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
             if (!npfs.existsSync(item.absolutePath)) { ctx.status = 404; return; }
             item.content = await fs.readFile(item.absolutePath);
         }
-        // https://www.rfc-editor.org/rfc/rfc7232#section-4.1
+        // https://datatracker.ietf.org/doc/html/rfc7232#section-4.1
         // The server generating a 304 response MUST generate any of the
         // following header fields that would have been sent in a 200 (OK) response to the same request:
         // Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
@@ -335,7 +336,7 @@ export async function handleRequestContent(ctx: koa.ParameterizedContext<Default
         ctx.vary('Accept-Encoding');
 
         // the conditional request contains 5 header fields and many logics
-        // https://www.rfc-editor.org/rfc/rfc9110.html#name-conditional-requests
+        // https://datatracker.ietf.org/doc/html/rfc9110.html#name-conditional-requests
         // but chrome will only use if none match if cached response contains etag, so only implement this
 
         // for each etag, trim space, ignore weak
