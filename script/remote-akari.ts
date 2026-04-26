@@ -488,6 +488,12 @@ function shutdown() {
         process.exit(0);
     });
 }
+// close self after long time no activity, to aovid forget to close, 1 hour for now
+let shutdownTimeout: any;
+function resetShutdownTimeout() {
+    if (shutdownTimeout) { clearTimeout(shutdownTimeout); }
+    shutdownTimeout = setTimeout(() => { console.log(`shutdown timeout`); shutdown(); }, 3600_000);
+}
 
 // BEGIN SHARED TYPE AdminInterfaceCommand
 export interface HasId {
@@ -632,6 +638,7 @@ function sendBuildScriptMessageResponse(messageId: number, response: BuildScript
     buildScriptConnection?.send(buffer);
 }
 buildScriptConnectionEventEmitter.addListener('message', async message => {
+    resetShutdownTimeout();
     if (message.kind == 'admin') {
         const result = await sendAdminCommand(message.command);
         sendBuildScriptMessageResponse(message.id, { kind: 'admin', ok: result?.status == 'ok' });
@@ -714,8 +721,8 @@ function usage() {
     console.log('  - exit');
     console.log('  - help');
     console.log('  - connect       # connect admin interface');
-    console.log('  - reload config # reload static config, other config need restart');
-    // console.log('  - reload certificate  reload-certificate'); // TODO should not need manual invocation in future
+    console.log('  - reload static config');
+    console.log('  - reload certificate');
     console.log('  - reload user   # shorthand for reload static user');
     console.log('  - reload static KEY');
     console.log('  - reload external content KEY');
@@ -735,6 +742,7 @@ interactiveReader.on('SIGINT', () => { shutdown(); });
 interactiveReader.prompt();
 for await (const raw of interactiveReader) {
     interactiveReader.pause();
+    resetShutdownTimeout();
     const line = raw.trim();
     if (line.length == 0) {
         interactiveReader.prompt();
@@ -750,7 +758,7 @@ for await (const raw of interactiveReader) {
             logInfo('shell', 'already connected, don\'t connect again');
         }
         interactiveReader.prompt();
-    } else if (line == 'reload config') {
+    } else if (line == 'reload static config') {
         await sendAdminCommand({ kind: 'static-content:reload-config' });
         interactiveReader.prompt();
     } else if (line == 'reload certificate') {
@@ -780,8 +788,9 @@ for await (const raw of interactiveReader) {
     } else if (line == 'display rate limits') {
         await sendAdminCommand({ kind: 'access-control:display-rate-limits' });
         interactiveReader.prompt();
-    } else if (line.startsWith('!')) {
-        const shellCommand = line.slice(1).trim();
+    // also accept commonly used shell commands
+    } else if (line.startsWith('!') || ['ls ', 'cat ', 'node ', 'npm '].some(p => line.startsWith(p))) {
+        const shellCommand = line.startsWith('!') ? line.slice(1).trim() : line.trim();
         const child = spawn(shellCommand, { shell: true, stdio: 'inherit' });
         child.on('close', code => {
             logInfo('shell', `shell command process exited with code ${code}`);

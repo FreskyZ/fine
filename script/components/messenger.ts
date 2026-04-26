@@ -7,13 +7,11 @@ import type { MyPackContext } from './mypack.ts';
 
 // use this to avoid global variables because currently no other major global variables used
 interface MessengerContext {
-    initialized?: boolean,
     readline: Interface,
     connection?: WebSocket,
     // id to waker (the promise resolver)
     wakers?: Record<number, (data: BuildScriptMessageResponse) => void>,
     nextMessageId?: number,
-    reconnectCount?: number,
     // store last mcx for report
     lastmcxStorage?: Record<string, MyPackContext>,
 }
@@ -237,57 +235,39 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 
 // return true for connected
 export async function connectRemote(ecx: MessengerContext) {
-    if (!ecx.initialized) {
-        ecx.initialized = true;
-        ecx.connection = null;
-        ecx.reconnectCount = 0;
-        ecx.nextMessageId = 1;
-        ecx.wakers = {};
-        ecx.lastmcxStorage = {};
-    }
-    if (ecx.reconnectCount >= 3) {
-        ecx.reconnectCount = 0;
-        logError('tunnel', 'connect retry time >= 3, you may manually reconnect later');
-        return false;
-    }
+    ecx.wakers ??= {};
 
     return new Promise<boolean>(resolve => {
         const websocket = new WebSocket(`wss://${scriptconfig.domain}:8001`, 'akari');
 
+        websocket.addEventListener('open', async () => {
+            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
+            let token: string;
+            try { token = await ecx.readline.question('> ', { signal: AbortSignal.timeout(20_000) }); }
+            catch { logError('tunnel', 'input timeout, cancel connection'); return; }
+            websocket.send(token);
+        });
         // the close event may not be called after error event is called
         // but normally will, use this to avoid duplicate invocation of reconnect
         // https://stackoverflow.com/questions/38181156/websockets-is-an-error-event-always-followed-by-a-close-event
-        let reconnectInvoked = false;
-
-        websocket.addEventListener('open', async () => {
-            ecx.reconnectCount = 0;
-            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
-            const token = await ecx.readline.question('> ');
-            websocket.send(token);
-        });
+        // note this if you want to implement auto reconnect again
         websocket.addEventListener('close', async () => {
-            logInfo('tunnel', `websocket disconnected`);
+            logInfo('tunnel', `websocket close`);
             ecx.connection = null;
-            if (!reconnectInvoked) {
-                ecx.reconnectCount += 1;
-                resolve(await connectRemote(ecx));
-            }
+            resolve(false); // if already invoked resolve(true) in authenticated, this resolve false do nothing
         });
+        // this event have error parameter, but that does not have any meaningful property, so omit
         websocket.addEventListener('error', async () => {
-            // this event have error parameter, but that does not have any meaningful property, so omit
             logError('tunnel', `websocket error`);
             ecx.connection = null;
-            reconnectInvoked = true;
-            ecx.reconnectCount += 1;
-            resolve(await connectRemote(ecx));
+            resolve(false); // if already invoked resolve(true) in authenticated, this resolve false do nothing
         });
 
         websocket.addEventListener('message', async event => {
             if (event.data == 'authenticated') {
                 ecx.connection = websocket;
                 logInfo('tunnel', 'websocket received authenticated');
-                // this resolve should be most normal case
-                resolve(true);
+                resolve(true); // this resolve should be most normal case
             } else {
                 // logInfo('tunnel', 'websocket received', event.data);
                 const buffers = Array.isArray(event.data) ? event.data
@@ -325,6 +305,9 @@ export async function sendRemoteMessage(ecx: MessengerContext, message: BuildScr
         logError('tunnel', "not connected, type 'connect remote' to reconnect");
         return null;
     }
+
+    ecx.wakers ??= {};
+    ecx.nextMessageId ??= 1;
 
     const messageId = ecx.nextMessageId;
     ecx.nextMessageId += 1;

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { zstdCompressSync } from 'node:zlib';
 import chalk from 'chalk-template';
 import { minify } from 'terser';
 import ts from 'typescript';
@@ -517,9 +516,7 @@ export async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmc
         logInfo(mcx.logheader, chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        // TODO compress result should use in uploadwithremoteconnection
-        const compressSize = ` (${filesize(zstdCompressSync(mcx.resultJs).length)})`;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}${compressSize}`);
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
-import syncfs from 'node:fs';
+import npfs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import chalk from 'chalk-template';
@@ -24,7 +24,7 @@ if (!targetDirectory) {
     logCritical('make', 'missing target directory parameter');
 }
 const targetFile = path.join(targetDirectory, 'akari.ts');
-const targetFileExists = syncfs.existsSync(targetFile);
+const targetFileExists = npfs.existsSync(targetFile);
 if (!targetFileExists && process.argv[3] != 'new') {
     logCritical('make', 'missing target file, use `make-akari.ts /path/to/target/directory new` to create new');
 }
@@ -48,7 +48,7 @@ const tcx = transpile({
 });
 if (!tcx.success) { process.exit(1); }
 
-if (!await eslint({ files: 'script/components/*', ignore: ['script/components/template-client.tsx'] })) { /* process.exit(1); */ }
+if (!await eslint({ files: 'script/components/*' })) { /* process.exit(1); */ }
 
 let hasError = false;
 const adknames = [
@@ -60,7 +60,7 @@ const adknames = [
     'client-startup.tsx',
 ];
 for (const name of adknames) {
-    if (!syncfs.existsSync(path.join('src', 'shared', name))) {
+    if (!npfs.existsSync(path.join('src', 'shared', name))) {
         hasError = true;
         logError('make', `adk name ${name} not found in src/shared`);
     }
@@ -431,4 +431,7 @@ for (const line of manualScriptLines) {
 sb = sb.trimEnd() + '\n';
 logInfo('make', `writing ${targetFile}`);
 await fs.writeFile(targetFile, sb);
+// cannot constantly enable lint because there are some unused variables in library because they are not controlled precisely enough
+// await eslint({ files: targetFile });
+logInfo('make', 'don\'t forget to lint akari.ts');
 logInfo('make', chalk`make {cyan ${targetFile}} completed successfully`);

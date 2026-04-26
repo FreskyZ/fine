@@ -10,7 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Interface } from 'node:readline/promises';
 import { styleText } from 'node:util';
-import { zstdCompress, zstdCompressSync, zstdDecompress } from 'node:zlib';
+import { zstdCompress, zstdDecompress } from 'node:zlib';
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
 import chalk from 'chalk-template';
@@ -867,9 +867,7 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyP
         logInfo(mcx.logheader, chalk`completed with {gray no change}`);
     } else {
         mcx.resultHash = newResultHash;
-        // TODO compress result should use in uploadwithremoteconnection
-        const compressSize = ` (${filesize(zstdCompressSync(mcx.resultJs).length)})`;
-        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}${compressSize}`);
+        logInfo(mcx.logheader, chalk`completed with {yellow 1} asset {yellow ${filesize(mcx.resultJs.length)}}`);
         const newResultModules = mcx.modules
             .map(m => ({ path: m.path, size: m.content.length, hash: createHash('sha256').update(m.content).digest('hex') }));
         if (mcx.resultModules) {
@@ -903,13 +901,11 @@ async function mypack(mcx: MyPackContext, tcx?: TypeScriptContext, lastmcx?: MyP
 
 // use this to avoid global variables because currently no other major global variables used
 interface MessengerContext {
-    initialized?: boolean,
     readline: Interface,
     connection?: WebSocket,
     // id to waker (the promise resolver)
     wakers?: Record<number, (data: BuildScriptMessageResponse) => void>,
     nextMessageId?: number,
-    reconnectCount?: number,
     // store last mcx for report
     lastmcxStorage?: Record<string, MyPackContext>,
 }
@@ -1133,57 +1129,39 @@ const buildScriptMessageResponseParser = new BuildScriptMessageResponseParser();
 
 // return true for connected
 async function connectRemote(ecx: MessengerContext) {
-    if (!ecx.initialized) {
-        ecx.initialized = true;
-        ecx.connection = null;
-        ecx.reconnectCount = 0;
-        ecx.nextMessageId = 1;
-        ecx.wakers = {};
-        ecx.lastmcxStorage = {};
-    }
-    if (ecx.reconnectCount >= 3) {
-        ecx.reconnectCount = 0;
-        logError('tunnel', 'connect retry time >= 3, you may manually reconnect later');
-        return false;
-    }
+    ecx.wakers ??= {};
 
     return new Promise<boolean>(resolve => {
         const websocket = new WebSocket(`wss://${scriptconfig.domain}:8001`, 'akari');
 
+        websocket.addEventListener('open', async () => {
+            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
+            let token: string;
+            try { token = await ecx.readline.question('> ', { signal: AbortSignal.timeout(20_000) }); }
+            catch { logError('tunnel', 'input timeout, cancel connection'); return; }
+            websocket.send(token);
+        });
         // the close event may not be called after error event is called
         // but normally will, use this to avoid duplicate invocation of reconnect
         // https://stackoverflow.com/questions/38181156/websockets-is-an-error-event-always-followed-by-a-close-event
-        let reconnectInvoked = false;
-
-        websocket.addEventListener('open', async () => {
-            ecx.reconnectCount = 0;
-            logInfo('tunnel', `connected, you'd better complete authentication quickly`);
-            const token = await ecx.readline.question('> ');
-            websocket.send(token);
-        });
+        // note this if you want to implement auto reconnect again
         websocket.addEventListener('close', async () => {
-            logInfo('tunnel', `websocket disconnected`);
+            logInfo('tunnel', `websocket close`);
             ecx.connection = null;
-            if (!reconnectInvoked) {
-                ecx.reconnectCount += 1;
-                resolve(await connectRemote(ecx));
-            }
+            resolve(false); // if already invoked resolve(true) in authenticated, this resolve false do nothing
         });
+        // this event have error parameter, but that does not have any meaningful property, so omit
         websocket.addEventListener('error', async () => {
-            // this event have error parameter, but that does not have any meaningful property, so omit
             logError('tunnel', `websocket error`);
             ecx.connection = null;
-            reconnectInvoked = true;
-            ecx.reconnectCount += 1;
-            resolve(await connectRemote(ecx));
+            resolve(false); // if already invoked resolve(true) in authenticated, this resolve false do nothing
         });
 
         websocket.addEventListener('message', async event => {
             if (event.data == 'authenticated') {
                 ecx.connection = websocket;
                 logInfo('tunnel', 'websocket received authenticated');
-                // this resolve should be most normal case
-                resolve(true);
+                resolve(true); // this resolve should be most normal case
             } else {
                 // logInfo('tunnel', 'websocket received', event.data);
                 const buffers = Array.isArray(event.data) ? event.data
@@ -1221,6 +1199,9 @@ async function sendRemoteMessage(ecx: MessengerContext, message: BuildScriptMess
         logError('tunnel', "not connected, type 'connect remote' to reconnect");
         return null;
     }
+
+    ecx.wakers ??= {};
+    ecx.nextMessageId ??= 1;
 
     const messageId = ecx.nextMessageId;
     ecx.nextMessageId += 1;
@@ -1367,7 +1348,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 7d868406b3da43851e32f0f97e51bf0544912286b7b5719a0ebb42d9c2d3df4f
+// END LIBRARY b1883e7f35246b8812682b64db8fa2b76c8da6edc76fed934824f82374a27abb
 
 dayjs.extend(utc);
 
@@ -1382,7 +1363,7 @@ async function deployRemoteSelf(ecx?: MessengerContext) {
     const adminInterfaceTypeOk = await validateSharedTypeDefinition(
         'src/shared/admin-types.d.ts', 'script/remote-akari.ts', 'AdminInterfaceCommand');
     if (!adminInterfaceTypeOk) { logError('akari', chalk`{cyan remote self} failed at shared type`); return; }
-    
+
     // type check the file to avoid some potential errors
     const tcx = transpile({
         entry: 'script/remote-akari.ts',
@@ -1404,7 +1385,7 @@ async function deployRemoteSelf(ecx?: MessengerContext) {
             logInfo('akari', chalk`deploy {cyan remote self} completed successfully`);
         }
     } else {
-        logInfo('akari', chalk`check {cyan remote self} completed, connect to remote self to deploy remote self`)
+        logInfo('akari', chalk`check {cyan remote self} completed, connect to remote self to deploy remote self`);
     }
 }
 
@@ -1439,7 +1420,7 @@ async function buildIdentityProvider(ecx: MessengerContext) {
         const reloadResult = await sendRemoteMessage(ecx, { kind: 'admin', command: { kind: 'static-content:reload', key: 'user' } });
         if (!reloadResult || !reloadResult.ok) { logError('akari', chalk`{cyan user page} failed at reload`); return false; }
     }
-    
+
     logInfo('akari', chalk`build {cyan user page} completed successfully`); return true;
 }
 
@@ -1476,7 +1457,7 @@ async function buildShortLinkServer(ecx: MessengerContext) {
     if (!tcx.success) { logError('akari', chalk`{cyan short}  failed at transpile`); return; }
     const mcx = await mypack({ entry: '/vbuild/servers/short-link.js' }, tcx);
     if (!mcx.success) { logError('akari', chalk`{cyan short} failed at pack`); return; }
-    
+
     if (!await eslint({ files: 'src/servers/short-link.ts' })) { /* return; */ }
 
     const assets: UploadAsset[] = [{ data: mcx.resultJs, remote: 'servers/short-link.js' }];
@@ -1501,8 +1482,6 @@ function usage() {
     console.log('  - upload static LOCAL:[REMOTE]   upload static file');
     console.log('  - upload LOCAL:[REMOTE]          upload arbitray file, omit REMOTE for same path');
     console.log('  - download REMOTE:[LOCAL]        download arbitrary file, omit LOCAL for same path');
-    console.log('                                   download log file to open in vscode or download backup file,');
-    console.log('                                   to view log file, just use !cat FILENAME | tail -10 on remote side');
     console.log('  - !shell command');
 }
 // return [null, null] for invalid format
@@ -1525,6 +1504,7 @@ async function startInteractiveShell() {
         }),
     };
     ecx.readline.on('SIGINT', () => process.exit(0));
+    logInfo('akari', 'connecting...');
     await connectRemote(ecx);
     ecx.readline.prompt();
     for await (const raw of ecx.readline) {
@@ -1589,8 +1569,9 @@ async function startInteractiveShell() {
                     }
                 } // else should have raised error
             }
-        } else if (line.startsWith('!')) {
-            const shellCommand = line.slice(1).trim();
+        // also accept commonly used shell commands
+        } else if (line.startsWith('!') || ['node ', 'npm '].some(p => line.startsWith(p))) {
+            const shellCommand = line.startsWith('!') ? line.slice(1).trim() : line.trim();
             await new Promise<void>(resolve => {
                 // need inherit or else the commands don't think it's interactive and don't have color
                 const child = spawn(shellCommand, { shell: true, stdio: 'inherit' });
@@ -1604,8 +1585,8 @@ async function startInteractiveShell() {
                 });
             });
         } else {
-            let guess = didYouMean(line, ['connect', 'rself', 'core', 'user', 'short', 'upload static', 'upload', 'download']);
-            logError('akari', `unknown command${guess ? `, did you mean '${guess}'?`: ''}, type help for help`);
+            const guess = didYouMean(line, ['connect', 'rself', 'core', 'user', 'short', 'upload static', 'upload', 'download']);
+            logError('akari', `unknown command${guess ? `, did you mean '${guess}'?` : ''}, type help for help`);
         }
         ecx.readline.prompt();
     }
