@@ -22,6 +22,9 @@ const ErrorCodes: { [errorType in MyError['kind']]: number } = {
 export async function handleRequestError(ctx: koa.Context, next: koa.Next): Promise<void> {
     try {
         await next();
+        // by the way log all request by this, without a dedicated logmiddleware,
+        // ctx.url, or the pathname+query part is included in http2 pseudo header :path, also ctx.method and ctx.host
+        log.debug({ cat: 'request', ip: ctx.ip, headers: ctx.headers, status: ctx.status });
     } catch (error) {
         const request = `${ctx.method} ${ctx.host}${ctx.url}`;
         // servers have duplicate class definition or is cross process, cannot use instanceof and need to use .name
