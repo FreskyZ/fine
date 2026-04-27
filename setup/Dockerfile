@@ -1,8 +1,8 @@
 
 # docker build --target certbot --tag my/certbot:1 .
-FROM certbot/certbot:v5.4.0 AS certbot
+FROM certbot/certbot:v5.5.0 AS certbot
 
-LABEL org.opencontainers.image.version=20260414
+LABEL org.opencontainers.image.version=20260427
 
 # the evil pip install to global by default, which is convenient for this case
 RUN pip install --root-user-action=ignore dnspython pyyaml
@@ -29,11 +29,11 @@ ENTRYPOINT ["/schedule.py"]
 # reference https://github.com/docker-library/postgres/blob/master/18/alpine3.23/Dockerfile
 # reference https://github.com/CircleCI-Public/cimg-postgres/blob/main/18.3/Dockerfile
 # docker build --target postgres-build --tag my/postgres:build .
-FROM alpine:3.23.3 AS postgres-build
+FROM alpine:3.23.4 AS postgres-build
 
 # https://mesonbuild.com/Getting-meson.html
 # https://github.com/mesonbuild/meson/releases
-ADD meson-1.10.2.tar.gz /
+ADD meson-1.11.1.tar.gz /
 
 # cannot clone https://git.postgresql.org/git/postgresql.git, looks like git is completly hated in this network
 # https://ftp.postgresql.org/pub/source/v18.3/postgresql-18.3.tar.bz2
@@ -42,7 +42,7 @@ ADD postgresql-18.3.tar.bz2 /
 RUN <<EORUN
 set -ex
 # rename subfolder in extract result
-mv /meson-1.10.2 /meson
+mv /meson-1.11.1 /meson
 mv /postgresql-18.3 /postgres-src
 # install dependencies
 cat <<'EOCAT' > /etc/apk/repositories
@@ -105,9 +105,9 @@ EORUN
 # check postgres --version
 
 # docker build --target postgres --tag my/postgres:1 .
-FROM alpine:3.23.3 AS postgres
+FROM alpine:3.23.4 AS postgres
 
-LABEL org.opencontainers.image.version=20260409
+LABEL org.opencontainers.image.version=20260427
 
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
@@ -177,9 +177,8 @@ ENV PGDATA=/var/lib/pgsql/data
 # if you bind mount, these folders will inherit the owner and permission from local fs, and postgres will throw error
 # VOLUME /var/lib/pgsql /var/lib/pgsql/data /run/pgsql
 
-# official document says use SIGINT and long stop timeout
+# official document says use SIGINT and long stop timeout, also set long --stop-timeout in docker run or stop_grace_period in docker compose
 # see https://www.postgresql.org/docs/current/server-start.html
-# TODO setup --stop-timeout in docker compose (no need to set in temp shell container)
 STOPSIGNAL SIGINT
 
 # setup dev env: docker volume create database && docker volume create database-logs && docker volume create database-sockets
@@ -192,11 +191,11 @@ STOPSIGNAL SIGINT
 ENTRYPOINT ["postgres"]
 
 # docker build --target backup --tag my/fine-backup:1 .
-FROM node:25.8.2-alpine3.23 AS backup
+FROM node:25.9.0-alpine3.23 AS backup
 
 # remember to change this before commit is enough,
 # use automatic mechanism to record build time will invalidate cache
-LABEL org.opencontainers.image.version=20260421
+LABEL org.opencontainers.image.version=20260427
 
 # copy these files are enough for backup and restore
 COPY --from=my/postgres:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump

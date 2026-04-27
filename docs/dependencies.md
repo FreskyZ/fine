@@ -2,6 +2,8 @@
 
 dependencies technical selection and supply chain security?
 
+ATTENTION beside occassionally npm outdated, etc. for package managers, don't forget update docker image versions
+
 ## Markdown Library
 
 ATTENTION this section is WORK IN PROGRESS

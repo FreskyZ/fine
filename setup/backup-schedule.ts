@@ -80,7 +80,7 @@ async function dumpDatabases(logs: string[]) {
 // // save the content and tar tf to check valid: await fs.writeFile('test.tar.xz', bundleFiles(logs));
 async function bundle(logs: string[]): Promise<Buffer<ArrayBuffer>> {
     const log = createlog(logs);
-    console.log(`backup.ts: tar`);
+    console.log(`backup.ts: bundle and compress`);
     log('spawning tar');
     // no specific data needed in stdout or stderr, use inherit
     const child = spawn('tar', ['cJf', '-', '/data'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -114,7 +114,7 @@ async function bundle(logs: string[]): Promise<Buffer<ArrayBuffer>> {
 // return true for ok, false for now ok
 async function upload(time: dayjs.Dayjs, logs: string[], content: Buffer<ArrayBuffer>): Promise<boolean> {
     const filename = `fine-backup-${time.format('YYYYMMDD-HHmmss')}.tar.xz`;
-    console.log(`backup.ts: upload ${filename}`);
+    console.log(`backup.ts: upload ${filename} ${content.length} bytes`);
     const result = await oss.upload(config.aliyunoss, { time, logs, filename, content });
     if (!result.ok) {
         console.log(`backup.ts: upload not ok, check logs for detail`);
@@ -124,7 +124,7 @@ async function upload(time: dayjs.Dayjs, logs: string[], content: Buffer<ArrayBu
 
 const logsDirectory = path.resolve(process.env['BACKUP_LOGS_DIR'] ?? '');
 async function backupOnce(time: dayjs.Dayjs) {
-    console.log(`backup.ts: start backup`);
+    console.log(`backup.ts: backup at ${time.format('YYYYMMDDTHHmmss[Z]')}`);
     let ok = false;
     const logs: string[] = [];
     await dumpDatabases(logs);
@@ -135,7 +135,7 @@ async function backupOnce(time: dayjs.Dayjs) {
     logs.unshift(ok ? 'ok' : 'no');
 
     const backupLogFileName = path.resolve(logsDirectory, `backup-${time.format('YYYYMMDD-HHmmss')}.log`);
-    console.log(`backup.ts: save log to ${backupLogFileName}`);
+    console.log(`backup.ts: log file ${backupLogFileName}`);
     const resultlogs = logs.map(r => r.trim() + '\n').join('');
     try {
         await fs.writeFile(backupLogFileName, resultlogs);
@@ -168,28 +168,22 @@ async function schedule() {
     process.on('SIGINT', requestShutdown);
     process.on('SIGTERM', requestShutdown);
 
-    // align minute to 0 to make the execution time more predicatable
-    const time = dayjs.utc();
-    if (time.minute() != 0) {
-        sleeping = true;
-        await new Promise<void>(resolve => setTimeout(() => resolve(), 1000 * (60 - time.minute())));
-        sleeping = false;
-    }
-
     // let mocktime = dayjs.utc();
     while (true) {
         if (shutdownRequested) {
             console.log('backup.ts: shutdown requested, exit (2)');
             process.exit(0);
         }
+        const beforeSleepTime = dayjs.utc();
         sleeping = true;
         // this is sleep, if you forget
-        await new Promise<void>(resolve => setTimeout(() => resolve(), 3600_000)); // mock: 1_000)); ((
+        // align minute to 0 to make the execution time more predicatable
+        await new Promise<void>(resolve => setTimeout(() => resolve(), (60 - beforeSleepTime.minute()) * 60 * 1000)); // mock: 1_000)); ((
         sleeping = false;
         // wakeup and find it's time and find no related success log for this date, initiate backup
 
         const time = dayjs.utc(); // mock: mocktime = mocktime.add(1, 'hour'); to achieve add 1 hour per second
-        if (time.hour() < 18) { continue; } // use hour >= 18 to effectly allow 6 times of retry if some error happens
+        if (time.hour() < 18) { continue; } // use hour >= 18 to effectively allow 6 times of retry if some error happens
 
         let filenames: string[];
         try {
