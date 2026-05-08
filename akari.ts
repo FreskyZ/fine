@@ -16,7 +16,6 @@ import stylistic from '@stylistic/eslint-plugin';
 import chalk from 'chalk-template';
 import dayjs from 'dayjs';
 import { ESLint } from 'eslint';
-import { XMLParser } from 'fast-xml-parser';
 import { minify } from 'terser';
 import ts from 'typescript';
 import tseslint from 'typescript-eslint';
@@ -1348,7 +1347,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY b1883e7f35246b8812682b64db8fa2b76c8da6edc76fed934824f82374a27abb
+// END LIBRARY 6569c78fbfafc7a3885d5f295886dbb114aac2d9be8143d868f9fd8b5212dabe
 
 dayjs.extend(utc);
 

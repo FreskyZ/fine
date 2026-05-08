@@ -68,10 +68,19 @@ for (const name of adknames) {
 
 interface ExternalReference {
     moduleName: string,
+    // typeonly and non type only are different records,
+    // logical identifier of this record is modulename + typeonly
+    typeOnly?: boolean,
     defaultName?: string,
     namespaceName?: string,
-    typeOnly?: boolean,
     namedNames: { name: string, alias: string, typeOnly: boolean }[],
+    // - module name same format as in requested components, e.g. common, messenger
+    // - this is record level, without this filter condition all akari instances have
+    //   to install all dependencies to run, which is inconvenient, and increase attack
+    //   surface from supply chain attacks
+    // - no name level originates for now, that will add lots of complexity, I assume,
+    //   without this will add a few gray names and eslint false positives, ok for now
+    originates?: string[],
 }
 
 // a simplified version to
@@ -88,6 +97,7 @@ const relativeRelationships: { dependency: string, dependent: string }[] = [];
 
 for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.startsWith('script/components/'))) {
     const moduleFileName = sourceFile.fileName.substring(18);
+    const originateModuleName = moduleFileName.substring(0, moduleFileName.length - 3);
     const getLocation = (node: ts.Node) => {
         const { line, character } = ts.getLineAndCharacterOfPosition(sourceFile, node.pos);
         return `${moduleFileName}:${line + 1}${character + 1}`;
@@ -101,7 +111,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
             if (ts.isStringLiteral(node.moduleSpecifier)) {
                 const reference: ExternalReference = { moduleName: node.moduleSpecifier.text, namedNames: [] };
                 if (node.importClause) {
-                    reference.typeOnly = node.importClause.isTypeOnly;
+                    reference.typeOnly = node.importClause.phaseModifier == ts.SyntaxKind.TypeKeyword;
                     reference.defaultName = node.importClause.name?.text;
                     if (node.importClause.namedBindings && ts.isNamespaceImport(node.importClause.namedBindings)) {
                         reference.namespaceName = node.importClause.namedBindings.name.text;
@@ -174,6 +184,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
     // NOTE: too complex to check duplicate names, let nodejs check that
     for (const reference of references.filter(r => !r.moduleName.startsWith('.'))) {
         if (!allExternalReferences.some(r => r.moduleName == reference.moduleName && r.typeOnly == reference.typeOnly)) {
+            reference.originates = [originateModuleName];
             allExternalReferences.push(reference);
         } else {
             const merged = allExternalReferences.find(r => r.moduleName == reference.moduleName && r.typeOnly == reference.typeOnly);
@@ -194,6 +205,7 @@ for (const sourceFile of tcx.program.getSourceFiles().filter(sf => sf.fileName.s
                     merged.namedNames.push({ ...namedName });
                 }
             }
+            merged.originates.push(originateModuleName);
         }
     }
 
@@ -234,6 +246,7 @@ allExternalReferences.sort((lhs, rhs) => {
     // this correctly handles rest part after node: and non node module names
     return lhs.moduleName.localeCompare(rhs.moduleName);
 });
+// console.log(`all external references:\n${allExternalReferences.map(r => `${r.typeOnly ? 'type ' : ''}${r.moduleName} [${r.originates.join(',')}]`).join('\n')}`);
 
 const sortedModuleNames: string[] = [];
 let remainingModuleNames = [...components];
@@ -337,6 +350,59 @@ if (originalContent) {
 // console.log(manualScriptLines.slice(0, 10));
 if (hasError) { process.exit(1); }
 
+// validate dependency version in target directory, need to be placed after requestedComponents loaded
+let packageLockSearchPath = path.resolve(targetDirectory);
+let packageLockSearchCount = 0;
+let targetPackageLockPath: string = null; // search result file path
+while (true) {
+    const filepath = path.join(packageLockSearchPath, 'package-lock.json');
+    if (npfs.existsSync(filepath)) { targetPackageLockPath = filepath; break; } // found
+    if (path.dirname(packageLockSearchPath) == packageLockSearchPath) { break; } // root
+    packageLockSearchCount += 1; if (packageLockSearchCount > 10) { console.log(`target directory too deep?`); break; } // recursion limit?
+}
+
+const allExternalReferencesForRequestedComponents = allExternalReferences.filter(r => r.originates.some(o => requestedComponents.includes(o)));
+if (!targetPackageLockPath) {
+    logInfo('make', 'not found package-lock.json in target directory, skip dependency version check');
+} else if (path.resolve(targetPackageLockPath) != path.resolve('package-lock.json')) { // do not validate self
+
+    const packageNames = allExternalReferencesForRequestedComponents
+        // include both type import and normal import, or else akari.ts may meet type errors by ide
+        // and don't forget to exclude node:
+        .map(r => r.moduleName).filter(n => !n.startsWith('node:')).filter((e, i, a) => a.indexOf(e) == i);
+    // console.log(`validating package names`, packageNames);
+    const thisPackageLock = JSON.parse(await fs.readFile('package-lock.json', 'utf-8')).packages as Record<string, { version: string }>;
+    // // don't check file exists and json valid here when you've done similar
+    // // things many times recently to make process run robustly, this is an interactive script don't need these checks
+    const thatPackageLock = JSON.parse(await fs.readFile(targetPackageLockPath, 'utf-8')).packages as Record<string, { version: string }>;;
+
+    let ok = true;
+    for (const packageName of packageNames) {
+        const thisPackageConfig = thisPackageLock[`node_modules/${packageName}`];
+        if (!thisPackageConfig) {
+            ok = false;
+            logError('make', `package ${packageName} not found in this package-lock.json?`);
+            continue;
+        }
+        const thatPackageConfig = thatPackageLock[`node_modules/${packageName}`];
+        if (!thatPackageConfig) {
+            ok = false;
+            logError('make', `package ${packageName} not found in target directory package-lock.json`);
+            continue;
+        }
+        if (thisPackageConfig.version != thatPackageConfig.version) {
+            ok = false;
+            if (thisPackageConfig.version.split('.')[0] != thatPackageConfig.version.split('.')[0]) {
+                logError(`make`, `package ${packageName} version diff this ${thisPackageConfig.version} != that ${thatPackageConfig.version}`);
+            } else {
+                // this is info not error
+                logInfo(`make`, `package ${packageName} non major version diff this ${thisPackageConfig.version} != that ${thatPackageConfig.version}`);
+            }
+        }
+    }
+    if (ok) { logInfo(`make`, `${targetPackageLockPath} version ok`); }
+}
+
 let sb = '';
 for (const line of manualImportLines) {
     sb += line + '\n';
@@ -347,7 +413,7 @@ if (requestedADKModules.length) { sb += `// adk: ${requestedADKModules.join(', '
 sb += '// BEGIN LIBRARY\n';
 const beginLibraryIndex = sb.length;
 
-for (const reference of allExternalReferences) {
+for (const reference of allExternalReferencesForRequestedComponents) {
     sb += 'import ';
     if (reference.typeOnly) { sb += 'type '; }
     if (reference.defaultName) { sb += `${reference.defaultName}, `; }

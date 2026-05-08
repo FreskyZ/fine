@@ -119,8 +119,6 @@ local part source file and wrapped with `// BEGIN SHARED TYPE name` and `// END 
 validation, the content is compared with the original definition in the remote part. This feature is also used to share
 admin interface command type definitions between the build script and the core module.
 
-> TODO validate packages in the script and install them if need.
-
 > The remaining part of this section are stories and is not important.
 
 I spent several days for this section, because I cannot explain clearly why the requirements and constraints leads to
