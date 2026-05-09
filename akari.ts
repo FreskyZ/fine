@@ -1334,7 +1334,7 @@ async function uploadWithRemoteConnection(ecx: MessengerContext, assets: UploadA
 async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: string[]): Promise<Buffer[]> {
     return await Promise.all(filepaths.map(async filepath => {
         const response = await sendRemoteMessage(ecx, { kind: 'download', path: filepath });
-        return !response.compressed ? response.content : await new Promise<Buffer>(resolve => zstdDecompress(
+        return !response || !response.compressed ? response?.content : await new Promise<Buffer>(resolve => zstdDecompress(
             response.content,
             (error, decompressedContent) => {
                 if (error) {
@@ -1347,7 +1347,7 @@ async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: st
         ));
     }));
 }
-// END LIBRARY 6569c78fbfafc7a3885d5f295886dbb114aac2d9be8143d868f9fd8b5212dabe
+// END LIBRARY 16e43f72ff2c1c24a410ad190b0ec603e6e22a84024f890996ced98b96a5c45c
 
 dayjs.extend(utc);
 
@@ -1619,3 +1619,5 @@ dispatch(process.argv.slice(2));
 // self: !node script/make-akari.ts .
 // display line range in index.js according to error message line: cat -n index.js | sed -n '195,205p'
 // check index.js build time: !tail -1 index.js
+// edit block config: upload real-block.yml:/etc/fine/block.yml
+// edit block config: upload /etc/fine/blocklist.txt

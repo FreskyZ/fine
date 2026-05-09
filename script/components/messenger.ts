@@ -441,7 +441,7 @@ export async function uploadWithRemoteConnection(ecx: MessengerContext, assets: 
 export async function downloadWithRemoteConnection(ecx: MessengerContext, filepaths: string[]): Promise<Buffer[]> {
     return await Promise.all(filepaths.map(async filepath => {
         const response = await sendRemoteMessage(ecx, { kind: 'download', path: filepath });
-        return !response.compressed ? response.content : await new Promise<Buffer>(resolve => zstdDecompress(
+        return !response || !response.compressed ? response?.content : await new Promise<Buffer>(resolve => zstdDecompress(
             response.content,
             (error, decompressedContent) => {
                 if (error) {
