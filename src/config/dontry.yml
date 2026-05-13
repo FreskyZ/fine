@@ -1,0 +1,16 @@
+
+# access to these hosts immediately ban
+host:
+  - oldsubdomain.example.com
+  - notexistsubdomain.example.com
+  # or star for all subdomains except www
+  - '*.example.com'
+
+# access to these paths immediately ban, use .includes
+path:
+  - .env
+  - env.js
+  - .git
+  - admin
+  - php
+  - /login

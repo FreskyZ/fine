@@ -10,6 +10,7 @@ import bodyParser from 'koa-bodyparser';
 import yaml from 'yaml';
 import type { HasId, AdminInterfaceCommand, AdminInterfaceResult } from '../shared/admin-types.js';
 import { log } from './logger.js';
+import { handleTryRequest } from './dontry.js';
 import { handleRequestError, handleProcessException, handleProcessRejection } from './error.js';
 import { setupContentControl, handleRequestContent, handleContentCommand, handleResponseCompression } from './content.js';
 import { setupAccessControl, handleRequestCrossOrigin, handleRequestAuthentication, handleAccessCommand } from './access.js';
@@ -18,6 +19,7 @@ import { handleRequestApplicationServer, handleChannelCommand } from './channel.
 const app = new koa();
 
 app.use(handleRequestError);
+app.use(handleTryRequest);
 app.use(handleRequestContent);
 app.use(handleRequestCrossOrigin);
 app.use(bodyParser());

@@ -87,6 +87,7 @@ services:
       FINE_LOGS_DIR: /var/log/fine
       FINE_SOCKET_DIR: /run/fine
       FINE_CONFIG_DIR: /etc/fine
+      FINE_DEBUG: 1 # use this to enable debug log
     ports:
       - 80:80
       - 443:443
@@ -113,6 +114,11 @@ services:
         source: fine-configs
         target: /etc/fine/domains.yml
         volume: { subpath: domains.yml }
+        read_only: true
+      - type: volume
+        source: fine-configs
+        target: /etc/fine/dontry.yml
+        volume: { subpath: dontry.yml }
         read_only: true
       # NOTE hmr servers need their config files manually add here, is this good?
       - type: volume
