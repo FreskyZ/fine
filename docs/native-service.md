@@ -1,5 +1,7 @@
 # Service Deployment
 
+UPDATE native deployment of the main service is obsolete, keep the file for archive purpose...
+
 the systemd service description file is like this, copy it here incase I forget
 
 document https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html
@@ -102,3 +104,31 @@ net.createServer((clientSocket) => {
 ```
 
 and listen to 6001 and 6002 when server is not socket activation, this should be better than mysterious firewall rules
+
+...for archive purpose until here, dontry.py need to run outside the docker regularly
+
+see https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html
+
+```ini, /etc/systemd/system/dontry.service
+[Unit]
+Description = dontry rule manipulate part
+
+[Service]
+Type = oneshot
+ExecStart = /root/fine/dontry.py
+```
+
+```ini, /etc/systemd/system/dontry.timer
+[Unit]
+Description = Schedule dontry.service
+
+[Timer]
+OnCalendar = *-*-* 02:00:00
+Persistent = true
+
+[Install]
+WantedBy = timers.target
+```
+
+list by systemctl list-timers
+check by? systemd-analyze calendar

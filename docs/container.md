@@ -76,6 +76,7 @@ so you can
 - extract executable files from docker-ce, docker-ce-cli and containerd.io,
 - extract service configuration files docker.service, docker.socket and containerd.service,
 - add configuration file /etc/docker/daemon.json
+- TODO no need to create docker group? after I migrate to rootful
 
 all of these are static file and can be deployed by single extract command
 
@@ -98,17 +99,18 @@ see setup/docker-compose.yml, for now this project is separated into these servi
 
 to create the project from scratch (not tested)
 
-- build custom images on local
-  upload image, e.g. docker save my/certbot:1 | xz | ssh example.com 'docker load'
-- sftp upload compose.yml, remote-akari.ts, akari.yml, package.json, package-lock.json
+- deploy images, for my network environment should build custom images on local
+  and upload image like docker save fine/certbot | xz | ssh example.com 'docker load'
+- sftp upload compose.yml, compose.sh, remote-akari.ts, akari.yml, package.json, package-lock.json
 - npm i
-- something like docker compose up akari --no-start to create the volumes
-  docker run map the created volumes, docker cp these files into position
-- start remote akari container, start local akari
+- something like docker compose up --no-start to create the volumes
+- docker run map fine-program and fine-configs,
+  docker cp deploy remote-akari.ts, akari.yml, package.json, package-lock.json
+- start remote akari, start local akari
 - upload certbot.yml and domains.yml, create certificates by create.py, start acme service
 - run database shell, run initdb.sh, start database service, insert initial data (users, etc.)
 - build and deploy core module, build and upload user page
-- upload home.html, 404.html, 418.html, config and upload content.yml and access.yml
+- upload home.html, 404.html, 418.html, config and upload content.yml, access.yml and dontry.yml
 - start web server
 - (optional) build and deploy short link service
 - config and upload backup.yml, start backup service
@@ -116,12 +118,25 @@ to create the project from scratch (not tested)
 
 to restore a full backup file from scratch, currently, TODO test run
 
-- build custom images on local, upload images
-- sftp upload compose.yml, backup.yml, package.json, package-lock.json
+- TODO create image include backup-restore.ts and its node_modules, backup.yml, compose.yml, compose.sh
+- deploy images
+- TODO run something like docker compose up --no-start to create the volumes
 - run database shell, run initdb.sh, start database service
-- start backup shell, npm i, download backup file, restore data, restore databases
-- start acme service, start web server, start backup service, start remote akari
+- start backup shell, restore data, restore databases
+- npm i, start remote akari, start web service, start acme and backup service
 - check everything works
+
+TODO if commands inside docker can run in one line docker command, all of the steps can run in a script, result in
+
+- local docker build, this is one time command and reuse for long time
+- deploy images
+- deploy the single script to run all the steps,
+
+UPDATE: if you make them one script, the node modules for backup-restore.ts can go back to npm i
+as node_modules is always not backuped and you always need npm i on them
+TODO its complex to make a subproject with same package version and especially package lock version,
+and the correct answer is take the full package.json and package-lock.json and run npm i and make
+up the full node_modules in this step
 
 health check
 
@@ -297,6 +312,9 @@ after previous paragraphs, if you are still deceived by rootless mode, there are
 - ATTENTION don't install rootless docker after login as root and su normal user, because user level systemd
   is not correctly initialized in this case and rootless docker does not register itself as a systemd service
 - also, sysctl net.ipv4.ip_unprivileged_port_start to avoid the port 80 problem
+- rootless install script recommend adding DOCKER_HOST to environment variable, but use docker context is a
+  more convenient and structured operation: docker context use rootless, and docker context create for other
+  docker contexts, like over ssh
 
 ### Build Context
 

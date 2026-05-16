@@ -1,5 +1,5 @@
 
-# docker build --target certbot --tag my/certbot:1 .
+# docker build --target certbot --tag fine/certbot .
 FROM certbot/certbot:v5.5.0 AS certbot
 
 LABEL org.opencontainers.image.version=20260427
@@ -15,11 +15,11 @@ RUN mv certbot-auth-hook.py auth.py && mv certbot-create-cert.py create.py && mv
 
 # setup dev env: docker volume create certificates && docker volume create certbot-libs && docker volume create certbot-logs && docker volume create fine-configs
 # move certbot.yml and domains.yml into fine-configs
-# shell: docker run -it --rm --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine -e FINE_CONFIG_DIR=/etc/fine -e FINE_SOCKET_DIR=/run/fine --entrypoint sh my/certbot:1
+# shell: docker run -it --rm --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine -e FINE_CONFIG_DIR=/etc/fine -e FINE_SOCKET_DIR=/run/fine --entrypoint sh fine/certbot
 # test auth hook full process with certonly command
 #    certbot revoke --staging --non-interactive --cert-name example.com
 #    certbot certonly --preferred-challenges dns --manual --manual-auth-hook /auth.py --manual-cleanup-hook /auth.py --staging --non-interactive -d example.com
-# renew container: docker run -d --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine my/certbot:1
+# renew container: docker run -d --name acme1 -v certificates:/etc/letsencrypt -v certbot-libs:/var/lib/letsencrypt -v certbot-logs:/var/log/letsencrypt -v fine-configs:/etc/fine fine/certbot
 # update auth hook: docker cp certbot-auth-hook.py acme1:/auth.py
 # update setup script: docker cp certbot-create-cert.py acme1:/create.py
 # update schedule script: docker cp certbot-renew-schedule.py acme1:/schedule.py
@@ -28,7 +28,7 @@ ENTRYPOINT ["/schedule.py"]
 
 # reference https://github.com/docker-library/postgres/blob/master/18/alpine3.23/Dockerfile
 # reference https://github.com/CircleCI-Public/cimg-postgres/blob/main/18.3/Dockerfile
-# docker build --target postgres-build --tag my/postgres:build .
+# docker build --target postgres-build --tag fine/database:build .
 FROM alpine:3.23.4 AS postgres-build
 
 # https://mesonbuild.com/Getting-meson.html
@@ -104,14 +104,14 @@ EORUN
 # check psql --version
 # check postgres --version
 
-# docker build --target postgres --tag my/postgres:1 .
+# docker build --target postgres --tag fine/database .
 FROM alpine:3.23.4 AS postgres
 
 LABEL org.opencontainers.image.version=20260427
 
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
-COPY --from=my/postgres:build /postgres-install /usr/local
+COPY --from=fine/database:build /postgres-install /usr/local
 
 # install dependencies
 # scan runtime dependencies learned from official dockerfile:
@@ -182,26 +182,26 @@ ENV PGDATA=/var/lib/pgsql/data
 STOPSIGNAL SIGINT
 
 # setup dev env: docker volume create database && docker volume create database-logs && docker volume create database-sockets
-# server shell: docker run -it --rm --name postgres-shell1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql --entrypoint sh my/postgres:1
+# server shell: docker run -it --rm --name postgres-shell1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql --entrypoint sh fine/database
 # initialize: ./initdb.sh
-# start service: docker run -d --rm --name postgres1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql my/postgres:1
-# client shell: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint sh my/postgres:1
-# psql: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint psql my/postgres:1
+# start service: docker run -d --rm --name postgres1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql fine/database
+# client shell: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint sh fine/database
+# psql: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint psql fine/database
 # run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
 ENTRYPOINT ["postgres"]
 
-# docker build --target backup --tag my/fine-backup:1 .
+# docker build --target backup --tag fine/backup .
 FROM node:25.9.0-alpine3.23 AS backup
 
 # remember to change this before commit is enough,
 # use automatic mechanism to record build time will invalidate cache
-LABEL org.opencontainers.image.version=20260427
+LABEL org.opencontainers.image.version=20260516
 
 # copy these files are enough for backup and restore
-COPY --from=my/postgres:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
-COPY --from=my/postgres:build /postgres-install/bin/pg_restore /usr/local/bin/pg_restore
+COPY --from=fine/database:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
+# COPY --from=fine/database:build /postgres-install/bin/pg_restore /usr/local/bin/pg_restore
 # this is symlink in source container, and the copy operation copies the original file?
-COPY --from=my/postgres:build /postgres-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
+COPY --from=fine/database:build /postgres-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
 
 RUN <<EORUN
 set -ex
@@ -221,9 +221,9 @@ npm install -g yaml
 mkdir -p /data/base
 EORUN
 
-# should be same as in my/postgres
+# should be same as in fine/database
 ENV PGPORT=6543
-# should be same as in my/postgres
+# should be same as in fine/database
 ENV PGHOST=/run/pgsql
 
 WORKDIR /work
@@ -234,3 +234,49 @@ ADD backup-schedule.ts /work/schedule.ts
 # node backup.ts
 # docker run -d --rm --name backup1  -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs my/fine-backup:1
 ENTRYPOINT ["node", "schedule.ts"]
+
+# docker build --target restore --tag fine/restore .
+FROM node:25.9.0-alpine3.23 AS restore
+
+LABEL org.opencontainers.image.version=20260516
+
+# copy these files are enough for backup and restore
+COPY --from=fine/database:build /postgres-install/bin/psql /usr/local/bin/psql
+COPY --from=fine/database:build /postgres-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
+
+RUN <<EORUN
+set -ex
+cat <<'EOCAT' > /etc/apk/repositories
+https://mirrors.aliyun.com/alpine/v3.23/main
+https://mirrors.aliyun.com/alpine/v3.23/community
+EOCAT
+apk update
+apk add xz readline
+EORUN
+
+# should be same as in fine/database
+ENV PGPORT=6543
+# should be same as in fine/database
+ENV PGHOST=/run/pgsql
+
+# these files effectively become owned by root user, which is good
+COPY setup/alioss.ts setup/backup-restore.ts setup/docker-compose.yml setup/docker-compose.sh package.json package-lock.json /work/
+RUN mv /work/backup-restore.ts /work/restore.ts && mv /work/docker-compose.yml /work/compose.yml && mv /work/docker-compose.sh /work/compose
+
+# NOTE backup.yml is server side backup.yml (that with internal)
+COPY backup-internal.yml /work/backup.yml
+
+WORKDIR /work
+ENTRYPOINT ["sh"]
+
+# # local test
+# docker run -it --rm --name restore1 -v database-sockets:/run/pgsql fine/restore
+# docker run -d --rm --name database1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql fine/database
+# # replace with local backup.yml
+# docker cp /etc/fine/backup.yml restore1:/work/backup.yml
+# npm i
+# mkdir /data /data/program /data/certificates /data/configs
+# # update restore.ts
+# docker cp setup/backup-restore.ts restore1:/work/restore.ts
+# # temp cleanup
+# rm -rf /extract && rm -rf /data && mkdir /data /data/program /data/certificates /data/configs
