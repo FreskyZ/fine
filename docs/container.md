@@ -118,25 +118,24 @@ to create the project from scratch (not tested)
 
 to restore a full backup file from scratch, currently, TODO test run
 
-- TODO create image include backup-restore.ts and its node_modules, backup.yml, compose.yml, compose.sh
-- deploy images
-- TODO run something like docker compose up --no-start to create the volumes
-- run database shell, run initdb.sh, start database service
-- start backup shell, restore data, restore databases
-- npm i, start remote akari, start web service, start acme and backup service
-- check everything works
-
-TODO if commands inside docker can run in one line docker command, all of the steps can run in a script, result in
-
-- local docker build, this is one time command and reuse for long time
-- deploy images
-- deploy the single script to run all the steps,
+- build and deploy images
+- sftp upload backup-restore.sh
+- run restore.sh
+- ./compose akari, connect akari, check download and upload commands
+- check certificates, use that openssl command, start acme service
+- check web connectivity, check id.example.com access control and database connectivity
+- deploy dontry script and service, check nft ruleset
+- start backup service
+- deploy backedup public files
 
 UPDATE: if you make them one script, the node modules for backup-restore.ts can go back to npm i
 as node_modules is always not backuped and you always need npm i on them
 TODO its complex to make a subproject with same package version and especially package lock version,
 and the correct answer is take the full package.json and package-lock.json and run npm i and make
 up the full node_modules in this step
+
+TODO not good, consider put alioss.ts at boundary of container, run external python to call it
+TODO may need to change backup.yml to backup.toml because it's popular in rust and builtin in python
 
 health check
 
