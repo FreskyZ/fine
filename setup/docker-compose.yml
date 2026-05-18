@@ -9,7 +9,7 @@ services:
   #   - update certificate domains or other certbot commands: certbot certonly ...
   #   - check renew schedule: cat /etc/letsencrypt/renewal-schedule/next
   acme:
-    image: my/certbot:1
+    image: fine/certbot
     container_name: acme1
     environment:
       # make absolute paths more centralized
@@ -38,7 +38,7 @@ services:
   #   - initial setup: ./initdb.sh
   # or directly psql: docker compose run --rm --name database-shell1 --entrypoint psql database
   database:
-    image: my/postgres:1
+    image: fine/database
     container_name: database1
     stop_grace_period: 5m # why can't I write 5min for 5 minutes
     volumes:
@@ -133,7 +133,7 @@ services:
   # or run shell: docker compose run --rm --name backup2 --entrypoint sh backup
   # or cat: docker run -it --rm --name helper1 -v fine-backup-logs:/data/backup-logs alpine cat /data/backup-logs/backup-20260418-130228.log
   backup:
-    image: my/fine-backup:1
+    image: fine/backup
     container_name: backup1
     working_dir: /work
     environment:
