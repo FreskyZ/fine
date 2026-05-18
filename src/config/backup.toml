@@ -1,0 +1,12 @@
+# oss configs
+region = "cn-shanghai"
+internal = true
+bucket = "backup"
+access-key-id = ""
+access-key-secret = ""
+
+# databases to backup, username:database
+databases = ["fine:fine"]
+
+# sync oss files to local directory
+local-copy-directory = "~/.auto-backup"

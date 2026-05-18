@@ -472,7 +472,8 @@ if (import.meta.main) {
 
     if (process.argv.length == 3 && process.argv[2] == 'list') {
         console.log('alioss.ts: list');
-        const result = await list(config, { logs, continue: true });
+        // NOTE the methods are very pure, you can specify a time and compare hex values in log
+        const result = await list(config, { logs, /* time: dayjs.utc('2026-05-18T10:33:50Z'), */ continue: true });
         if (!result.ok) {
             console.log(`alioss.ts: list error, check logs /tmp/alioss.log`, result);
         } else {

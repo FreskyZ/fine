@@ -1,0 +1,23 @@
+[package]
+name = "alioss"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "aos"
+path = "setup/alioss.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+env_logger = "0.11"
+hex = "0.4"
+hmac = "0.13"
+log = "0.4"
+reqwest = { version = "0.13", features = ["query", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde-xml-rs = "0.8"
+sha2 = "0.11"
+tokio = { version = "1", features = ["full"] }
+toml = { version = "1", default-features = false, features = ["serde", "parse"] }
