@@ -65,6 +65,7 @@ async function dumpDatabases(logs: string[]) {
         if (content) {
             log(`pg_dump ${item} write to /data/base/${databaseName}.sql`);
             try {
+                if (!npfs.existsSync('/data/base')) { await fs.mkdir('/data/base'); }
                 // this by default overwrites file if exists, which is good
                 await fs.writeFile(`/data/base/${databaseName}.sql`, content);
             } catch (error) {
@@ -111,7 +112,7 @@ async function bundle(logs: string[]): Promise<Buffer<ArrayBuffer>> {
     });
 }
 
-// return true for ok, false for now ok
+// return true for ok, false for not ok
 async function upload(time: dayjs.Dayjs, logs: string[], content: Buffer<ArrayBuffer>): Promise<boolean> {
     const filename = `fine-backup-${time.format('YYYYMMDD-HHmmss')}.tar.xz`;
     console.log(`backup.ts: upload ${filename} ${content.length} bytes`);

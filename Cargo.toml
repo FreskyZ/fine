@@ -9,15 +9,26 @@ path = "setup/alioss.rs"
 
 [dependencies]
 anyhow = "1"
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["now"] }
 clap = { version = "4", features = ["derive", "env"] }
 env_logger = "0.11"
+futures = "0.3"
 hex = "0.4"
 hmac = "0.13"
 log = "0.4"
-reqwest = { version = "0.13", features = ["query", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "query", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde-xml-rs = "0.8"
 sha2 = "0.11"
 tokio = { version = "1", features = ["full"] }
 toml = { version = "1", default-features = false, features = ["serde", "parse"] }
+
+# optimize binary size from ~10m to ~6m with these options
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+# ok because I'm not using panic
+panic = "abort"
+# specify this does not trigger rebuild, this is implied by panic abort?
+# strip = "debuginfo"

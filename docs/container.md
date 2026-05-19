@@ -297,6 +297,9 @@ after previous paragraphs, if you are still deceived by rootless mode, there are
 - ATTENTION don't install rootless docker after login as root and su normal user, because user level systemd
   is not correctly initialized in this case and rootless docker does not register itself as a systemd service
 - also, sysctl net.ipv4.ip_unprivileged_port_start to avoid the port 80 problem
+- rootless install script recommend adding DOCKER_HOST to environment variable, but use docker context is a
+  more convenient and structured operation: docker context use rootless, and docker context create for other
+  docker contexts, like over ssh
 
 ### Build Context
 
@@ -416,4 +419,10 @@ and have other benefits like clearly see changes per day or cross several days o
 ai also suggests using git bundle instead of tar .git directory, I tried git bundle and compare with .git.tar.xz,
 git bundle is a lot smaller, I guess git bundle only saves data files not saves git's similar concept of wal/redo logs?
 
-for now, I tried the approach once, but certbot's log rotation mechanism is confusing, TODO investigate this more
+for now, I tried the approach once, but certbot's log rotation mechanism is confusing, investigate this more
+
+UPDATE: rename letsencrypt logs to time available at leading 19 bytes of the file fix the issue
+for now, when you try to invoke git in container, you need install and configure git in the python container,
+and search for git library in python leads you to https://github.com/gitpython-developers/gitpython,
+and the repository readme leads you to https://github.com/GitoxideLabs/gitoxide, so I'd like to try to follow the lead
+and maintain the backup repository in rust?
