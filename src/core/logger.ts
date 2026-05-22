@@ -39,7 +39,7 @@ class Logger {
         // no need mkdir-p because it is now volume mapped
         // syncfs.mkdirSync('logs', { recursive: true });
         this.handle = npfs.openSync(path.join(logsDirectory,
-            `${this.time.format('YYMMDD')}${this.options.postfix}.log`), 'a');
+            `fine-${this.options.postfix}${this.time.format('YYYYMMDD')}.log`), 'a');
     }
     public deinit() {
         if (this.handle) {
@@ -72,16 +72,19 @@ class Logger {
         }
     }
     public cleanup() {
-        for (const filename of npfs.readdirSync(logsDirectory)) {
-            const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYMMDD');
-            if (date.isValid() && date.add(this.options.reserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
-                try {
-                    npfs.unlinkSync(path.resolve(logsDirectory, filename));
-                } catch {
-                    // ignore
-                }
-            }
-        }
+        // ATTENTION do not rotate for now,
+        // certbot and postgresql both don't rotate by themself,
+        // so core, acme and database containers should use same rotate strategy when implemented (not yet)
+        // for (const filename of npfs.readdirSync(logsDirectory)) {
+        //     const date = dayjs.utc(path.basename(filename).slice(0, 8), 'YYYYMMDD');
+        //     if (date.isValid() && date.add(this.options.reserveDays, 'day').isBefore(dayjs.utc(), 'date')) {
+        //         try {
+        //             npfs.unlinkSync(path.resolve(logsDirectory, filename));
+        //         } catch {
+        //             // ignore
+        //         }
+        //     }
+        // }
     }
 
     public write(c: string | object) {

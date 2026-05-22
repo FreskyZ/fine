@@ -190,18 +190,28 @@ STOPSIGNAL SIGINT
 # run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
 ENTRYPOINT ["postgres"]
 
+# docker build --target alioss --tag fine/alioss:build -f setup/Dockerfile .
+# docker run -it --rm --name alioss1 -v .:/output --entrypoint sh fine/alioss:build -c "cp /usr/local/bin/async /output/async"
+FROM rust AS alioss
+
+RUN mkdir /work /work/setup
+COPY Cargo.lock Cargo.toml /work
+COPY setup/alioss.rs /work/setup/alioss.rs
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/work/target <<EORUN
+set -ex
+cd /work
+cargo build --release
+cp /work/target/release/async /usr/local/bin/async
+EORUN
+
 # docker build --target backup --tag fine/backup .
-FROM node:25.9.0-alpine3.23 AS backup
+FROM python:3.14.4-alpine3.23 AS backup
+# NOTE try sync python base image version with certbot
 
 # remember to change this before commit is enough,
 # use automatic mechanism to record build time will invalidate cache
-LABEL org.opencontainers.image.version=20260516
-
-# copy these files are enough for backup and restore
-COPY --from=fine/database:build /postgres-install/bin/pg_dump /usr/local/bin/pg_dump
-# COPY --from=fine/database:build /postgres-install/bin/pg_restore /usr/local/bin/pg_restore
-# this is symlink in source container, and the copy operation copies the original file?
-COPY --from=fine/database:build /postgres-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
+LABEL org.opencontainers.image.version=20260520
 
 RUN <<EORUN
 set -ex
@@ -210,16 +220,15 @@ https://mirrors.aliyun.com/alpine/v3.23/main
 https://mirrors.aliyun.com/alpine/v3.23/community
 EOCAT
 apk update
-# libz, libzstd: pg_dump and pg_restore runtime dependencies
-# by the way, you may want to use zstd instead of xz for tar,
-# but the zstd package only contains zstd binary that statically links
-# see https://pkgs.alpinelinux.org/contents?file=&path=&name=zstd&branch=edge&repo=&arch=
-apk add --no-cache xz zlib zstd-libs
-# install in global to avoid package.json and node_modules
-npm install -g yaml
-# directory for database dump files
-mkdir -p /data/base
+# readline, libz, libzstd: psql and pg_dump runtime dependencies
+apk add --no-cache zlib zstd-libs readline
 EORUN
+
+COPY --from=fine/alioss:build /usr/local/bin/async /work/async
+COPY --from=fine/database:build /postgresql-install/bin/psql /usr/local/bin/psql
+COPY --from=fine/database:build /postgresql-install/bin/pg_dump /usr/local/bin/pg_dump
+# this is symlink in source container, and the copy operation copies the original file?
+COPY --from=fine/database:build /postgresql-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
 
 # should be same as in fine/database
 ENV PGPORT=6543
@@ -227,10 +236,7 @@ ENV PGPORT=6543
 ENV PGHOST=/run/pgsql
 
 WORKDIR /work
-ADD alioss.ts /work/alioss.ts
-ADD backup-schedule.ts /work/schedule.ts
+COPY --chmod=700 backup-schedule.py /work/schedule.py
+COPY --chmod=700 backup-restore.py /work/restore.py
 
-# docker run -it --rm --name backup1 -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs --entrypoint sh my/fine-backup:1
-# node backup.ts
-# docker run -d --rm --name backup1  -v database-sockets:/run/pgsql -v /etc/fine:/etc/fine -v ./node_modules:/work/node_modules -e FINE_CONFIG_DIR=/etc/fine -e BACKUP_LOGS_DIR=/data/backup-logs my/fine-backup:1
-ENTRYPOINT ["node", "schedule.ts"]
+ENTRYPOINT ["/work/schedule.py"]

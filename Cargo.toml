@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "aos"
+# not mean asynchronize (although it works very async) but I need to name this sync tool *sync
+name = "async"
 path = "setup/alioss.rs"
 
 [dependencies]
 anyhow = "1"
+blake3 = "1.8"
 chrono = { version = "0.4", default-features = false, features = ["now"] }
 clap = { version = "4", features = ["derive", "env"] }
 env_logger = "0.11"
