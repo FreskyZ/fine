@@ -1,12 +1,11 @@
 [package]
-name = "alioss"
+name = "doki"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-# not mean asynchronize (although it works very async) but I need to name this sync tool *sync
-name = "async"
-path = "setup/alioss.rs"
+name = "doki" # I think use katakana for naming is evil, but it is so good
+path = "setup/backup-doki.rs"
 
 [dependencies]
 anyhow = "1"

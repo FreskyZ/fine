@@ -341,6 +341,8 @@ struct ListCommand {
         long_help = "continue fetch all results\nwhen use together with count, count is per page count"
     )]
     r#continue: bool,
+    #[arg(short = 'I', long, help = "not interactive, make output easier to parse")]
+    noninteractive: bool,
 }
 
 #[derive(Deserialize)]
@@ -428,8 +430,13 @@ async fn handle_list_command(config: &Config, command: &ListCommand) -> Result<(
     let time = Utc::now();
     let client = Client::new();
     let all_files = handle_list(config, command, &client, time).await?;
+    let file_count = all_files.len();
+    let file_total_size = all_files.iter().fold(0, |acc, f| acc + f.size);
     for file in all_files {
         println!("{} {} {}", file.name, file.size, file.mtime);
+    }
+    if !command.noninteractive {
+        println!("list {} files {} bytes", file_count, total_file_size);
     }
     info!("list success");
     Ok(())
@@ -965,5 +972,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// docker run -it --rm --name alioss1 -v .:/work -v ~/cargo-build-cache-alioss:/work/target -v ~/cargo-download-cache:/usr/local/cargo/registry -h RUST -w /work my/rust:1
+// docker run -it --rm --name doki1 -v .:/work -v ~/cargo-build-cache-alioss:/work/target -v ~/cargo-download-cache:/usr/local/cargo/registry -h RUST -w /work my/rust:1
 // need this if dependencies need build: apk add musl-dev
+// TODO lint this
+// TODO consider change commands to docker? like, doki ls for list, doki rm for remove, doki cp local-filename oss://remote-filename for upload
+//      doki cp oss://remote-filename local-filename for download, doki cp oss://remote-prefix local-directory for sync download, doki cp local-directory oss://remote-prefix for sync upload
+//      check by local path is existing and is a dir, always recursive? allow cp from oss to oss? allow cp from local to local??
+//      no oss://, just oss: like a container, // comment is too long
+// TODO test real remote path with path separator /

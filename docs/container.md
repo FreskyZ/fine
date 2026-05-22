@@ -76,6 +76,7 @@ so you can
 - extract executable files from docker-ce, docker-ce-cli and containerd.io,
 - extract service configuration files docker.service, docker.socket and containerd.service,
 - add configuration file /etc/docker/daemon.json
+- TODO no need to create docker group?
 
 all of these are static file and can be deployed by single extract command
 
@@ -98,17 +99,18 @@ see setup/docker-compose.yml, for now this project is separated into these servi
 
 to create the project from scratch (not tested)
 
-- build custom images on local
-  upload image, e.g. docker save my/certbot:1 | xz | ssh example.com 'docker load'
-- sftp upload compose.yml, remote-akari.ts, akari.yml, package.json, package-lock.json
+- deploy images, for my network environment should build custom images on local
+  and upload image like docker save fine/certbot | xz | ssh example.com 'docker load'
+- sftp upload compose.yml, compose.sh, remote-akari.ts, akari.yml, package.json, package-lock.json
 - npm i
-- something like docker compose up akari --no-start to create the volumes
-  docker run map the created volumes, docker cp these files into position
-- start remote akari container, start local akari
+- something like docker compose up --no-start to create the volumes
+- docker run map fine-program and fine-configs,
+  docker cp deploy remote-akari.ts, akari.yml, package.json, package-lock.json
+- start remote akari, start local akari
 - upload certbot.yml and domains.yml, create certificates by create.py, start acme service
 - run database shell, run initdb.sh, start database service, insert initial data (users, etc.)
 - build and deploy core module, build and upload user page
-- upload home.html, 404.html, 418.html, config and upload content.yml and access.yml
+- upload home.html, 404.html, 418.html, config and upload content.yml, access.yml and dontry.yml
 - start web server
 - (optional) build and deploy short link service
 - config and upload backup.yml, start backup service
@@ -116,12 +118,24 @@ to create the project from scratch (not tested)
 
 to restore a full backup file from scratch, currently, TODO test run
 
-- build custom images on local, upload images
-- sftp upload compose.yml, backup.yml, package.json, package-lock.json
-- run database shell, run initdb.sh, start database service
-- start backup shell, npm i, download backup file, restore data, restore databases
-- start acme service, start web server, start backup service, start remote akari
-- check everything works
+- TODO automate create setup.tar.xz
+- tar xJf setup.tar.xz -C . && ./setup.sh
+
+the underlying steps, if some error happens in future
+
+- include compose.yml, compose.sh
+- include dontry.py, dontry.service, dontry.timer
+- include doki binary and server side config which use internal network
+- include a shell script
+  - download image files from oss and deploy the images, for now oss internal
+    network is free, if it is not free anymore, they will be included in setup.tar.xz
+  - create database service and initialize database instance, start database service
+  - create backup service and run restore.py
+    - download program, public, node modules backup file and restore files into volume
+    - download database backup file and restore database data
+  - deploy dontry timer and service
+  - downloaded backup files and image files saved in host fs backup directory,
+    effectively work as latest backup file for backup schedule script
 
 health check
 
@@ -129,7 +143,7 @@ health check
 - docker compose logs should display placeholder message for core and database, and
   continuous plain message for acme twice a day, and backup success message once a day
 - open id.example.com works ok, ip address display normally
-- open public files like example.com/endfield-checklist.txt ok
+- open public files like example.com/ef/checklist.txt ok
 - open any application and the static files loads and access controlled api works
 
 ### Volumes

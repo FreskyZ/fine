@@ -193,19 +193,19 @@ STOPSIGNAL SIGINT
 # run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
 ENTRYPOINT ["postgres"]
 
-# docker build --target alioss --tag fine/alioss:build -f setup/Dockerfile .
-# docker run -it --rm --name alioss1 -v .:/output --entrypoint sh fine/alioss:build -c "cp /usr/local/bin/async /output/async"
-FROM rust AS alioss
+# docker build --target doki --tag fine/doki:build -f setup/Dockerfile .
+# docker run -it --rm --name doki1 -v .:/output --entrypoint sh fine/doki:build -c "cp /usr/local/bin/doki /output/doki"
+FROM rust AS doki
 
 RUN mkdir /work /work/setup
 COPY Cargo.lock Cargo.toml /work
-COPY setup/alioss.rs /work/setup/alioss.rs
+COPY setup/backup-doki.rs /work/setup/backup-doki.rs
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/work/target <<EORUN
 set -ex
 cd /work
 cargo build --release
-cp /work/target/release/async /usr/local/bin/async
+cp /work/target/release/doki /usr/local/bin/doki
 EORUN
 
 # docker build --target backup --tag fine/backup .
@@ -227,7 +227,7 @@ apk update
 apk add --no-cache zlib zstd-libs readline
 EORUN
 
-COPY --from=fine/alioss:build /usr/local/bin/async /work/async
+COPY --from=fine/doki:build /usr/local/bin/doki /work/doki
 COPY --from=fine/database:build /postgresql-install/bin/psql /usr/local/bin/psql
 COPY --from=fine/database:build /postgresql-install/bin/pg_dump /usr/local/bin/pg_dump
 # this is symlink in source container, and the copy operation copies the original file?

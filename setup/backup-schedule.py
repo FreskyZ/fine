@@ -88,20 +88,20 @@ def backup_once(time):
             backup_additional(log, time)
             # and finally rsync, use a dedicated sync command is how
             # you keep network operations parallel when they are contained inside a cli
-            print(f'backup.py: rsync')
+            print(f'backup.py: doki')
             child = subprocess.run([
-                '/work/async',
+                '/work/doki',
                 '-c', '/data/main/configs/backup.toml',
                 'rsync',
                 '--local', '/result',
                 '--compare-hash',
-            ], capture_output=True, env=dict(os.environ, RUST_LOG='r#async=trace'))
-            if child.stdout: log(f'rsync stdout: {child.stdout}')
-            if child.stderr: log(f'rsync stderr: {child.stderr}')
+            ], capture_output=True, env=dict(os.environ, RUST_LOG='doki=trace'))
+            if child.stdout: log(f'doki stdout: {child.stdout}')
+            if child.stderr: log(f'doki stderr: {child.stderr}')
             ok = child.returncode == 0
             child_output = child.stdout.decode().strip()
-            print('\n'.join([f'  rsync: {r}' for r in child_output.split('\n')]))
-            print(f'backup.py: rsync return code {child.returncode}')
+            print('\n'.join([f'  doki: {r}' for r in child_output.split('\n')]))
+            print(f'backup.py: doki return code {child.returncode}')
         except Exception as error:
             log(f'panic! {error}')
             print(f'backup.py: panic! {error}')
@@ -147,6 +147,7 @@ def schedule():
         # use hour >= 18 to effectively allows 6 times of retry if some error happens
         if now.hour < 18: continue
         # check last ok time
+        last_ok_time = None
         last_ok_path = '/data/logs/backup/last-ok'
         try:
             with open(last_ok_path) as f:
@@ -154,10 +155,19 @@ def schedule():
         except Exception as error:
             print(f'backup.py: failed to load last ok time from last-ok file?', error)
         # today ok
-        if now.date() == last_ok_time.date(): continue
+        if last_ok_time is not None and now.date() == last_ok_time.date(): continue
 
         ok = backup_once(now) # <-- main action is here
         with open(last_ok_path, 'w') as f:
             f.write(now.strftime('%Y-%m-%d %H:%M:%S'))
         # a good complete log is written in backup once
+
 schedule()
+# related file structure:
+# - /work: doki, backup.py (this program), restore.py
+# - /data: volume data
+#   - /data/base: database dump files
+#   - /data/main/configs/backup.toml: config for this program
+#   - /data/logs/backup: logs for this program
+#   - /data/logs/backup/last-ok: use in schedule for this program
+# - /result: result archive files mapped from host fs

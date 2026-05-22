@@ -1,3 +1,6 @@
+# why is this toml but others are yaml?
+# because toml is popular in rust and have builtin support in python
+
 # oss configs
 region = "cn-shanghai"
 internal = true
