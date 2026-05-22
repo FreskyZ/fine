@@ -1,8 +1,11 @@
 
 # docker build --target certbot --tag fine/certbot .
-FROM certbot/certbot:v5.5.0 AS certbot
+FROM certbot/certbot:v5.6.0 AS certbot
+# NOTE try make acme container and backup container use same python version
+# certbot python version can be found at container env PYTHON_VERSION
+# or source code https://github.com/certbot/certbot/blob/main/tools/docker/Dockerfile
 
-LABEL org.opencontainers.image.version=20260427
+LABEL org.opencontainers.image.version=20260519
 
 # the evil pip install to global by default, which is convenient for this case
 RUN pip install --root-user-action=ignore dnspython pyyaml
@@ -28,22 +31,22 @@ ENTRYPOINT ["/schedule.py"]
 
 # reference https://github.com/docker-library/postgres/blob/master/18/alpine3.23/Dockerfile
 # reference https://github.com/CircleCI-Public/cimg-postgres/blob/main/18.3/Dockerfile
-# docker build --target postgres-build --tag fine/database:build .
-FROM alpine:3.23.4 AS postgres-build
+# docker build --target postgresql-build --tag fine/database:build .
+FROM alpine:3.23.4 AS postgresql-build
 
 # https://mesonbuild.com/Getting-meson.html
 # https://github.com/mesonbuild/meson/releases
 ADD meson-1.11.1.tar.gz /
 
 # cannot clone https://git.postgresql.org/git/postgresql.git, looks like git is completly hated in this network
-# https://ftp.postgresql.org/pub/source/v18.3/postgresql-18.3.tar.bz2
-ADD postgresql-18.3.tar.bz2 /
+# https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2
+ADD postgresql-18.4.tar.bz2 /
 
 RUN <<EORUN
 set -ex
 # rename subfolder in extract result
 mv /meson-1.11.1 /meson
-mv /postgresql-18.3 /postgres-src
+mv /postgresql-18.4 /postgresql-src
 # install dependencies
 cat <<'EOCAT' > /etc/apk/repositories
 https://mirrors.aliyun.com/alpine/v3.23/main
@@ -80,38 +83,38 @@ COPY --from=my/llvm:stage2 /llvm-install /usr/local
 
 RUN <<EORUN
 # configure
-cd /postgres-src
-/meson/meson.py setup /postgres-build --prefix=/postgres-install -Dnls=disabled -Dplperl=disabled \
+cd /postgresql-src
+/meson/meson.py setup /postgresql-build --prefix=/postgresql-install -Dnls=disabled -Dplperl=disabled \
 -Dplpython=enabled -Dpltcl=disabled -Dicu=enabled -Dllvm=enabled -Dlz4=disabled -Dzstd=enabled -Dssl=openssl \
 -Dgssapi=disabled -Dldap=disabled -Dpam=disabled -Dbsd_auth=disabled -Dsystemd=disabled -Dbonjour=disabled \
 -Duuid=e2fs -Dlibcurl=disabled -Dliburing=enabled -Dlibnuma=disabled -Dlibxml=disabled -Dlibxslt=disabled \
 -Dselinux=disabled -Dreadline=enabled -Dzlib=enabled --backend=ninja -Ddocs=disabled -Ddocs_pdf=disabled \
 --buildtype=release -Dcassert=false -Dtap_tests=disabled
 # build
-cd /postgres-build
+cd /postgresql-build
 ninja install
 EORUN
 
 RUN <<EORUN
 # add some runtime dependencies to reduce COPY operations in next stage
 # libc++
-cp /usr/local/lib/x86_64-alpine-linux-musl/* /postgres-install/lib
+cp /usr/local/lib/x86_64-alpine-linux-musl/* /postgresql-install/lib
 # libllvm.so
-cp /usr/local/lib/libLLVM.so.23.0git /postgres-install/lib
+cp /usr/local/lib/libLLVM.so.23.0git /postgresql-install/lib
 # libpython.so because no dedicated libs package available
-cp /usr/lib/libpython3.12.so.1.0 /postgres-install/lib
+cp /usr/lib/libpython3.12.so.1.0 /postgresql-install/lib
 EORUN
 # check psql --version
 # check postgres --version
 
-# docker build --target postgres --tag fine/database .
-FROM alpine:3.23.4 AS postgres
+# docker build --target postgresql --tag fine/database .
+FROM alpine:3.23.4 AS postgresql
 
-LABEL org.opencontainers.image.version=20260427
+LABEL org.opencontainers.image.version=20260520
 
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
-COPY --from=fine/database:build /postgres-install /usr/local
+COPY --from=fine/database:build /postgresql-install /usr/local
 
 # install dependencies
 # scan runtime dependencies learned from official dockerfile:

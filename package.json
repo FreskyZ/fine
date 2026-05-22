@@ -33,19 +33,19 @@
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/didyoumean": "^1.2.3",
-    "@types/koa": "^3.0.2",
+    "@types/koa": "^3.0.3",
     "@types/koa-bodyparser": "^4.3.13",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
-    "eslint": "^10.2.1",
+    "eslint": "^10.4.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "terser": "^5.46.1",
+    "terser": "^5.48.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.58.2"
+    "typescript-eslint": "^8.59.4"
   }
 }
