@@ -12,27 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alioss"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "chrono",
- "clap",
- "env_logger",
- "futures",
- "hex",
- "hmac",
- "log",
- "reqwest",
- "serde",
- "serde-xml-rs",
- "sha2",
- "tokio",
- "toml",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -361,6 +340,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "doki"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "clap",
+ "env_logger",
+ "futures",
+ "hex",
+ "hmac",
+ "log",
+ "reqwest",
+ "serde",
+ "serde-xml-rs",
+ "sha2",
+ "tokio",
+ "toml",
+ "walkdir",
 ]
 
 [[package]]

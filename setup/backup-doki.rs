@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand, Args};
+use clap::{Parser, Subcommand, Args, ValueEnum};
 use hmac::{Hmac, Mac, KeyInit};
 use log::{trace, info};
 use reqwest::{Client, Request, Method};
@@ -69,8 +69,8 @@ fn push_percent_encoded(builder: &mut String, data: &str, skip: impl Fn(char) ->
     }
 }
 
-// you cannot easily use RequestBuilder or Request for operations in this script
-// so the answer is make request from custom request properties
+// reqwest RequestBuilder and Request is not easy to use for operations
+// in this script, so the result is make Reqeust from custom request properties
 fn build_request(
     config: &Config,
     client: &Client,
@@ -89,7 +89,8 @@ fn build_request(
     // - cannot use reqwest::HeaderMap because that order is arbitrary
     // - this function will add content-length, content-type, x-oss-date, x-oss-content-sha256
     headers: Vec<(&str, &str)>,
-    // body and size
+    // body and size,
+    // if you impl Into<Body> here, binary size will explode (not likely, libcrypto is too large)
     body: Option<(reqwest::Body, usize)>,
 ) -> Result<Request> {
     // official sdk source code https://github.com/ali-sdk/ali-oss/blob/master/lib/common/signUtils.js
@@ -295,31 +296,6 @@ fn build_request(
     Ok(builder.build()?)
 }
 
-#[derive(Parser)]
-#[command(about = "Aliyun OSS CLI tool")]
-struct Command {
-    #[arg(short, long, help = "config file for oss service", value_name = "PATH", env = "OSS_CONFIG")]
-    config: String,
-    #[command(subcommand)]
-    kind: CommandKind,
-}
-
-#[derive(Subcommand)]
-enum CommandKind {
-    #[command(about = "list or query objects")]
-    List(ListCommand),
-    #[command(about = "upload object")]
-    Upload(UploadCommand),
-    #[command(about = "download object")]
-    Download(DownloadCommand),
-    #[command(about = "remove object")]
-    Remove(RemoveCommand),
-    #[command(about = "sync to this machine")]
-    Sync(SyncCommand),
-    #[command(name = "rsync", about = "sync from this machine")]
-    RSync(RSyncCommand),
-}
-
 #[derive(Deserialize, Debug)]
 struct ErrorResponse {
     #[serde(rename = "Code")]
@@ -328,7 +304,7 @@ struct ErrorResponse {
     message: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 struct ListCommand {
     #[arg(long, help = "limit result count")]
     count: Option<usize>,
@@ -341,8 +317,12 @@ struct ListCommand {
         long_help = "continue fetch all results\nwhen use together with count, count is per page count"
     )]
     r#continue: bool,
-    #[arg(short = 'I', long, help = "not interactive, make output easier to parse")]
-    noninteractive: bool,
+    #[arg(short, long, value_enum, help = "for now only csv")]
+    format: Option<ListCommandFormat>,
+}
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ListCommandFormat {
+    Csv,
 }
 
 #[derive(Deserialize)]
@@ -350,12 +330,10 @@ struct ListResponse {
     #[serde(rename = "NextContinuationToken")]
     next_continuation_token: Option<String>,
     #[serde(rename = "Contents", skip_serializing_if = "Vec::is_empty", default)]
-    contents: Vec<ObjectMetadata>,
+    contents: Vec<ListResponseObject>,
 }
-// rust like to call fstat metadata, follow that,
-// but not to be confused with x-oss-meta-* attributes, they are not available in list api
 #[derive(Deserialize, Debug)]
-struct ObjectMetadata {
+struct ListResponseObject {
     #[serde(rename = "Key")]
     name: String,
     #[serde(rename = "LastModified")]
@@ -364,12 +342,13 @@ struct ObjectMetadata {
     size: usize,
 }
 
-async fn handle_list(config: &Config, command: &ListCommand, client: &Client, time: DateTime<Utc>) -> Result<Vec<ObjectMetadata>> {
-    // https://help.aliyun.com/zh/oss/developer-reference/listobjects-v2
+async fn list(config: &Config, client: &Client, time: DateTime<Utc>, command: &ListCommand) -> Result<Vec<ListResponseObject>> {
+
     let mut loop_count = 0;
+    let mut all_objects = Vec::new();
     let mut continuation_token: Option<String> = None;
-    let mut all_files = Vec::new();
     loop {
+        // https://help.aliyun.com/zh/oss/developer-reference/listobjects-v2
         // now that queries is consumed by make request,
         // it is actually more clear to create queries every time
         let mut queries = Vec::new();
@@ -407,7 +386,7 @@ async fn handle_list(config: &Config, command: &ListCommand, client: &Client, ti
         trace!("response body {}", response_body);
         if status.is_success() {
             let response: ListResponse = serde_xml_rs::from_str(&response_body)?;
-            all_files.extend(response.contents);
+            all_objects.extend(response.contents);
             if !command.r#continue || response.next_continuation_token.is_none() {
                 break;
             }
@@ -422,201 +401,208 @@ async fn handle_list(config: &Config, command: &ListCommand, client: &Client, ti
             return Err(anyhow!("you called api 100 times?"));
         }
     }
-    Ok(all_files)
+    Ok(all_objects)
 }
 
-async fn handle_list_command(config: &Config, command: &ListCommand) -> Result<()> {
-    info!("list objects");
+async fn handle_list(config: &Config, command: &ListCommand) -> Result<()> {
+
     let time = Utc::now();
     let client = Client::new();
-    let all_files = handle_list(config, command, &client, time).await?;
-    let file_count = all_files.len();
-    let file_total_size = all_files.iter().fold(0, |acc, f| acc + f.size);
-    for file in all_files {
-        println!("{} {} {}", file.name, file.size, file.mtime);
+    let objects = list(config, &client, time, command).await?;
+
+    let (count, total_size) = objects.iter().fold((0, 0), |(c, s), f| (c + 1, s + f.size));
+    for object in objects {
+        println!("{},{},{}", object.name, object.size, object.mtime);
     }
-    if !command.noninteractive {
-        println!("list {} files {} bytes", file_count, total_file_size);
+    if !matches!(command.format, Some(ListCommandFormat::Csv)) {
+        println!("list {} objects {} bytes", count, total_size);
     }
-    info!("list success");
     Ok(())
 }
 
-#[derive(Args)]
-struct UploadCommand {
-    filename: String,
-    #[arg(long, value_name = "OBJECT", help = "object name, default to filename")]
-    object_name: Option<String>,
-    #[arg(short = 'O', long, help = "avoid overwrite existing object")]
+#[derive(Args, Debug)]
+struct CopyCommand {
+    #[arg(index(1), help = "source path")]
+    source: String,
+    #[arg(index(2), help = "target path")]
+    target: String,
+    #[arg(short = 'O', long, help = "do not overwrite if target exist")]
     forbid_overwrite: bool,
-    #[arg(long, help = "add x-oss-meta-hash metadata (use in sync)")]
+    #[arg(short = 'a', long, help = "set x-oss-meta-hash metadata (use in sync)")]
     hash: bool,
+    #[arg(long, help = "?")]
+    why_do_you_want_to_copy_from_local_to_local_by_this_command: bool, // ??
 }
-async fn handle_upload_command(config: &Config, command: &UploadCommand) -> Result<()> {
-    info!("upload {} {:?}", command.filename, command.object_name);
-    // https://help.aliyun.com/zh/oss/developer-reference/putobject
+async fn handle_copy(config: &Config, command: &CopyCommand) -> Result<()> {
 
     let time = Utc::now();
     let client = Client::new();
 
-    let mut headers = Vec::new();
-    if command.forbid_overwrite { headers.push(("x-oss-forbid-overwrite", "true")); }
-    // 'cache-control': this is cache control when downloading, not used in this project
-    // 'content-disposition': this is download behavior, too
-    // 'content-encoding': no need to compress again, so leave it identity
-    // 'content-md5': don't use md5
-    // 'expires': no expires
-    // 'x-oss-forbid-overwrite': good to avoid accidentally upload again
-    // 'x-oss-server-side-encryption'
-    // 'x-oss-server-side-data-encryption'
-    // 'x-oss-server-side-encryption-key-id': do not use server side encryption
-    // 'x-oss-object-acl': default should be enough
-    // 'x-oss-storage-class': use standard for now
-    // 'x-oss-meta-*'
-    // 'x-oss-tagging': no metadata needed for now
-    // 'x-oss-object-worm-mode'
-    // 'x-oss-object-worm-retain-util-date': what is worm?
+    // TODO handle same
+    let stripped_source = command.source.strip_prefix("oss:");
+    let stripped_target = command.target.strip_prefix("oss:");
 
-    let mut file = File::open(&command.filename).await?;
-    let file_size = file.metadata().await?.len() as usize;
-    let file_hash_hex; // extend lifetime
-    if command.hash {
-        let mut hash_buffer = vec![0; 1048576];
-        let file_hash = hash_file(&mut file, &mut hash_buffer).await?;
-        file_hash_hex = file_hash.to_hex();
-        file.seek(std::io::SeekFrom::Start(0)).await?;
-        headers.push((HASH_HEADER_KEY, file_hash_hex.as_str()));
-    }
+    // use if let to reduce one level of indent, and it put matched expression
+    // more close to pattern if you are going to put large chunk of code in the match arms
+    if let (None, Some(target)) = (stripped_source, stripped_target) {
+        // upload: https://help.aliyun.com/zh/oss/developer-reference/putobject
 
-    let object_name = command.object_name.as_deref().or(Some(&command.filename));
-    let request = build_request(config, &client, time,
-        Method::PUT, object_name, /* queries */ Vec::new(), headers, Some((file.into(), file_size)))?;
-    let response = client.execute(request).await?; // <-- send is here
+        let queries = Vec::new();
+        let mut headers = Vec::new();
+        // 'cache-control': this is cache control when downloading, not used in this project
+        // 'content-disposition': this is download behavior, too
+        // 'content-encoding': no need to compress again, so leave it identity
+        // 'content-md5': don't use md5
+        // 'expires': no expires
+        if command.forbid_overwrite { headers.push(("x-oss-forbid-overwrite", "true")); }
+        // 'x-oss-server-side-encryption'
+        // 'x-oss-server-side-data-encryption'
+        // 'x-oss-server-side-encryption-key-id': do not use server side encryption
+        // 'x-oss-object-acl': default should be enough
+        // 'x-oss-storage-class': use standard for now
+        // 'x-oss-meta-*'
+        // 'x-oss-tagging': no metadata needed for now
+        // 'x-oss-object-worm-mode'
+        // 'x-oss-object-worm-retain-util-date': what is worm?
 
-    let status = response.status();
-    trace!("response status: {}", status);
-    for (k, v) in response.headers() {
-        trace!("response header {} = {:?}", k, v);
-    }
-    if status.is_success() {
-        println!("upload {:?} from {} complete", object_name, command.filename);
-    } else {
-        let response_body = response.text().await?;
-        trace!("response body {}", response_body);
-        let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-        return Err(anyhow!("error {}: {:?}", response.code, response.message));
-    }
-    Ok(())
-}
+        let mut file = File::open(&command.source).await?;
+        let file_size = file.metadata().await?.len() as usize;
+        let file_hash_hex; // extend lifetime
+        if command.hash {
+            let mut buffer = vec![0; 1048576]; // TODO change to object pool
+            let mut hasher = blake3::Hasher::new();
+            loop {
+                let len = file.read(&mut buffer).await?;
+                if len == 0 { break; }
+                hasher.update(&buffer[..len]);
+            }
+            let file_hash = hasher.finalize();
+            file_hash_hex = file_hash.to_hex();
+            file.seek(std::io::SeekFrom::Start(0)).await?;
+            headers.push((sync::OBJECT_META_HASH, file_hash_hex.as_str()));
+        }
 
-#[derive(Args)]
-struct DownloadCommand {
-    filename: String,
-    #[arg(long, value_name = "OBJECT", help = "object name, default to filename")]
-    object_name: Option<String>,
-}
-async fn handle_download_command(config: &Config, command: &DownloadCommand) -> Result<()> {
-    info!("download {} {:?}", command.filename, command.object_name);
-    // https://help.aliyun.com/zh/oss/developer-reference/getobject
+        let request = build_request(config, &client, time,
+            Method::PUT, Some(target), queries, headers, Some((file.into(), file_size)))?;
+        let response = client.execute(request).await?; // <-- send is here
 
-    let time = Utc::now();
-    let client = Client::new();
+        let status = response.status();
+        trace!("response status: {}", status);
+        for (k, v) in response.headers() {
+            trace!("response header {} = {:?}", k, v);
+        }
+        if status.is_success() {
+            println!("upload from {} to {} complete", command.source, command.target);
+        } else {
+            let response_body = response.text().await?;
+            trace!("response body {}", response_body);
+            let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
+            return Err(anyhow!("error {}: {:?}", response.code, response.message));
+        }
+    } else if let (Some(source), None) = (stripped_source, stripped_target) {
+        // download: https://help.aliyun.com/zh/oss/developer-reference/getobject
 
-    let queries = Vec::new();
+        let queries = Vec::new();
         // 'response-content-language'
         // 'response-expires'
         // 'response-cache-control'
         // 'response-content-disposition'
         // 'response-content-encoding': set response header by set url params?
-    let headers = Vec::new();
+        let headers = Vec::new();
         // 'range': http standard range
         // 'x-oss-multi-range-behavior': set to 'multi-range' to allow multi range
         // 'if-modified-since'
         // 'if-unmodified-since'
         // 'if-match'
         // 'if-non-match': standard cache control headers
-    
-    let object_name = command.object_name.as_deref().or(Some(&command.filename));
-    let request = build_request(config, &client, time, Method::GET, object_name, queries, headers, None)?;
-    let mut response = client.execute(request).await?; // <-- send is here
 
-    let status = response.status();
-    trace!("response status: {}", status);
-    for (k, v) in response.headers() {
-        trace!("response header {} = {:?}", k, v);
-    }
+        let request = build_request(config, &client, time,
+            Method::GET, Some(&command.target), queries, headers, /* body */ None)?;
+        let mut response = client.execute(request).await?; // <-- send is here
 
-    if status.is_success() {
-        let mut file = File::create(&command.filename).await?;
-        while let Some(chunk) = response.chunk().await? {
-            trace!("received {} bytes in chunk", chunk.len());
-            file.write_all(&chunk).await?;
+        let status = response.status();
+        trace!("response status: {}", status);
+        for (k, v) in response.headers() {
+            trace!("response header {} = {:?}", k, v);
         }
-        println!("download {} from {:?} complete", command.filename, object_name);
-    } else {
-        let response_body = response.text().await?;
-        trace!("response body {}", response_body);
-        let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-        return Err(anyhow!("error {}: {:?}", response.code, response.message));
+
+        if status.is_success() {
+            let mut file = File::create(source).await?;
+            while let Some(chunk) = response.chunk().await? {
+                file.write_all(&chunk).await?;
+            }
+            println!("download from {} to {} complete", command.source, command.target);
+        } else {
+            let response_body = response.text().await?;
+            trace!("response body {}", response_body);
+            let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
+            return Err(anyhow!("error {}: {:?}", response.code, response.message));
+        }
+    } else if let (Some(source), Some(target)) = (stripped_source, stripped_target) {
+        // remote duplicate: https://help.aliyun.com/zh/oss/developer-reference/copyobject
+        // this is similar to upload with an additional header and without a body
+        let queries = Vec::new();
+        let mut headers = Vec::new();
+        headers.push(("x-oss-copy-source", source));
+        if command.forbid_overwrite { headers.push(("x-oss-forbid-overwrite", "true")); }
+
+        let request = build_request(config, &client, time,
+            Method::PUT, Some(target), queries, headers, /* body */ None)?;
+        let response = client.execute(request).await?; // <-- send is here
+
+        let status = response.status();
+        trace!("response status: {}", status);
+        for (k, v) in response.headers() {
+            trace!("response header {} = {:?}", k, v);
+        }
+        if status.is_success() {
+            println!("duplicate from {} to {} complete", command.source, command.target);
+        } else {
+            let response_body = response.text().await?;
+            trace!("response body {}", response_body);
+            let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
+            return Err(anyhow!("error {}: {:?}", response.code, response.message));
+        }
+    } else /* (None, None) */ {
+        // ???
+        if !command.why_do_you_want_to_copy_from_local_to_local_by_this_command {
+            println!("you forget to add oss: prefix, if you really mean to, \
+                add --why-do-you-want-to-copy-from-local-to-local-by-this-command");
+        } else /* really want copy from local to local by this command */ {
+            if command.forbid_overwrite && fs::try_exists(&command.target).await? {
+                return Err(anyhow!("target file {} exists", command.target));
+            }
+            fs::copy(&command.source, &command.target).await?;
+        }
     }
     Ok(())
 }
 
-#[derive(Args)]
-struct RemoveCommand {
-    object_name: String,
+#[derive(Args, Debug)]
+struct DropCommand {
+    #[arg(index(1), help = "object name to drop")]
+    name: String,
 }
-async fn handle_remove_command(config: &Config, command: &RemoveCommand) -> Result<()> {
-    info!("remove {}", command.object_name);
-    // https://help.aliyun.com/zh/oss/developer-reference/deleteobject
+async fn handle_drop(config: &Config, command: &DropCommand) -> Result<()> {
 
     let time = Utc::now();
     let client = Client::new();
 
-    let queries = Vec::new();
-        // 'versionId': not use version control
-
-    let request = build_request(config, &client, time,
-        Method::DELETE, Some(&command.object_name), queries, /* headers */ Vec::new(), None)?;
-    let response = client.execute(request).await?; // <-- send is here
-
-    let status = response.status();
-    trace!("response status: {}", status);
-    for (k, v) in response.headers() {
-        trace!("response header {} = {:?}", k, v);
+    let list_command = ListCommand {
+        prefix: Some(command.name.clone()), // don't load irrelavent files
+        r#continue: false, // no need to continue
+        ..Default::default()
+    };
+    let objects = list(config, &client, time, &list_command).await?;
+    if !objects.iter().any(|o| o.name == command.name) {
+        return Err(anyhow!("not found object {}", command.name));
     }
-    if status.is_success() {
-        println!("remove {} complete (NOTE there is no error for previously not exist file)", command.object_name);
-    } else {
-        let response_body = response.text().await?;
-        trace!("response body {}", response_body);
-        let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-        return Err(anyhow!("error {}: {:?}", response.code, response.message));
-    }
-    Ok(())
-}
 
-// reuse buffer, don't allocate a large vec for each file
-// ATTENTION this don't rewind file handle
-async fn hash_file(file: &mut File, buffer: &mut Vec<u8>) -> Result<blake3::Hash> {
-    let mut hasher = blake3::Hasher::new();
-    loop {
-        let len = file.read(buffer).await?;
-        if len == 0 { break; }
-        hasher.update(&buffer[..len]);
-    }
-    let hash = hasher.finalize();
-    Ok(hash)
-}
-
-// same as GET, change method to HEAD
-const HASH_HEADER_KEY: &str = "x-oss-meta-hash";
-async fn hash_object(config: &Config, client: &Client, time: DateTime<Utc>, object_name: &str) -> Result<Option<String>> {
-
+    // https://help.aliyun.com/zh/oss/developer-reference/deleteobject
     let queries = Vec::new();
     let headers = Vec::new();
     let request = build_request(config, &client, time,
-        Method::HEAD, Some(object_name), queries, headers, /* body */ None)?;
+        Method::DELETE, Some(&command.name), queries, headers, /* body */ None)?;
     let response = client.execute(request).await?; // <-- send is here
 
     let status = response.status();
@@ -624,330 +610,382 @@ async fn hash_object(config: &Config, client: &Client, time: DateTime<Utc>, obje
     for (k, v) in response.headers() {
         trace!("response header {} = {:?}", k, v);
     }
-
     if status.is_success() {
-        // headervalue borrows headermap,
-        // you have to clone this value unless you want return complete headermap
-        if let Some(value) = response.headers().get(HASH_HEADER_KEY) {
-            return Ok(Some(value.to_str()?.to_string()));
-        } else {
-            return Ok(None);
-        }
+        println!("drop {} complete", command.name);
     } else {
         let response_body = response.text().await?;
         trace!("response body {}", response_body);
         let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-        return Err(anyhow!("error head object {} {}: {:?}", object_name, response.code, response.message));
+        return Err(anyhow!("error {}: {:?}", response.code, response.message));
     }
+    Ok(())
 }
 
-#[derive(Args)]
-struct SyncCommand {
-    #[arg(short, long, env = "OSS_LOCAL_DIR", help = "local directory")]
-    local: String,
-    #[arg(short, long, env = "OSS_REMOTE_DIR", help = "remote directory, filter remote objects by this prefix, \
-        strip this from remote path as local path, use simple strip prefix and does not actually require ends with path separator")]
-    remote: Option<String>,
-    #[arg(short, long, help = "stop before actually download file")]
-    dry: bool,
-    #[arg(short, long, help = "use hash to determine file update")]
-    compare_hash: bool,
-}
-async fn handle_sync_command(config: &Config, command: &SyncCommand) -> Result<()> {
 
-    let local_directory = command.local.as_str();
-    let remote_directory = command.remote.as_deref().unwrap_or("");
-    info!("sync from remote {} to local {}",
-        if remote_directory.is_empty() { "(empty)" } else { remote_directory }, local_directory);
+mod sync {
+    use super::*;
 
-    if std::env::var_os("OSS_LOCAL_DIR").is_some() {
-        println!("use sync local directory {}", local_directory);
-    }
-    if std::env::var_os("OSS_REMOTE_DIR").is_some() && !remote_directory.is_empty() {
-        println!("use sync remote directory {}", remote_directory);
-    }
+    #[derive(Clone, Copy, Default)]
+    enum Location { #[default] Local, Remote }
+    #[derive(Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord)]
+    enum Direction { #[default] Source, Target }
 
-    let metadata = fs::metadata(&command.local).await?;
-    if !metadata.is_dir() {
-        return Err(anyhow!("target {} is not a directory", command.local));
+    // 1. unify source and target into same representation and validate by the way
+    #[derive(Clone, Copy)]
+    struct Provider<'a> {
+        path: &'a str,
+        location: Location,
+        direction: Direction,
     }
-    let mut read_dir = fs::read_dir(&command.local).await?;
-    // this is pathbuf, while read dir is not recursive,
-    // this only contains one level of files in the configured directory
-    let mut local_paths = Vec::<PathBuf>::new();
-    while let Some(entry) = read_dir.next_entry().await? {
-        if entry.file_type().await?.is_file() { local_paths.push(entry.path()); }
+    impl<'a> Provider<'a> {
+        fn is_local(&self) -> bool { matches!(self.location, Location::Local) }
+        fn is_remote(&self) -> bool { matches!(self.location, Location::Remote) }
+    }
+    fn validate_providers<'a>(source: &'a str, target: &'a str) -> Result<(Provider<'a>, Provider<'a>)> {
+        // TODO handle same and root
+        match (source.strip_prefix("oss:"), target.strip_prefix("oss:")) {
+            (None, None) => bail!("cannot sync from local directory to local directory"),
+            (Some(_), Some(_)) => bail!("cannot sync from remote directory to remote directory, fow now"),
+            (Some(source), None) => Ok((
+                Provider{ path: source, direction: Direction::Source, location: Location::Remote },
+                Provider{ path: target, direction: Direction::Target, location: Location::Local },
+            )),
+            (None, Some(target)) => Ok((
+                Provider{ path: source, direction: Direction::Source, location: Location::Local },
+                Provider{ path: target, direction: Direction::Target, location: Location::Remote },
+            )),
+        }
     }
 
-    let time = Utc::now();
-    let client = Client::new();
-    // prefix need a real String so have to clone
-    let list_command = ListCommand{ count: None, start_after: None, prefix: command.remote.clone(), r#continue: true };
-    let remote_objects = handle_list(config, &list_command, &client, time).await?;
-
-    // exist in remote but not exist in local,
-    // note that local can have more files than remote, don't remove local file
-    // return array of task returning (object name, file path, file)
-    let tasks = remote_objects.into_iter().map(async |object| -> Result<Option<(String, PathBuf, Option<File>)>> {
-        let file_name = if remote_directory.is_empty() {
-            object.name.as_str()
-        } else {
-            object.name.strip_prefix(remote_directory)
-                .ok_or_else(|| anyhow!("cannot strip prefix after filter by this prefix?"))?
-        };
-        let Some(file_path) = local_paths.iter().find(|f| f.ends_with(file_name)) else {
-            // name not exist, need sync
-            trace!("object {} not found file name {}, add task", object.name, file_name);
-            let mut file_path = PathBuf::from(&command.local);
-            file_path.push(file_name);
-            return Ok(Some((object.name, file_path, None)));
-        };
-        let mut file = fs::OpenOptions::new()
-            // read content,
-            // at this step, you always need to create the file and write, so add write and create 
-            .read(true).write(true).create(true).open(file_path).await?;
-        let file_size = file.metadata().await?.len() as usize;
-        if file_size != object.size {
-            // size not same, need sync
-            trace!("object {} size {} != file size {}, add task", object.name, object.size, file_size);
-            Ok(Some((object.name, file_path.to_path_buf(), Some(file))))
-        } else {
-            if !command.compare_hash { return Ok(None); }
-            // after change to prallel you have to allocate buffer on their own TODO change to a buffer pool
-            let mut hash_buffer = vec![0; 1048576]; // 1mb read buffer
-            let file_hash = hash_file(&mut file, &mut hash_buffer).await?;
-            let object_hash = hash_object(config, &client, time, &object.name).await?;
-            trace!("object {} hash {:?}, file hash {}", object.name, object_hash, file_hash);
-            if let Some(object_hash) = object_hash {
-                // all same name same length same hash pair goes to here, that's the cost of use-hash
-                if *file_hash.to_hex() == *object_hash { Ok(None) } else {
-                    trace!("object {} hash not same, add task", object.name);
-                    Ok(Some((object.name, file_path.to_path_buf(), Some(file))))
-                }
-            } else {
-                // at this step, no remote hash is regarded as hash mismatch
-                trace!("object {} no hash, add task", object.name);
-                Ok(Some((object.name, file_path.to_path_buf(), Some(file))))
+    // 2. get items
+    #[derive(Default)]
+    struct Item {
+        location: Location,
+        direction: Direction,
+        // absolute local path or full object name
+        full_name: String,
+        // path relative to provider path
+        name: String,
+        size: usize,
+        // after step 1, match: true means find match name + size
+        r#match: bool,
+        // file for this item
+        file: Option<File>,
+        hash: Option<String>,
+        // file and counterparty_file cannot be both filled,
+        // but if you reuse them, borrow checker will not be happy at a specific position
+        counterparty_file: Option<File>,
+        counterparty_full_name: Option<String>,
+    }
+    impl Item {
+        fn new(provider: Provider, full_name: String, name: String, size: usize) -> Item {
+            Item{
+                location: provider.location,
+                direction: provider.direction,
+                full_name,
+                name,
+                size,
+                r#match: false,
+                file: None,
+                hash: None,
+                counterparty_file: None,
+                counterparty_full_name: None,
             }
         }
-    });
-    let task_results = futures::future::join_all(tasks).await;
-    let mut has_error = false;
-    let mut missing_objects = Vec::<(String, PathBuf, Option<File>)>::new();
-    for result in task_results {
-        match result {
-            Ok(Some(object)) => missing_objects.push(object),
-            Ok(None) => {},
-            Err(error) => { has_error = true; println!("{}", error); },
-        }
-    }
-    if has_error { return Err(anyhow!("failed to run some collect tasks")) }
-    if missing_objects.is_empty() { println!("up to date"); return Ok(()); }
-    if command.dry {
-        missing_objects.into_iter().for_each(|(object_name, file_path, ..)| {
-            println!("will download from {} to {}", object_name, file_path.display());
-        });
-        return Ok(());
     }
 
-    let tasks = missing_objects.into_iter().map(async |(object_name, file_path, file)| {
-        let queries = Vec::new();
-        let headers = Vec::new();
-        let request = build_request(config, &client, time,
-            Method::GET, Some(&object_name), queries, headers, /* body */ None)?;
-        let mut response = client.execute(request).await?; // client is Send + Sync
-        
-        let status = response.status();
-        trace!("response status: {}", status);
-        for (k, v) in response.headers() {
-            trace!("response header {} = {:?}", k, v);
+    async fn get_items(config: &Config, client: &Client, time: DateTime<Utc>, provider: Provider<'_>) -> Result<Vec<Item>> {
+        let mut results = Vec::new();
+        if provider.is_local() {
+            let metadata = fs::metadata(provider.path).await?;
+            if !metadata.is_dir() {
+                bail!("local directory {} is not a directory", provider.path);
+            }
+            // - this is not async, it's ok assuming list dir is very fast
+            // - filter_map: ignore not ok entry (likely permission error)
+            for entry in walkdir::WalkDir::new(provider.path).into_iter().filter_map(|e| e.ok()) {
+                if entry.file_type().is_file() {
+                    // it is said that walkdir's entry metadata is cheap, use that
+                    let size = entry.metadata()?.len() as usize;
+                    let name = entry.path().strip_prefix(provider.path)?.display().to_string();
+                    let full_name = entry.into_path().into_os_string().into_string()
+                        .map_err(|_| anyhow!("item {} full path cannot convert osstring?", name))?;
+                    results.push(Item::new(provider, full_name, name, size));
+                }
+            }
+        } else if provider.is_remote() {
+            let command = ListCommand{ prefix: Some(provider.path.to_string()), r#continue: true, ..Default::default() };
+            let objects = list(config, &client, time, &command).await?;
+            for object in objects {
+                let name = object.name
+                    .strip_prefix(provider.path)
+                    .with_context(|| format!("object {} cannot strip prefix {}?", object.name, provider.path))?
+                    .to_string();
+                results.push(Item::new(provider, object.name, name, object.size));
+            }
         }
-        if status.is_success() {
-            let mut file = if let Some(file) = file {
-                file.set_len(0).await?; // truncate existing file content
-                file
+        Ok(results)
+    }
+
+    pub const OBJECT_META_HASH: &str = "x-oss-meta-hash";
+    async fn get_item_hash(config: &Config, client: &Client, time: DateTime<Utc>, mut item: Item) -> Result<Item> {
+        if matches!(item.location, Location::Local) {
+            let mut file = if matches!(item.direction, Direction::Source) {
+                // upload operation need read file later, need reset cursor later
+                File::open(&item.full_name).await?
             } else {
-                File::create(&file_path).await?
+                // download operation need read file for hash, need truncate file later
+                fs::OpenOptions::new().read(true).write(true).create(true).open(&item.full_name).await?
             };
-            while let Some(chunk) = response.chunk().await? {
-                trace!("received {} bytes in chunk", chunk.len());
-                file.write_all(&chunk).await?;
+            let mut buffer = vec![0; 1048576]; // TODO change to object pool
+            let mut hasher = blake3::Hasher::new();
+            loop {
+                let len = file.read(&mut buffer).await?;
+                if len == 0 { break; }
+                hasher.update(&buffer[..len]);
             }
-            return Ok(if remote_directory.is_empty() {
-                format!("download {} success", object_name)
-            } else {
-                format!("download {} to {} success", object_name, file_path.display())
-            });
+            item.file = Some(file);
+            item.hash = Some(hasher.finalize().to_string());
+            trace!("item {} file hash {:?}", item.name, item.hash);
         } else {
-            let response_body = response.text().await?;
-            trace!("response body {}", response_body);
-            let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-            return Err(anyhow!("failed to download {} {}: {:?}", object_name, response.code, response.message));
-        }
-    });
-    let task_results = futures::future::join_all(tasks).await;
-    let mut has_error = false;
-    for result in task_results {
-        match result {
-            Ok(result) => println!("{}", result),
-            Err(error) => { has_error = true; println!("{}", error); },
-        }
-    }
-    if has_error { Err(anyhow!("failed to run some download tasks")) } else { Ok(()) }
-}
+            let request = build_request(config, &client, time,
+                //      vvvv head
+                Method::HEAD, Some(&item.full_name), Vec::new(), Vec::new(), /* body */ None)?;
+            let response = client.execute(request).await?; // <-- send is here
 
-#[derive(Args)]
-struct RSyncCommand {
-    #[arg(short, long, env = "OSS_LOCAL_DIR", help = "local directory")]
-    local: String,
-    #[arg(short, long, env = "OSS_REMOTE_DIR", help = "remote directory, filter remote objects by this prefix, \
-        append this to local path as remote path, use simple concat and does not actually require ends with path separator")]
-    remote: Option<String>,
-    #[arg(short, long, help = "stop before actually upload file")]
-    dry: bool,
-    #[arg(short, long, help = "use hash to determine file update")]
-    compare_hash: bool,
-}
-async fn handle_rsync_command(config: &Config, command: &RSyncCommand) -> Result<()> {
-    let local_directory = command.local.as_str();
-    let remote_directory = command.remote.as_deref().unwrap_or("");
-    info!("sync from local {} to remote {}",
-        local_directory, if remote_directory.is_empty() { "(empty)" } else { remote_directory });
-
-    if std::env::var_os("OSS_LOCAL_DIR").is_some() {
-        println!("use sync local directory {}", local_directory);
-    }
-    if std::env::var_os("OSS_REMOTE_DIR").is_some() && !remote_directory.is_empty() {
-        println!("use sync remote directory {}", remote_directory);
-    }
-
-    let metadata = fs::metadata(&command.local).await?;
-    if !metadata.is_dir() {
-        return Err(anyhow!("target {} is not a directory", command.local));
-    }
-    let mut read_dir = fs::read_dir(&command.local).await?;
-    let mut local_paths = Vec::<PathBuf>::new();
-    while let Some(entry) = read_dir.next_entry().await? {
-        if entry.file_type().await?.is_file() { local_paths.push(entry.path()); }
-    }
-
-    let time = Utc::now();
-    let client = Client::new();
-    // prefix need a real String so have to clone
-    let list_command = ListCommand{ count: None, start_after: None, prefix: command.remote.clone(), r#continue: true };
-    let remote_objects = handle_list(config, &list_command, &client, time).await?;
-
-    // exist in local but not exist in remote,
-    // NOTE that remote can have more files than local, don't remove remote file
-    // return array of task returning (object name, file path, file, file size, file hash)
-    let tasks = local_paths.into_iter().map(async |file_path| -> Result<Option<(String, PathBuf, Option<File>, Option<usize>, Option<blake3::Hash>)>> {
-        let file_name = file_path
-            .file_name().ok_or_else(|| anyhow!("file {} no file_name?", file_path.display()))?
-            .to_str().ok_or_else(|| anyhow!("file {} file_name cannot convert utf8?", file_path.display()))?
-            .to_string();
-        let object_name = if remote_directory.is_empty() {
-            file_name.clone()
-        } else {
-            format!("{}{}", remote_directory, file_name)
-        };
-        let Some(object) = remote_objects.iter().find(|object| object.name == object_name) else {
-            // name not exist, need sync
-            trace!("file {} not found object name {}, add task", file_path.display(), object_name);
-            return Ok(Some((object_name, file_path, None, None, None)));
-        };
-        let mut file = File::open(&file_path).await?;
-        let file_size = file.metadata().await?.len() as usize;
-        if file_size != object.size {
-            // size not same, need sync
-            trace!("file {} size {} != object size {}, add task", file_path.display(), file_size, object.size);
-            Ok(Some((object_name, file_path, Some(file), Some(file_size), None)))
-        } else {
-            if !command.compare_hash { return Ok(None); }
-            // after change to prallel you have to allocate buffer on their own TODO change to a buffer pool
-            let mut hash_buffer = vec![0; 1048576]; // 1mb read buffer
-            let file_hash = hash_file(&mut file, &mut hash_buffer).await?;
-            let object_hash = hash_object(config, &client, time, &object.name).await?;
-            trace!("file {} hash {}, object hash {:?}", file_path.display(), file_hash, object_hash);
-            if let Some(object_hash) = object_hash {
-                if *file_hash.to_hex() == *object_hash { Ok(None) } else {
-                    trace!("file {} hash not same, add task", file_path.display());
-                    file.seek(std::io::SeekFrom::Start(0)).await?;
-                    Ok(Some((object_name, file_path, Some(file), Some(file_size), Some(file_hash))))
-                }
-            } else {
-                // at this step, no object hash is regarded as hash mismatch
-                trace!("file {} object {} no hash, add task", file_path.display(), object_name);
-                file.seek(std::io::SeekFrom::Start(0)).await?;
-                Ok(Some((object_name, file_path, Some(file), Some(file_size), Some(file_hash))))
+            let status = response.status();
+            trace!("response status: {}", status);
+            for (k, v) in response.headers() {
+                trace!("response header {} = {:?}", k, v);
             }
+            if !status.is_success() {
+                let response_body = response.text().await?;
+                trace!("response body {}", response_body);
+                let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
+                return Err(anyhow!("error head object {} {}: {:?}", item.full_name, response.code, response.message));
+            }
+            item.hash = response.headers().get(OBJECT_META_HASH).map(|v| -> Result<String> { Ok(v.to_str()?.to_string()) }).transpose()?;
+            trace!("item {} object hash {:?}", item.name, item.hash);
         }
-    });
-    let task_results = futures::future::join_all(tasks).await;
-    let mut has_error = false;
-    let mut missing_files = Vec::<(String, PathBuf, Option<File>, Option<usize>, Option<blake3::Hash>)>::new();
-    for result in task_results {
-        match result {
-            Ok(Some(local_file)) => missing_files.push(local_file),
-            Ok(None) => {},
-            Err(error) => { has_error = true; println!("{}", error); },
-        }
-    }
-    if has_error { return Err(anyhow!("failed to run some collect tasks")) }
-    if missing_files.is_empty() { println!("up to date"); return Ok(()); }
-    if command.dry {
-        missing_files.into_iter().for_each(|(object_name, file_path, ..)| {
-            println!("will upload from {} to {}", file_path.display(), object_name);
-        });
-        return Ok(());
+        Ok(item)
     }
 
-    let tasks = missing_files.into_iter().map(async |(object_name, file_path, file, file_size, file_hash)| {
-        let mut file = if let Some(file) = file { file } else { File::open(&file_path).await? };
-        let file_size = if let Some(size) = file_size { size } else { (file.metadata().await?).len() as usize };
-        let file_hash = if let Some(hash) = file_hash { hash } else {
-            let mut hash_buffer = vec![0; 1048576];
-            let hash = hash_file(&mut file, &mut hash_buffer).await?;
-            file.seek(std::io::SeekFrom::Start(0)).await?;
-            hash
-        };
+    async fn send_item(config: &Config, client: &Client, time: DateTime<Utc>, item: Item) -> Result<String> {
+
         let queries = Vec::new();
-        let mut headers = Vec::new();
-        let file_hash_hex = file_hash.to_hex();
-        headers.push((HASH_HEADER_KEY, file_hash_hex.as_str()));
-        let request = build_request(config, &client, time,
-            Method::PUT, Some(&object_name), queries, headers, Some((file.into(), file_size)))?;
-        let response = match client.execute(request).await {
+        let request = if matches!(item.location, Location::Local) {
+            // for upload, reset file cursor, set header set hash
+            let mut file = item.file
+                .ok_or_else(|| anyhow!("you don't have file at this stage? item {}", item.name))?;
+            file.seek(std::io::SeekFrom::Start(0)).await?;
+            let hash = item.hash.as_deref()
+                .ok_or_else(|| anyhow!("you don't have hash at this stage? item {}", item.name))?;
+            let headers = vec![(OBJECT_META_HASH, hash)];
+            let object_name = item.counterparty_full_name.as_deref();
+            build_request(config, &client, time,
+                Method::PUT, object_name, queries, headers, Some((file.into(), item.size)))?
+        } else {
+            let headers = Vec::new();
+            build_request(config, &client, time,
+                Method::GET, Some(&item.full_name), queries, headers, /* body */ None)?
+        };
+
+        let mut response = match client.execute(request).await {
             Ok(response) => response,
             Err(error) => return Err(anyhow!("{:?}", error)),
         };
-        
         let status = response.status();
         trace!("response status: {}", status);
         for (k, v) in response.headers() {
             trace!("response header {} = {:?}", k, v);
         }
-        if status.is_success() {
-            return Ok(if remote_directory.is_empty() {
-                format!("upload {} success", file_path.display())
-            } else {
-                format!("upload {} to {} success", file_path.display(), object_name)
-            });
-        } else {
+        if !status.is_success() {
             let response_body = response.text().await?;
             trace!("response body {}", response_body);
             let response: ErrorResponse = serde_xml_rs::from_str(&response_body)?;
-            return Err(anyhow!("failed to upload {} {}: {:?}", file_path.display(), response.code, response.message));
+            return Err(anyhow!("failed to upload {} {}: {:?}", item.name, response.code, response.message));
         }
-    });
-    let task_results = futures::future::join_all(tasks).await;
-    let mut has_error = false;
-    for result in task_results {
-        match result {
-            Ok(result) => println!("{}", result),
-            Err(error) => { has_error = true; println!("{}", error); },
+
+        if matches!(item.location, Location::Local) {
+            // for upload, done here
+            return Ok(format!("upload {} success", item.name));
+        } else {
+            // for download, truncate file content if file opened, or else create file
+            let mut file = if let Some(file) = item.counterparty_file {
+                file.set_len(0).await?; file
+            } else {
+                let file_path = item.counterparty_full_name.as_deref()
+                    .ok_or_else(|| anyhow!("you don't have counterparty full name at this stage? item {}", item.name))?;
+                File::create(file_path).await?
+            };
+            while let Some(chunk) = response.chunk().await? {
+                file.write_all(&chunk).await?;
+            }
+            file.sync_all().await?;
+            return Ok(format!("download {} success", item.name));
         }
     }
-    if has_error { Err(anyhow!("failed to run some upload tasks")) } else { Ok(()) }
+
+    #[derive(Args, Debug)]
+    pub struct Command {
+        #[arg(index(1), help = "source path")]
+        source: String,
+        #[arg(index(2), help = "target path")]
+        target: String,
+        #[arg(short = 'a', long, help = "use hash to check file update")]
+        hash: bool,
+        #[arg(short = 'n', long, help = "stop before actually send file")]
+        dry_run: bool,
+        #[arg(long, default_value_t = 100, value_name = "COUNT",
+            help = "limit task count in case you accidentally uploaded node_modules/.git/rootfs")]
+        max_task_count: usize,
+    }
+
+    pub async fn handle(config: &Config, command: &Command) -> Result<()> {
+
+        let time = Utc::now();
+        let client = Client::new();
+        // 1. validate providers
+        let (source, target) = validate_providers(&command.source, &command.target)?;
+        // 2. get items
+        let (source_list_result, target_list_result) = futures::future::join(
+            get_items(config, &client, time, source),
+            get_items(config, &client, time, target),
+        ).await;
+        let (Ok(mut source_list), Ok(mut target_list)) = (
+            source_list_result.inspect_err(|e| eprintln!("failed to get source list: {:?}", e)),
+            target_list_result.inspect_err(|e| eprintln!("failed to get target list: {:?}", e)),
+        ) else {
+            bail!("failed to get source or target list");
+        };
+
+        // collect part 1, mark name+size mismatch
+        // - include names in source but not in target, not include names not in target but not in source
+        // - previous step already collected name and size, this step don't need to be async and parallel
+        let mut match_count = 0;
+        for source_item in &mut source_list {
+            if let Some(target_item) = target_list.iter_mut().find(|t| t.name == source_item.name) {
+                if source_item.size == target_item.size {
+                    source_item.r#match = true;
+                    target_item.r#match = true;
+                    match_count += 1;
+                } else {
+                    trace!("source item {} size {} != target item size {}, \
+                        mark mismatch", source_item.name, source_item.size, target_item.size);
+                }
+            } else {
+                trace!("source item {} not found in target list, mark mismatch", source_item.name);
+            }
+        }
+        // match = true first, then match = false
+        // assuming match items should be a lot more than mismatch items
+        source_list.sort_by(|i1, i2| i2.r#match.cmp(&i1.r#match));
+        target_list.sort_by(|i1, i2| i2.r#match.cmp(&i1.r#match));
+        // mismatched source list is always used regardless of command.hash
+        let mut mismatch_source_list = source_list.split_off(match_count);
+        // mismatched target item is never used, they can be truncated
+        target_list.truncate(match_count);
+
+        let name_size_mismatch_count = mismatch_source_list.len();
+        let hash_task_count =
+            if command.hash { match_count * 2 } else { 0 } // for match=true, need hash if command.hash
+            + if source.is_local() { name_size_mismatch_count } else { 0 }; // for source list match=false, need hash if is upload
+        if hash_task_count > command.max_task_count {
+            bail!("task count {} exceeds configured limit {} for collect hash, \
+                manually increase it if you really need", hash_task_count, command.max_task_count);
+        }
+        // calculate or load hash for items
+        let task_results = futures::future::join_all((if command.hash {
+            source_list
+        } else { Vec::new() }).into_iter().chain(if command.hash {
+            target_list
+        } else { Vec::new() }).chain(if source.is_local() {
+            // use mem::take to leave items available in original vec if condition not meet
+            std::mem::take(&mut mismatch_source_list)
+        } else { Vec::new() }).map(|item| get_item_hash(config, &client, time, item))).await;
+        // print error and abort if any error
+        let mut task_results = task_results.into_iter().map(
+            |r| r.inspect_err(|e| eprintln!("failed to get hash: {:?}", e))
+        ).collect::<Result<Vec<_>>>()?;
+        // split off source items and target items
+        task_results.sort_by(|r1, r2| r1.direction.cmp(&r2.direction));
+        let mut target_list = task_results.split_off(if command.hash { match_count }
+            else { 0 } + if source.is_local() { name_size_mismatch_count } else { 0 });
+        let source_list = task_results;
+
+        let mut mismatch_items = Vec::new();
+        // if is download, name + size mismatch items are still in original mismatch source list
+        if source.is_remote() { mismatch_items.extend(mismatch_source_list); }
+        for mut source_item in source_list {
+            if !source_item.r#match {
+                mismatch_items.push(source_item);
+            } else {
+                let target_item = target_list.iter_mut().find(|t| t.name == source_item.name)
+                    .ok_or_else(|| anyhow!("you cannot find target item at this stage?"))?;
+                if source_item.hash != target_item.hash {
+                    trace!("source item {} hash {:?} not same as target {:?}, \
+                        mark mismatch", source_item.name, source_item.hash, target_item.hash);
+                    assert!(source_item.file.is_none());
+                    source_item.counterparty_file = std::mem::take(&mut target_item.file);
+                    source_item.counterparty_full_name = Some(std::mem::take(&mut target_item.full_name));
+                    mismatch_items.push(std::mem::take(&mut source_item));
+                }
+            }
+        }
+        // some early return for tasks
+        if mismatch_items.is_empty() {
+            println!("up to date");
+            return Ok(());
+        } else if mismatch_items.len() > command.max_task_count {
+            return Err(anyhow!("task count {} exceeds configured limit {} after \
+                collect, manually increase it if you really need", mismatch_items.len(), command.max_task_count));
+        } else if command.dry_run {
+            for item in mismatch_items {
+                println!("will {} {}", if source.is_local() { "upload" } else { "download" }, item.name);
+            }
+            return Ok(());
+        }
+        let task_results = futures::future::join_all(mismatch_items
+            .into_iter().map(|item| send_item(config, &client, time, item))).await;
+        let mut has_error = false;
+        for result in task_results {
+            match result {
+                Ok(result) => println!("{}", result),
+                Err(error) => { has_error = true; eprintln!("failed to send file: {:?}", error); },
+            }
+        }
+        if has_error { Err(anyhow!("failed to send some files")) } else { Ok(()) }
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Aliyun OSS CLI tool")]
+struct Command {
+    #[arg(short, long, help = "config file", value_name = "PATH", env = "OSS_CONFIG")]
+    config: PathBuf,
+    #[arg(long, help = "do not print active config path if environment variable \
+            is set (the hint may help you diagnose unexpectedly used config path)")]
+    no_implicit_config_hint: bool,
+    #[command(subcommand)]
+    kind: CommandKind,
+}
+#[derive(Subcommand, Debug)]
+enum CommandKind {
+    #[command(about = "list or query objects")]
+    List(ListCommand),
+    #[command(about = "drop object")]
+    Drop(DropCommand),
+    #[command(about = "copy file from local to remote or remote to local", after_help = "source/target specification:
+  - start with \"oss:\" for oss path
+  - oss path should not start with '/', e.g. oss:filename.txt always mean root location filename.txt
+  - use \"same\" for same as another name, e.g. copy filename.txt oss:same, or copy oss:filename.txt same")]
+    Copy(CopyCommand),
+    #[command(about = "sync directory from local to remote or remote to local", after_help = "source/target specification:
+  - start with \"oss:\" for oss path
+  - oss path should not start with '/', e.g. oss:filename.txt always mean root location filename.txt
+  - use \"oss:root\" for oss root path, you won't use root as a normal folder, right?
+  - use \"same\" for same as another name, e.g. sync directory-name oss:same, or copy oss:directory-name oss:same")]
+    Sync(sync::Command),
 }
 
 #[tokio::main]
@@ -955,19 +993,19 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     let command = Command::parse();
-    if std::env::var_os("OSS_CONFIG").is_some() {
-        println!("use config path {}", command.config);
+    info!("command {:?}", command);
+    if !command.no_implicit_config_hint && std::env::var_os("OSS_CONFIG").is_some() {
+        println!("use config path {}", command.config.display());
     }
     let config_original_content = fs::read_to_string(&command.config).await?;
     let config: Config = toml::from_str(&config_original_content)?;
+    info!("config region {} bucket {} access key id {}", config.region, config.bucket, config.access_key_id);
 
     match &command.kind {
-        CommandKind::List(command) => handle_list_command(&config, command).await?,
-        CommandKind::Upload(command) => handle_upload_command(&config, command).await?,
-        CommandKind::Download(command) => handle_download_command(&config, command).await?,
-        CommandKind::Remove(command) => handle_remove_command(&config, command).await?,
-        CommandKind::Sync(command) => handle_sync_command(&config, command).await?,
-        CommandKind::RSync(command) => handle_rsync_command(&config, command).await?,
+        CommandKind::List(command) => handle_list(&config, command).await?,
+        CommandKind::Copy(command) => handle_copy(&config, command).await?,
+        CommandKind::Drop(command) => handle_drop(&config, command).await?,
+        CommandKind::Sync(command) => sync::handle(&config, command).await?,
     }
     Ok(())
 }
@@ -975,8 +1013,3 @@ async fn main() -> Result<()> {
 // docker run -it --rm --name doki1 -v .:/work -v ~/cargo-build-cache-alioss:/work/target -v ~/cargo-download-cache:/usr/local/cargo/registry -h RUST -w /work my/rust:1
 // need this if dependencies need build: apk add musl-dev
 // TODO lint this
-// TODO consider change commands to docker? like, doki ls for list, doki rm for remove, doki cp local-filename oss://remote-filename for upload
-//      doki cp oss://remote-filename local-filename for download, doki cp oss://remote-prefix local-directory for sync download, doki cp local-directory oss://remote-prefix for sync upload
-//      check by local path is existing and is a dir, always recursive? allow cp from oss to oss? allow cp from local to local??
-//      no oss://, just oss: like a container, // comment is too long
-// TODO test real remote path with path separator /
