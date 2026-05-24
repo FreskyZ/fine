@@ -340,12 +340,21 @@ support add an intermediate compression to reduce network usage: docker | xz | s
 
 for now, these items are backed up:
 
-- certificates, the traditional /etc/letsencrypt folder
-- database data, see database.md
-- the main program, include index.js, static files and server files
-- certbot logs, database logs, web server logs and backup logs itself?
+- program-{datetime}.tar.xz
+  - certificates, the traditional /etc/letsencrypt folder
+  - config files
+  - the main program, include index.js, static files and server files
+- database-{datetime}.tar.xz
+  - database data, see database.md
+- logs.tar.xz: certbot logs, database logs, web server logs and backup logs itself
+- public.tar.xz: public files, see also file-structure.md
+- node_modules.tar.xz: node modules
+- image files for certbot, database, backup and node comes from
+  docker save fine/database | xz > ~/backup/image-database-$(date -u +%Y%m%d).tar.xz
+  TODO try docker save fine/database | xz > ~/backup/image-database-$(echo $(docker inspect --format "{{.Id}}" fine/database) | cut -c 8-19).tar.xz
+  for now old version of image file is manually removed from ~/backup and oss
 
-for now, the backup service create a full backup file per day
+for now, these files are
 
 - save one copy to the same cloud service provider's object storage service
 - local sync script is run manually and occassionally to store one copy on my local machine
@@ -355,7 +364,8 @@ result in 3 copies of files in 3 different physical locations, which should be g
 
 by the way, you may think mount object storage into general computing service is a basic
 functionality, like https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files-mounting.html,
-but for aliyun it is too expensive for me, I have to access its api to upload and manage files
+but for aliyun it is too expensive for me, I have to access its api to upload and manage files,
+UPDATE now that doki have generally completed sync feature and this feature can be said implemented
 
 ### Logs
 
@@ -367,6 +377,7 @@ for now these logs are simply packed together to form a full backup file
 - backup logs is created for each backup operation, normally one per day, don't have log rotation
 
 TODO you seems need to handle log rotation for these files, remove very old entries and keep relative new entries
+UPDATE they seem really not rotated, so I temporary closed log rotation in fine core?
 
 ### Some SHI
 

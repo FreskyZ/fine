@@ -194,7 +194,7 @@ STOPSIGNAL SIGINT
 ENTRYPOINT ["postgres"]
 
 # docker build --target doki --tag fine/doki:build -f setup/Dockerfile .
-# docker run -it --rm --name doki1 -v .:/output --entrypoint sh fine/doki:build -c "cp /usr/local/bin/doki /output/doki"
+# docker run -it --rm --name doki2 -v .:/output --entrypoint sh fine/doki:build -c "cp /usr/local/bin/doki /output/doki"
 FROM rust AS doki
 
 RUN mkdir /work /work/setup

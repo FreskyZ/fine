@@ -92,9 +92,10 @@ def backup_once(time):
             child = subprocess.run([
                 '/work/doki',
                 '-c', '/data/main/configs/backup.toml',
-                'rsync',
-                '--local', '/result',
-                '--compare-hash',
+                '--no-implicit-config-hint'
+                'sync',
+                '--checksum',
+                '/result', 'oss:root',
             ], capture_output=True, env=dict(os.environ, RUST_LOG='doki=trace'))
             if child.stdout: log(f'doki stdout: {child.stdout}')
             if child.stderr: log(f'doki stderr: {child.stderr}')
@@ -134,18 +135,21 @@ def schedule():
         if shutdown_requested:
             print('backup.py: shutdown requested, exit')
             exit()
-        now = datetime.datetime.now(datetime.UTC)
+        before_sleep_time = datetime.datetime.now(datetime.UTC)
         # sleep to next time point with minute = 0
         try:
             sleeping = True
-            sleep((60 - now.minute) * 60)
+            sleep((60 - before_sleep_time.minute) * 60)
         except SystemExit:
             print('backup.py: shutdown requested in sleep, exit')
             exit(0)
         finally:
             sleeping = False
+        
+        loop_time = datetime.datetime.now(datetime.UTC)
         # use hour >= 18 to effectively allows 6 times of retry if some error happens
-        if now.hour < 18: continue
+        if loop_time.hour < 18: continue
+
         # check last ok time
         last_ok_time = None
         last_ok_path = '/data/logs/backup/last-ok'
@@ -155,11 +159,12 @@ def schedule():
         except Exception as error:
             print(f'backup.py: failed to load last ok time from last-ok file?', error)
         # today ok
-        if last_ok_time is not None and now.date() == last_ok_time.date(): continue
+        if last_ok_time is not None and loop_time.date() == last_ok_time.date(): continue
 
-        ok = backup_once(now) # <-- main action is here
-        with open(last_ok_path, 'w') as f:
-            f.write(now.strftime('%Y-%m-%d %H:%M:%S'))
+        ok = backup_once(loop_time) # <-- main action is here
+        if ok:
+            with open(last_ok_path, 'w') as f:
+                f.write(loop_time.strftime('%Y-%m-%d %H:%M:%S'))
         # a good complete log is written in backup once
 
 schedule()
