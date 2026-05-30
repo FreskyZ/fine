@@ -7,6 +7,3 @@ internal = true
 bucket = "backup"
 access-key-id = ""
 access-key-secret = ""
-
-# databases to backup, username:database
-databases = ["fine:fine"]

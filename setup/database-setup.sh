@@ -8,7 +8,11 @@ mv pg_hba.conf data
 pg_ctl start
 createuser fine
 createdb fine --owner fine
-pg_ctl stop -m fast
 
+for file in backup/*.sql; do
+    psql -U fine -f $file
+done
+
+pg_ctl stop -m fast
 # remove this script self
-rm initdb.sh
+rm setup.sh

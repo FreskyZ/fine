@@ -110,7 +110,7 @@ EORUN
 # docker build --target postgresql --tag fine/database .
 FROM alpine:3.23.4 AS postgresql
 
-LABEL org.opencontainers.image.version=20260520
+LABEL org.opencontainers.image.version=20260530
 
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
@@ -152,6 +152,7 @@ addgroup -g 70 -S postgres
 adduser -u 70 -S -D -G postgres -h /var/lib/pgsql -s /bin/sh postgres
 # mkdir and chown, or else postgres cannot create files in these folders
 install -d -o postgres -g postgres /var/lib/pgsql/logs
+install -d -o postgres -g postgres /var/lib/pgsql/backup
 install -d -o postgres -g postgres /run/pgsql
 EORUN
 
@@ -159,11 +160,12 @@ USER postgres
 WORKDIR /var/lib/pgsql
 
 # put configuration files in ~
-# and later use initdb.sh to move them into ~/data after initdb
-COPY --chown=70:70 --chmod=700 database-setup.sh /var/lib/pgsql/initdb.sh
+# and later use setup.sh to move them into ~/data after initdb
+COPY --chown=70:70 --chmod=700 database-setup.sh /var/lib/pgsql/setup.sh
 COPY --chown=70:70 --chmod=600 database-auth.conf /var/lib/pgsql/pg_hba.conf
 COPY --chown=70:70 --chmod=600 database-main.conf /var/lib/pgsql/postgresql.auto.conf
 COPY --chown=70:70 --chmod=600 database-psqlrc /var/lib/pgsql/.psqlrc
+COPY --chown=70:70 --chmod=700 database-backup.sh /var/lib/pgsql/backup.sh
 
 # client tools use these to connect
 # should be same as postgresql.auto.conf port
@@ -184,13 +186,15 @@ ENV PGDATA=/var/lib/pgsql/data
 # see https://www.postgresql.org/docs/current/server-start.html
 STOPSIGNAL SIGINT
 
-# setup dev env: docker volume create database && docker volume create database-logs && docker volume create database-sockets
-# server shell: docker run -it --rm --name postgres-shell1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql --entrypoint sh fine/database
-# initialize: ./initdb.sh
-# start service: docker run -d --rm --name postgres1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql fine/database
-# client shell: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint sh fine/database
-# psql: docker run -it --rm --name postgres-shell1 -v database-sockets:/run/pgsql --entrypoint psql fine/database
-# run database test: docker run -it --rm --name finenode1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work my/node:1
+# setup dev env: docker volume create database && docker volume create database-logs && docker volume create database-backup && docker volume create database-sockets
+# server shell: docker run -it --rm --name pg-shell1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-backup:/var/lib/pgsql/backup -v database-sockets:/run/pgsql --entrypoint sh fine/database
+# - initialize: ./setup.sh
+# start service: docker run -d --rm --name pg1 -v database:/var/lib/pgsql -v database-logs:/var/lib/pgsql/logs -v database-sockets:/run/pgsql fine/database
+# client shell: docker run -it --rm --name pg-shell2 -v database-sockets:/run/pgsql -v database-backup:/var/lib/pgsql/backup --entrypoint sh fine/database
+# create backup: docker run -it --rm --name pg-backup1 -v database-sockets:/run/pgsql -v database-backup:/var/lib/pgsql/backup --entrypoint pg_dump fine/database -U fine -f /var/lib/pgsql/backup/fine.sql fine
+# create backup: docker run -it --rm --name pg-backup1 -v database-sockets:/run/pgsql -v database-backup:/var/lib/pgsql/backup --entrypoint sh fine/database backup.sh
+# directly psql: docker run -it --rm --name psql1 -v database-sockets:/run/pgsql --entrypoint psql fine/database
+# run database test: docker run -it --rm --name pg-test1 -v database-sockets:/run/pgsql -v.:/work -h FINE-NODE -w /work node
 ENTRYPOINT ["postgres"]
 
 # docker build --target doki --tag fine/doki:build -f setup/Dockerfile .

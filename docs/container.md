@@ -116,26 +116,12 @@ to create the project from scratch (not tested)
 - config and upload backup.yml, start backup service
 - check everything works
 
-to restore a full backup file from scratch, currently, TODO test run
+to restore a full backup file from scratch
 
-- TODO automate create setup.tar.xz
-- tar xJf setup.tar.xz -C . && ./setup.sh
+- create setup.tar.xz
+- tar xJf setup.tar.xz -C . && ./setup.py
 
-the underlying steps, if some error happens in future
-
-- include compose.yml, compose.sh
-- include dontry.py, dontry.service, dontry.timer
-- include doki binary and server side config which use internal network
-- include a shell script
-  - download image files from oss and deploy the images, for now oss internal
-    network is free, if it is not free anymore, they will be included in setup.tar.xz
-  - create database service and initialize database instance, start database service
-  - create backup service and run restore.py
-    - download program, public, node modules backup file and restore files into volume
-    - download database backup file and restore database data
-  - deploy dontry timer and service
-  - downloaded backup files and image files saved in host fs backup directory,
-    effectively work as latest backup file for backup schedule script
+the underlying mechanism in setup.tar.xz and setup.py and backup and restore strategies see backup section
 
 health check
 
@@ -280,6 +266,9 @@ something, rootless mode also don't have the permission to manipulate dummy netw
 TODO I gues the correct answer for rootful docker is network host, also see this
 https://deavid.wordpress.com/2019/06/15/how-to-allow-docker-containers-to-see-the-source-ip-address/
 to check userland proxy false, investigate this in future
+
+by the way, windows + wsl + docker desktop also have strange network, to make network normal you should avoid
+docker desktop and use normal linux install approach instead
 
 ### Rootless Docker
 

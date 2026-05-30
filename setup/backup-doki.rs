@@ -735,12 +735,15 @@ async fn handle_copy(config: &Config, command: &CopyCommand) -> Result<()> {
 #[derive(Args, Debug)]
 struct DropCommand {
     #[arg(index(1), value_name = "PATH", help = "object path to drop")]
-    object_path: PathBuf,
+    object_path: String,
 }
 async fn handle_drop(config: &Config, command: &DropCommand) -> Result<()> {
 
     let client = Client::new();
-    let object_path = PathBuf::from("/").join(&command.object_path);
+    // ignore oss: prefix, this make command parameters more consistent
+    let object_path = command.object_path.strip_prefix("oss:");
+    // make path absolute
+    let object_path = PathBuf::from("/").join(object_path.unwrap_or(&command.object_path));
     let options = ListOptions {
         count: None,
         start_after: None,
@@ -925,7 +928,7 @@ async fn handle_sync(config: &Config, command: &SyncCommand) -> Result<()> {
 #[derive(Parser, Debug)]
 #[command(about = "Aliyun OSS CLI tool")]
 struct Command {
-    #[arg(short, long, help = "config file", value_name = "PATH", env = "OSS_CONFIG")]
+    #[arg(short, long, help = "config file", value_name = "PATH", env = "DOKI_CONFIG")]
     config: PathBuf,
     #[arg(long, help = "do not print active config path if environment variable \
             is set (the hint may help you diagnose unexpectedly used config path)")]
@@ -958,7 +961,7 @@ async fn main() -> Result<()> {
 
     let command = Command::parse();
     info!("command {:?}", command);
-    if !command.no_implicit_config_hint && std::env::var_os("OSS_CONFIG").is_some() {
+    if !command.no_implicit_config_hint && std::env::var_os("DOKI_CONFIG").is_some() {
         println!("use config path {}", command.config.display());
     }
     let config_original_content = fs::read_to_string(&command.config).await?;
@@ -974,6 +977,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// docker run -it --rm --name doki1 -v .:/work -v ~/cargo-build-cache-alioss:/work/target -v ~/cargo-download-cache:/usr/local/cargo/registry -h RUST -w /work my/rust:1
+// docker run -it --rm --name doki1 -v .:/work -v ~/cargo-build-cache-2:/work/target -v ~/cargo-download-cache:/usr/local/cargo/registry -h RUST -w /work my/rust:1
 // need this if dependencies need build: apk add musl-dev
 // lint: rustup component add clippy && cargo clippy
