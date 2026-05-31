@@ -1,4 +1,4 @@
-import ipaddress, datetime, json, os, sys, subprocess
+import ipaddress, datetime, json, os, sys, subprocess, tarfile, pathlib
 
 # sync nft rules with logs, also see src/core/dontry.ts
 # works for rootless docker and network host which manage rules in system level table,
@@ -25,9 +25,7 @@ import ipaddress, datetime, json, os, sys, subprocess
 # - delete set: sudo nft delete set ip filter blocked_ips, cannot delete when used in rule
 
 # return list of one of IPv4Address, IPv4Network, IPv6Address, IPv6Network
-def collect_from(filename):
-    with open(filename) as f:
-        rawlog = f.read()
+def collect_from(rawlog):
     logrecords = [] # (address, network, time)
     for row in rawlog.splitlines():
         splitted = row.split(' ')
@@ -118,10 +116,18 @@ def readset(family, table, setname):
                 elements.append(ipaddress.ip_network(f'{element["prefix"]["addr"]}/{element["prefix"]["len"]}'))
     return elements
 
-# ATTENTION this script must run as root (for nft)
-# but currently docker is run as rootless, so cannot os.system docker command to access rootless docker,
-# so currently command line is `docker cp fine1:/var/log/fine/dontry.log dontry.log && sudo python3 dontry.py`
-expect_elements = collect_from('dontry.log')
+# extract dontry.log from logs backup file
+logs_archive_filepath = next((p for p in pathlib.Path('./backup').iterdir() if p.name.startswith('fine-logs-')), None)
+if logs_archive_filepath is None:
+    print('dontry.py: not found ./backup/fine-logs-*, check backup status')
+    exit(1)
+with tarfile.open(logs_archive_filepath, 'r:xz') as f:
+    with f.extractfile('data/logs/fine/dontry.log') as r:
+        if r is None:
+            print(f'dontry.py: not found dontry.log in {logs_archive_filepath}, skip')
+            exit(0)
+        rawlog = r.read().decode()
+expect_elements = collect_from(rawlog)
 
 # setup:
 # sudo nft add set ip filter blocked_ips \{ type ipv4_addr\; flags interval\; \}

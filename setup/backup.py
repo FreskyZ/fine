@@ -19,7 +19,7 @@ def run_subprocess(command_name, command: list[str]):
 
 # save newest version of images, remove not newest version from local and oss
 def backup_images():
-    images_dir = pathlib.Path('~/images').expanduser()
+    images_dir = pathlib.Path('./images').absolute()
     existing_paths = [p for p in images_dir.iterdir()]
     # alpine is not referenced in compose.yml but useful base image for generic purpose shell
     for image_name in ('alpine', 'node', 'python', 'database', 'certbot'):
@@ -77,6 +77,7 @@ def backup_images():
     # sync
     run_subprocess('doki', ['./doki',
         '-c', 'doki.toml', '--no-implicit-config-hint', 'sync', '-a', str(images_dir), 'oss:images'])
+    print(f'backup.py: backup images complete')
 
 # collect volume data from mapped /data to mapped /work/backup
 def collect_volume_data():

@@ -328,46 +328,140 @@ them quickly and automatically, see setup/backup.py and setup/make-setup.py
 
 ## Backup
 
-for now, these items are backed up:
+as part of my motivation to containerization, to move around different cloud servers and cloud service providers
+effeciently, also as part of the design objectives of file structure and volume structure in containers, also as
+part of the cloud native transition to automate maintainance process, the backup and restore strategies are
+different from traditional application deployments, if any
 
-- program-{datetime}.tar.xz
-  - certificates, the traditional /etc/letsencrypt folder
-  - config files
-  - the main program, include index.js, static files and server files
-- database-{datetime}.tar.xz
-  - database data, see database.md
-- logs.tar.xz: certbot logs, database logs, web server logs and backup logs itself
-- public.tar.xz: public files, see also file-structure.md
-- node_modules.tar.xz: node modules
-- image files for certbot, database, backup and node comes from
-  docker save fine/database | xz > ~/backup/image-database-$(date -u +%Y%m%d).tar.xz
-  TODO try docker save fine/database | xz > ~/backup/image-database-$(echo $(docker inspect --format "{{.Id}}" fine/database) | cut -c 8-19).tar.xz
-  for now old version of image file is manually removed from ~/backup and oss
+by the way, this application did not have any backup strategies before this transition, I even didn't backup any
+physical files in the main working directory at that time, and was not familiar with the mysqldump command until
+I manually collect data and files before first time moving to another cloud server, to make things more cool,
+although I setup certificate automation process without correctly configure web server reload so that I had to
+manually reload after I found the sites are not available on my local machine, before that, when the project
+started at 2017, the acme protocol was even not yet a standard, which becomes rfc8555 in 2019, although eff and
+certbot started research and development at about 2015, in the very early days, I manually acquire certificates
+from my cloud server provider and manually install and update, which does not support SAN, or subject alternative
+names, which authorize multiple domains or multiple subdomains in one certificate and not even mention wildcard
+certificates which support any subdomains in one certificate
 
-for now, these files are
+the major design objective of the backup strategy in this project is allowing restore in *one line command*,
+which is a decompress command and running a script without parameter, to achieve this, you need to include
 
-- save one copy to the same cloud service provider's object storage service
-- local sync script is run manually and occassionally to store one copy on my local machine
-- and the local location is mapped to onedrive to form another copy
+- database data
+- program files, as program files is not published in a base image as they are kind of dynamic regarding the
+  reverse proxy or api gateway nature of this project, this part also include config files and certificates,
+  which also identifies itself as part of /etc hierachy
+- container image files, as my network does not have access to docker hub and ghcr, etc., the container images
+  are exported as tarballs and save to the same location as normal backup files when backup and downloaded same
+  as normal backup files when restore
 
-result in 3 copies of files in 3 different physical locations, which should be good
+the save location is decided to be the object storage service provided by the same service provider, which is
+especially good when transferring files between the cloud server and the storage service is internal network
+and free of charge, which is bad when you think mount object storage into general computing service is a basic
+functionality of a major cloud service provider, like https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files-mounting.html,
+but at aliyun it is too expensive comparing to the daily cost of a cheap cloud server and a basic storage
+service, which is bad when the official tools are not commonly used and may be in danger of supply chain attacks
+and the official sdks have very low download and reference statistics and are in extreme danger of supply chain
+attacks and the official api use very bad authentication scheme and I have a complete section for this later
 
-by the way, you may think mount object storage into general computing service is a basic
-functionality, like https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files-mounting.html,
-but for aliyun it is too expensive for me, I have to access its api to upload and manage files,
-UPDATE now that doki have generally completed sync feature and this feature can be said implemented
+before you ask why there is a rust gear in the setup folder and why backup and restore script is written in
+python while they are not restricted like certificate renew script, the original authentication implementation
+was written in nodejs, although I tried to avoid 3rd party libraries at the beginning, it eventually depend on
+a few 3rd party packages and need a node_modules to run, and to make things easier (it really looks easier when
+the backup process is initially designed), it reuses the node_modules volume that I manually separated from the
+main program volume assuming it will be large and does not need to be backed up and restored, and then the node
+script with invocations of the pg_dump command and the tar command is formed and the backup service start to
+run, and the local sync command works and the archive files automatically appears in local onedrive folder! now
+you need to design the restore process, which was procrastinated but motivated by the rootless errors also
+mentioned in this document, while there is definitely no nodejs runtime at host side, so you need to run the
+download and restore process inside container, but you first need to deploy the compose file to create the data
+volumes and define the services, and you need to install node_modules as they are excluded from the main backup
+process, by the way don't forget to --omit=dev, with this mess you never figure out the dependency relationship
+between these operations and how to organize the restore process into a one line command
+
+one of the intermediate approach is wrapping the library into a command line tool and call the command across
+container boundary (docker run -v... osstool:latest sync remote local), but this does not solve the node_modules
+problem, take a full node_modules inside the image is not good, as it expands the attacking surface, maintain a
+smaller nodejs project is not good, because I don't want to audit multiple projects against potention supply
+chain attacks, and the final answer is *oxidize* (the unabbreviated term of riir is not used because it is kind
+of horrific to appear in this near 10 year long nodejs project), which is even better when rustc default static
+link all dependencies and you are free to run the command at local host and cloud server host side, the name of
+the tool come from japanese, again, 同期, which means synchronization in data sync, file sync, etc.
+
+with the free location of the sync tool now you can sort out which part to run inside container and which part
+to run at host side, you cannot move everything outside the container because volumes are only available inside
+container and its very not good to hack into docker internals and directly access from host fs, you cannot move
+everything inside container because to backup the images you need to run docker cli commands and it's not very
+good to install docker cli inside and map docker socket into container, so the result decision is only put the
+collect part inside container which compress volume data into several archive files and save them into a folder
+bind mount from host fs, and put invocation of the sync command and images backup and manage part out of
+container, and in this case you can schedule the daily backup process as a systemd service, no need to setup
+signal handling and sleep many hours in my code to run the actual backup code, this is not like certificate renew
+service because that need randomization but systemd timer does not natively support, compare to the previously
+single full backup file stored in oss root path, this time backup files and image files are separated and stored
+in oss subpath to allow for efficient sync download command when restore
+
+if you are very clever and find previously the nodejs script invoked pg_dump command and in history the backup
+service base image was copying pg_dump and psql command from database build image, install their runtime
+dependencies and map from database socket directory, and now the obvious pg_dump and psql command disappear from
+backup.py, make-setup.py and setup.sh, that's because the backup script is now located in the database image and
+database logical backup files are saved in a dedicated volume and mapped into backup service to effectively avoid
+the database cli tools setup process in the backup image, and makes it a plain official python image, on the
+restore part, one of the previous difficulties is that the backup sql file assume database to exist, and to check
+database existance and confirm is empty you needs 2 very long psql command, this complexity become unncessary when
+you realized restore process of database with logical backup files should be regarded database setup process with
+seed data (initial data), and add a loop statement in database-setup.sh to run the sql files is enough and works
+smoothly
+
+the restore service is separated from backup service because that maps volumes readonly, and this does not need
+logs volumes mapped, it is currently also a python base image although the restore script only runs bare commands
+to extract files but not a dedicated python script, because the xz command is default not installed in an alpine
+base image but the lzma library is default installed in a python base image, so you can see multiple python based
+one line command in the restore script to extract the backup files, it may be more convenient the extraction part
+need a dedicated python script in future
+
+for reference, say host side working directory is /work,
+
+- include compose.yml, backup.py, dontry.py, doki binary, doki.toml
+- include normal backup files at /work/back, map to oss path /active
+  - fine-database-{datetime}.tar.xz for the backup sql files,
+    when new file arrive, old files at local are removed, at oss are moved to oss path /inactive,
+  - fine-program-{datetime}.tar.xz for program files, config files and certificate files,
+    when new file arrive, old files at local are removed, at oss are moved to oss path /inactive,
+  - fine-public-{datetime}.tar.xz for public files, which may be large,
+    when new file arrive, old files at local are removed, at oss are removed
+  - fine-logs-{datetime}.tar.xz for all kind of logs, TODO this is relevant to log rotation strategy,
+    when new file arrive, old files at local are removed, at oss are removed
+- include images backup files at /work/images, map to oss path /images,
+  naming convention image-{name}-{date}-{id}, id is short image id seen in docker images command
+
+for reference, the main setup script, the setup.sh in setup.tar.xz
+
+- download and deploy images
+- download and extract normal backup files
+- setup database with initial data
+- setup host side services
+
+for now, the backup files
+
+- have one copy at host file system
+- have one copy in object storage service
+- have one copy on my local machine, by sync download command
+- have one copy in my onedrive service,
+  which effectively is a working mounting cloud storage service to local file system example
+
+result in 4 copies of files in 2 different physical locations, which should be good
 
 ### Logs
 
-for now these logs are simply packed together to form a full backup file
+currently logs include
 
 - certbot add log file for each certbot command, seems have log rotation
 - database logs is created one per day, seems don't have log rotation
 - web server logs is created one per day, have log rotation
-- backup logs is created for each backup operation, normally one per day, don't have log rotation
+  UPDATE other seems really don't have log rotation so this is turn off?
 
-TODO you seems need to handle log rotation for these files, remove very old entries and keep relative new entries
-UPDATE they seem really not rotated, so I temporary closed log rotation in fine core?
+TODO design log rotation strategy
 
 ### Some SHI
 
@@ -417,7 +511,7 @@ in authorization header, the signature mechanism need
 
 and you finally received list objects result!
 and you find it's returning xml object despite nowadays the fetch api even don't have a response.xml() function,
-and you try to suggest accept: application/xml in request header,
+and you try to suggest accept: application/json in request header,
 and everything explodes
 
 ### Backup Repository

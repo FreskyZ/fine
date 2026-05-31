@@ -160,6 +160,20 @@ services:
       # public.tar.xz
       - fine-public:/data/public:ro
 
+  # compare to backup, restore volumes are not ro
+  restore:
+    image: fine/python
+    profiles: [backup]
+    volumes:
+      # program.tar.xz
+      - fine-program:/data/main/program
+      - fine-configs:/data/main/configs
+      - certificates:/data/main/certificates
+      # database.tar.xz
+      - database-backup:/data/base
+      # public.tar.xz
+      - fine-public:/data/public
+
 volumes:
   database:
     name: fine-database
