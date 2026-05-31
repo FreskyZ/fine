@@ -306,16 +306,17 @@ after previous paragraphs, if you are still deceived by rootless mode, there are
 
 ### Build Context
 
-comparing to send related files (in setup directory) to remote and download base images
-with the fragile network of cloud servers inside this region and build with the poor specs
-of cheap cloud server, build at local side and upload thme is easier, you can easily upload
-image with one line shell command docker save image:tag | ssh server 'docker load', also
-support add an intermediate compression to reduce network usage: docker | xz | ssh docker
+the cloud server currently (and in foreseeable future) cannot connect docker.io and ghcr.io, etc. normal image
+hosting service, and the performance is too poor to run complex build process like build database from source,
+so the images are uploaded to cloud server from dev machine, the upload command look like
 
+docker save image:tag | xz | ssh server 'docker load'
+
+and they are backed up with similar strategy and to same storage location so that restore process can download
+them quickly and automatically, see setup/backup.py and setup/make-setup.py
 
 ### Additional Topics
 
-- ATTENTION don't forget to stop containers before apt update and apt upgrade
 - add profile to akari container so that it is not started or stopped with plain docker compose up command
 - add version number to custom images, use the seems standard org.opencontainers.image.version label,
   it recommends semver in https://specs.opencontainers.org/image-spec/annotations/#pre-defined-annotation-keys,

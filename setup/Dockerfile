@@ -161,6 +161,8 @@ WORKDIR /var/lib/pgsql
 
 # put configuration files in ~
 # and later use setup.sh to move them into ~/data after initdb
+# ATTENTION these files are copied when volume is created and mapped into container for the first time,
+#   if these files are updated, you need to manually copy into volume (by copy into container) to update
 COPY --chown=70:70 --chmod=700 database-setup.sh /var/lib/pgsql/setup.sh
 COPY --chown=70:70 --chmod=600 database-auth.conf /var/lib/pgsql/pg_hba.conf
 COPY --chown=70:70 --chmod=600 database-main.conf /var/lib/pgsql/postgresql.auto.conf
@@ -198,12 +200,12 @@ STOPSIGNAL SIGINT
 ENTRYPOINT ["postgres"]
 
 # docker build --target doki --tag fine/doki:build -f setup/Dockerfile .
-# docker run -it --rm --name doki2 -v .:/output --entrypoint sh fine/doki:build -c "cp /usr/local/bin/doki /output/doki"
+# deploy: docker run -it --rm --name doki2 -v .:/output --entrypoint sh fine/doki:build -c "cp /usr/local/bin/doki /output/doki"
 FROM rust AS doki
 
 RUN mkdir /work /work/setup
 COPY Cargo.lock Cargo.toml /work
-COPY setup/backup-doki.rs /work/setup/backup-doki.rs
+COPY setup/doki.rs /work/setup/doki.rs
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/work/target <<EORUN
 set -ex
@@ -211,39 +213,3 @@ cd /work
 cargo build --release
 cp /work/target/release/doki /usr/local/bin/doki
 EORUN
-
-# docker build --target backup --tag fine/backup .
-FROM python:3.14.4-alpine3.23 AS backup
-# NOTE try sync python base image version with certbot
-
-# remember to change this before commit is enough,
-# use automatic mechanism to record build time will invalidate cache
-LABEL org.opencontainers.image.version=20260520
-
-RUN <<EORUN
-set -ex
-cat <<'EOCAT' > /etc/apk/repositories
-https://mirrors.aliyun.com/alpine/v3.23/main
-https://mirrors.aliyun.com/alpine/v3.23/community
-EOCAT
-apk update
-# readline, libz, libzstd: psql and pg_dump runtime dependencies
-apk add --no-cache zlib zstd-libs readline
-EORUN
-
-COPY --from=fine/doki:build /usr/local/bin/doki /work/doki
-COPY --from=fine/database:build /postgresql-install/bin/psql /usr/local/bin/psql
-COPY --from=fine/database:build /postgresql-install/bin/pg_dump /usr/local/bin/pg_dump
-# this is symlink in source container, and the copy operation copies the original file?
-COPY --from=fine/database:build /postgresql-install/lib/libpq.so.5 /usr/local/lib/libpq.so.5
-
-# should be same as in fine/database
-ENV PGPORT=6543
-# should be same as in fine/database
-ENV PGHOST=/run/pgsql
-
-WORKDIR /work
-COPY --chmod=700 backup-schedule.py /work/schedule.py
-COPY --chmod=700 backup-restore.py /work/restore.py
-
-ENTRYPOINT ["/work/schedule.py"]

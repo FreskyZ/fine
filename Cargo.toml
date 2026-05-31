@@ -5,7 +5,7 @@ edition = "2024"
 
 [[bin]]
 name = "doki" # I think use katakana for naming is evil, but it is so good
-path = "setup/backup-doki.rs"
+path = "setup/doki.rs"
 
 [dependencies]
 anyhow = "1"

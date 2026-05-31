@@ -36,6 +36,7 @@ services:
   # or run shell: docker compose run --rm --name db-shell1 -e "PS1=[@PG-SHELL:\w]\n\$ " --entrypoint sh database
   #   - prepare initial data in database-backup and run initial setup: ./setup.sh
   # or directly psql: docker compose run --rm --name psql1 --entrypoint "psql fine fine" database
+  # or run backup.sh: docker compose run --rm --name db-backup1 --entrypoint backup.sh database
   database:
     image: fine/database
     container_name: database1
@@ -51,7 +52,8 @@ services:
   #   # port and container_name is skipped in run because they may be conflict with existing up'd containers
   # or run shell: docker compose run --rm --name akari2 -v .:/self --entrypoint sh akari
   akari:
-    image: node
+    # fine/node is official node if you ask, use this naming convention is for convenience in backup script
+    image: fine/node
     # assign a special profile so this is excluded in docker compose up (without service name and profile),
     # you mean this is even excluded in docker compose config? and only appears in docker compose --profile akari config
     profiles: [akari]
@@ -77,7 +79,8 @@ services:
   # docker compose up -d web
   # restart: docker compose restart web
   web:
-    image: node
+    # fine/node is official node if you ask, use this naming convention is for convenience in backup script
+    image: fine/node
     container_name: fine1
     working_dir: /var/www
     entrypoint: node index.js
@@ -128,20 +131,18 @@ services:
     # main program does not depend on database running (serve static contents)
     # main program does not depend on certificate renewer running (only depend on file exists)
 
-  # docker compose up -d backup
-  # or run shell: docker compose run --rm --name backup2 --entrypoint sh backup
+  # run backup.py: docker compose run --rm --name backup1 -v .:/work --entrypoint "python /work/backup.py" backup
   backup:
-    image: fine/backup
-    container_name: backup1
-    working_dir: /work
+    # fine/python is official python if you ask, use this naming convention is for convenience in backup script
+    image: fine/python
+    # assign a special profile so this is excluded in docker compose up (without service name and profile)
+    profiles: [backup]
     # for now do not make absolute paths more centralized like other containers,
-    # a lot of paths are used in backup-schedule.py and they are already very centralized,
-    # turn them into environment variables is not very meaningful
+    # a lot of paths are used in backup-schedule.py and they are already centralized,
+    # turn them into environment variables is not meaningful
     # environment:
     volumes:
       # fine-configs:/etc/fine # no need to map config twice
-      # you may put other files in this folder to sync to oss backup, like image files
-      - ${HOME}/backup:/result
       # program.tar.xz
       # # cannot use this
       # - fine-program:/data/program:ro
@@ -151,12 +152,11 @@ services:
       - fine-configs:/data/main/configs:ro
       - certificates:/data/main/certificates:ro
       # database.tar.xz
-      - database-sockets:/run/pgsql:ro
+      - database-backup:/data/base:ro
       # logs.tar.xz
       - fine-logs:/data/logs/fine:ro
-      - certbot-logs:/data/certbot-logs-staging:ro # not this: certbot-logs:/data/logs/certbot:ro
       - database-logs:/data/logs/database:ro
-      - backup-logs:/data/logs/backup
+      - certbot-logs:/data/certbot-logs-staging:ro # not this: certbot-logs:/data/logs/certbot:ro
       # public.tar.xz
       - fine-public:/data/public:ro
 
