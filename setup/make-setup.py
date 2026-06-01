@@ -36,6 +36,8 @@ setup_script += 'mkdir -p backup\n./doki -c doki.toml sync oss:active backup\n'
 for path in list_objects('active'):
     if not path.name.startswith('fine-logs'):
         setup_script += f'docker compose run --rm --name restore1 -v .:/work --entrypoint "python -m tarfile -e /work/backup/{path.name} /" restore\n'
+# ATTENTION python -m tarfile -e does not preserve owner
+setup_script += 'docker compose run --rm --name restore1 --entrypoint "chown -R 70:70 /data/base" restore\n'
 # now the database setup script will read sql files in backup folder and use that
 # # the original restore script use complex check command to confirm database exist and no data exist:
 # # psql -U username -Atc "SELECT 1 FROM pg_database WHERE datname='fine'" expect stdout == '1'
@@ -55,32 +57,44 @@ setup_script += '''
 
 backup_service = '''[Unit]
 Description = fine backup service
+
 [Service]
 Type = oneshot
-ExecStart = /work/backup.py
+WorkingDirectory = /work
+ExecStart = /usr/bin/python3 /work/backup.py run
 '''
 backup_service_timer = '''[Unit]
 Description = Schedule fine-backup.service
+
 [Timer]
 OnCalendar = *-*-* 02:00:00
 Persistent = true
+
 [Install]
 WantedBy = timers.target
 '''
-
 dontry_service = '''[Unit]
 Description = dontry rule manipulate part
+
 [Service]
 Type = oneshot
-ExecStart = /work/dontry.py
+WorkingDirectory = /work
+ExecStart = /usr/bin/python3 /work/dontry.py system
 '''
+# now that dontry is reading logs backup file, make it run later than backup
 dontry_service_timer = '''[Unit]
-Description = Schedule fine-backup.service
+Description = Schedule fine-dontry.service
+
 [Timer]
-OnCalendar = *-*-* 02:00:00
+OnCalendar = *-*-* 02:10:00
 Persistent = true
+
 [Install]
 WantedBy = timers.target
+'''
+# by the way
+envrc = '''
+alias akari='docker compose run --rm --name akari1 -p 8001:8001 -v .:/self akari'
 '''
 
 def add_text_file(f, name, content, mode=0o644):
@@ -97,21 +111,23 @@ with open(os.environ['DOKI_CONFIG']) as f:
         print('make-setup.py: you seems to forget the whitespaces for internal = false')
     doki_config = doki_config.replace('internal = false', 'internal = true')
 
-with tarfile.open('setup.tar.xz', 'w:xz') as f:
+with tarfile.open('fine-setup.tar.xz', 'w:xz') as f:
     f.add('docker-compose.yml', 'compose.yml')
     f.add('doki')
     add_text_file(f, 'doki.toml', doki_config)
     f.add('backup.py')
     add_text_file(f, 'fine-backup.service', backup_service)
     add_text_file(f, 'fine-backup.timer', backup_service_timer)
+    f.add('dontry.py')
     add_text_file(f, 'fine-dontry.service', dontry_service)
     add_text_file(f, 'fine-dontry.timer', dontry_service_timer)
-    add_text_file(f, 'setup.sh', setup_script, mode=0o700)
-print('make-setup.py: create setup.tar.xz')
+    add_text_file(f, '.envrc', envrc)
+    add_text_file(f, 'fine-setup.sh', setup_script, mode=0o700)
+print('make-setup.py: create fine-setup.tar.xz')
 
 # test run
 # mkdir testsetup && cd testsetup
-# tar xJf setup.tar.xz -C .
+# tar xJf fine-setup.tar.xz -C .
 # replace compose.yml with a dummy
 # services:
 #   database:
@@ -140,3 +156,20 @@ print('make-setup.py: create setup.tar.xz')
 # view files in testsetup-dummy-data
 # mount testsetup-database to a fine/database container
 # pg_ctl start && psql
+
+# check
+# docker images
+# docker compose up database
+# docker run -it --rm --name program1 -v fine-program:/var/www -v fine-configs:/etc/fine -v certificates:/etc/letsencrypt fine/alpine
+# ls -l /var/www
+# ls -l /etc/fine
+# ls -l /etc/letsencrypt/live
+# akari
+# connect
+# core
+# upload setup/docker-compose.yml:/self/compose.yml should show nodiff
+# docker compose up web
+# visit id.example.com
+# docker compose up acme
+# python3 backup.py run backup once
+# python3 dontry.py system

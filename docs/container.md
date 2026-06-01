@@ -118,10 +118,8 @@ to create the project from scratch (not tested)
 
 to restore a full backup file from scratch
 
-- create setup.tar.xz
-- tar xJf setup.tar.xz -C . && ./setup.py
-
-the underlying mechanism in setup.tar.xz and setup.py and backup and restore strategies see backup section
+- run make-setup.py and upload fine-setup.tar.xz
+- tar xJf fine-setup.tar.xz -C . && ./fine-setup.py
 
 health check
 

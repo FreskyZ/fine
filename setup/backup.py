@@ -145,7 +145,7 @@ def collect_volume_data():
             old_archive_path.unlink()
 
 def run():
-    print(f'backup.py: backup at {datetime.datetime.now(datetime.UTC).strftime('%Y%m%d %H%M%S')}')
+    print(f'backup.py: backup at {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}')
 
     # 1. backup database
     # this overwrite result sql files, can rerun freely even when error happens in following steps
@@ -181,7 +181,7 @@ def run():
             elif expect_localpath.name.startswith('fine-logs') or expect_localpath.name.startswith('fine-public'):
                 run_subprocess('doki', [str(workdir / 'doki'),
                     '-c', 'doki.toml', '--no-implicit-config-hint', 'drop', f'oss:{existing_object_path}'])
-    print(f'backup.py: backup complete at {datetime.datetime.now(datetime.UTC).strftime('%Y%m%d %H%M%S')}')
+    print(f'backup.py: backup complete at {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}')
 
 if len(sys.argv) == 2 and sys.argv[1] == 'run':
     run()
@@ -190,5 +190,5 @@ elif len(sys.argv) == 2 and sys.argv[1] == 'collect':
 elif len(sys.argv) == 2 and sys.argv[1] == 'images':
     backup_images()
 else:
-    print('backup.py run | images')
+    print('USAGE: backup.py run | images')
     exit(1)

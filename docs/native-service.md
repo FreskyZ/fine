@@ -118,6 +118,8 @@ Type = oneshot
 ExecStart = /root/fine/dontry.py
 ```
 
+a unit without install section means it does not need systemctl enable, and can be directly started
+
 ```ini, /etc/systemd/system/dontry.timer
 [Unit]
 Description = Schedule dontry.service

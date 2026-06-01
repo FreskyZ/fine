@@ -122,10 +122,11 @@ if logs_archive_filepath is None:
     print('dontry.py: not found ./backup/fine-logs-*, check backup status')
     exit(1)
 with tarfile.open(logs_archive_filepath, 'r:xz') as f:
+    if 'data/logs/fine/dontry.log' not in f.getnames():
+        print(f'dontry.py: not found dontry.log in {logs_archive_filepath}, skip')
+        exit(0)
     with f.extractfile('data/logs/fine/dontry.log') as r:
-        if r is None:
-            print(f'dontry.py: not found dontry.log in {logs_archive_filepath}, skip')
-            exit(0)
+        print(f'dontry.py: read records from log file from {logs_archive_filepath}')
         rawlog = r.read().decode()
 expect_elements = collect_from(rawlog)
 

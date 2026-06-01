@@ -799,7 +799,7 @@ async fn handle_sync(config: &Config, command: &SyncCommand) -> Result<()> {
         (true, true) => bail!("source and target recursive reference"),
     };
     // make absolute, this accepts both relative path and absolute path
-    let local_directory = PathBuf::from("/").join(local_directory);
+    let local_directory = std::env::current_dir()?.join(local_directory);
     let remote_directory = PathBuf::from("/").join(remote_directory);
 
     // 2. list items
