@@ -8,7 +8,7 @@ FROM certbot/certbot:v5.6.0 AS certbot
 LABEL org.opencontainers.image.version=20260519
 
 # the evil pip install to global by default, which is convenient for this case
-RUN pip install --root-user-action=ignore dnspython pyyaml
+RUN pip install --root-user-action=ignore dnspython==2.8.0 pyyaml==6.0.3
 
 WORKDIR /
 # no need to put auth hook in /etc/letsencrypt, it is now tracked in git

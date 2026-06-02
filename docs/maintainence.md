@@ -14,7 +14,18 @@ for now this document only contain this list but some items may grow into sectio
 - need human to check ssl certificates status, see also certification.md
   - need human to check dns api key lifetime and rotation
 - need human to check dependencies version and security issues include
-  - host kernel, host apt packages, base images, container apk packages, node modules, python packages
+  - npm outdated
+  - npm audit
+  - node base image https://hub.docker.com/_/node and https://nodejs.org
+  - certbot base image https://hub.docker.com/r/certbot/certbot and https://github.com/certbot/certbot
+  - postgresql https://postgresql.org
+  - certbot image python global package
+    - https://pypi.org/project/PyYAML/
+    - https://pypi.org/project/dnspython/
+  - container apk packages: force rebuild database
+    - TODO audit process, include apk list -I, apk version -v
+  - host apt packages
+  - host kernel
 - need human to review logs to check abnormal issues, see also certification.md, database.md
   - (should not need human) rotate logs
 - need human to check backup status, see also container.md
