@@ -71,17 +71,33 @@ you can inspect package files at https://download.docker.com/linux/debian/dists/
   - single executable file /usr/libexec/docker/cli-plugins/docker-compose and docker-buildx,
     which is exactly the command when you type docker compose and docker buildx
 
-so you can
+so you can manually deploy the binary and service configuration files and everything will work, I guess
 
-- extract executable files from docker-ce, docker-ce-cli and containerd.io,
-- extract service configuration files docker.service, docker.socket and containerd.service,
-- add configuration file /etc/docker/daemon.json
-- TODO no need to create docker group?
+see setup/docker-setup.py
 
-all of these are static file and can be deployed by single extract command
-
-TODO because the packages don't install a config file and docker by default
-don't create the config file so you can create the config file in advance for the main motivation?
+- deb files total size is 85m, they are already compressed so recompress does not reduce size, all binary files
+  are huge nearly static link binaries (libc is dynamic), so cannot reduce size by merge together and reduce
+  dependencies size, currently the cloud server have access to the download site, so download there, if in future
+  it is not available you need to bundle the files and upload to the same object storage
+- only include containerd.io, docker-ce, docker-ce-cli and docker-compose-plugin,
+  exclude rootless extras of course, exclude buildx plugin because not enough performance to actually build images
+- TODO confirm no need to create docker group
+- by the way, docker-in-docker images https://hub.docker.com/_/docker
+  include a cli image which is https://github.com/docker-library/docker/blob/master/29/cli/Dockerfile
+  (this is auto generated dockerfile, not actual source code of this image, lazy to find that)
+  (the 29 in path is likely to invalidate after version update, change that if you come here later)
+  indicates there is very static binary available at https://download.docker.com/linux/static/stable/x86_64/,
+  and buildx plugin release binary https://github.com/docker/buildx/releases,
+  and compose plugin release binary https://github.com/docker/compose/releases, not used for now, but leave here
+  for your information
+- by the way, as the packages does not take a /etc/docker/daemon.json config file, in theory you can create the file
+  in advance and assume it will take effect after docker service start, but this still not solve the apt upgrade to
+  stop daemon issue, so not try for now
+- by the way, apt download can download the deb file, but that still need configure source for docker
+- by the way, there is no way to skip post install script defined in a package, set some environment variable
+  to noninteractive only skips some of the interactive part
+- by the way, windows + wsl + docker desktop also don't works if you map the socket file into an image with docker cli
+  command, yet another reason to avoid docker desktop TODO confirm this after migrate to non docker desktop
 
 ## Services
 
@@ -242,9 +258,7 @@ long term change
 the common answer in ai and search result to use --network host, is completely *incorrect* for rootless mode,
 because rootless mode use kernel's user namespace feature, and the opened port is inside the user namespace,
 not available outside, you can find this by difference in netstat inside container and outside the container,
-and open another service to listen to same port outside container successfully runs, this is even difference
-issue from windows docker desktop --network host means the docker desktop specific wsl distro, not the normal
-distro you are using, running docker cli and docker normal -v and -p parameter is interactive with
+and open another service to listen to same port outside container successfully runs
 
 UPDATE: the common answer in ai and search result to add rules to DOCKER-USER chain is completely *incorrect*
 for rootless mode, because iptables and nftables need very root permission to manipulate, and rootless mode does
@@ -265,8 +279,9 @@ TODO I gues the correct answer for rootful docker is network host, also see this
 https://deavid.wordpress.com/2019/06/15/how-to-allow-docker-containers-to-see-the-source-ip-address/
 to check userland proxy false, investigate this in future
 
-by the way, windows + wsl + docker desktop also have strange network, to make network normal you should avoid
-docker desktop and use normal linux install approach instead
+by the way, windows + wsl + docker desktop also have strange network, and --network host also not works as
+expected, this is even different from rootless docker's --network host behavior and mechanism, to make network
+normal you should avoid docker desktop and use normal linux install approach instead
 
 ### Rootless Docker
 
