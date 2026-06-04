@@ -81,7 +81,12 @@ see setup/docker-setup.py
   it is not available you need to bundle the files and upload to the same object storage
 - only include containerd.io, docker-ce, docker-ce-cli and docker-compose-plugin,
   exclude rootless extras of course, exclude buildx plugin because not enough performance to actually build images
-- TODO confirm no need to create docker group
+- the docker.socket unit definition is referencing the docker group,
+  you need to change the unit definition or really add docker group to make dockerd run
+- need enabled ip forwarding
+  sysctl -w net.ipv4.ip_forward=1
+  sysctl -w net.ipv6.conf.all.forwarding=1
+  sysctl -w net.ipv6.conf.default.forwarding=1
 - by the way, docker-in-docker images https://hub.docker.com/_/docker
   include a cli image which is https://github.com/docker-library/docker/blob/master/29/cli/Dockerfile
   (this is auto generated dockerfile, not actual source code of this image, lazy to find that)
@@ -135,7 +140,14 @@ to create the project from scratch (not tested)
 to restore a full backup file from scratch
 
 - run make-setup.py and upload fine-setup.tar.xz
-- tar xJf fine-setup.tar.xz -C . && ./fine-setup.py
+- tar xJf fine-setup.tar.xz -C . && ./fine-setup.py and check output
+- docker compose up database and check output
+- docker compose up acme and check output
+- docker compose up web and visit id.example.com, this nearly validates everything in core
+- python3 backup.py run check manually trigger run once
+- python3 dontry.py system check manually trigger
+- systemctl enable fine-backup.timer && systemctl start fine-backup.timer
+- systemctl enable fine-dontry.timer && systemctl start fine-dontry.timer
 
 health check
 
@@ -464,6 +476,9 @@ for now, the backup files
   which effectively is a working mounting cloud storage service to local file system example
 
 result in 4 copies of files in 2 different physical locations, which should be good
+
+TODO the new storage structure does not work well with current sync download command,
+result in duplicate file, redundent file and official node/python image redundent upload
 
 ### Logs
 

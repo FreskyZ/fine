@@ -46,13 +46,8 @@ setup_script += 'docker compose run --rm --name restore1 --entrypoint "chown -R 
 # # these are not needed when you regard sql files to be restored as seed data (initial data) in database setup process
 setup_script += 'docker compose run --rm --name database1 --entrypoint "sh setup.sh" database'
 setup_script += '''
-# TODO not ok for now
-# mv dontry.service dontry.timer /etc/systemd/system
-# TODO not ok for now
-# mv fine-backup.service fine-backup.timer /etc/systemd/system
-# systemctl deamon-reload
-# systemctl enable dontry.timer
-# systemctl enable fine-backup.timer
+mv fine-dontry.service fine-dontry.timer /etc/systemd/system
+mv fine-backup.service fine-backup.timer /etc/systemd/system
 '''
 
 backup_service = '''[Unit]
@@ -112,6 +107,9 @@ with open(os.environ['DOKI_CONFIG']) as f:
     doki_config = doki_config.replace('internal = false', 'internal = true')
 
 with tarfile.open('fine-setup.tar.xz', 'w:xz') as f:
+    # now that install docker is not part of server setup
+    # you can include docker-setup here to reduce one sftp upload
+    f.add('docker-setup.py')
     f.add('docker-compose.yml', 'compose.yml')
     f.add('doki')
     add_text_file(f, 'doki.toml', doki_config)

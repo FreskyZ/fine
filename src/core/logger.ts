@@ -39,7 +39,7 @@ class Logger {
         // no need mkdir-p because it is now volume mapped
         // syncfs.mkdirSync('logs', { recursive: true });
         this.handle = npfs.openSync(path.join(logsDirectory,
-            `fine-${this.options.postfix}${this.time.format('YYYYMMDD')}.log`), 'a');
+            `fine-${this.options.postfix}-${this.time.format('YYYYMMDD')}.log`), 'a');
     }
     public deinit() {
         if (this.handle) {

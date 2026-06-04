@@ -40,7 +40,6 @@ for package_name, version in packages:
     # no logic difference here
     print(f'docker-setup: dpkg-deb return code {child.returncode}')
 
-
 # assert file content, in case important files added in new version
 major_files = [
     packages_path / 'containerd.io' / 'etc' / 'containerd' / 'config.toml',
@@ -109,7 +108,9 @@ for file_path in major_files:
     target_path = pathlib.Path('/') / pathlib.Path(*file_path.parts[2:])
     target_path.parent.mkdir(parents=True, exist_ok=True)
     print(f'docker-setup: copy to {target_path}')
-    file_path.copy(target_path, preserve_metadata=True)
+    # amazingly path.copy is 3.14 while debian 13.5 is using python 3.13, use shutil.copy2 instead
+    # file_path.copy(target_path, preserve_metadata=True)
+    shutil.copy2(file_path.copy, target_path)
 
 # test run: docker run -it --rm --name docker-setup1 -v .:/work -w /work --entrypoint bash python:3.14.5-trixie
 # should use python:trixie, there is no dpkg command in alpine, also libc is dynamic so commands cannot run in alpine

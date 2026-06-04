@@ -74,6 +74,7 @@ def backup_images():
             if filename != archive_filename and filename.startswith(f'image-{image_name}-') and filename.endswith('.tar.xz'):
                 print(f'backup.py: {image_name}: remove previous file {filepath}')
                 filepath.unlink()
+        # TODO unexpected duplicate file in remote directory?
     # sync
     run_subprocess('doki', ['./doki',
         '-c', 'doki.toml', '--no-implicit-config-hint', 'sync', '-a', str(images_dir), 'oss:images'])

@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt;
 use std::path::{Path, PathBuf, Component};
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -590,6 +591,22 @@ async fn delete_object(config: &Config, client: &Client, options: DeleteOptions<
     Ok(())
 }
 
+struct Humanize(usize);
+fn humanize(value: usize) -> Humanize { Humanize(value) }
+impl fmt::Display for Humanize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            // B means byte, b means bit if you ask
+            ..1024 => write!(f, "{}B", self.0),
+            // evil ISO/IEC is using Ki for 1024, that's incorrect, the only correct representation is K for 1024
+            // by the way, JEDEC seems good while all ssd manufacturers are evil
+            1024..1048576 => write!(f, "{:.2}KB", self.0 as f64 / 1024.0),
+            1048576..1073741824 => write!(f, "{:.2}MB", self.0 as f64 / 1048576.0),
+            1073741824.. => write!(f, "{:.2}GB", self.0 as f64 / 1073741824.0),
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 struct ListCommand {
     #[arg(long, help = "limit result count")]
@@ -628,10 +645,10 @@ async fn handle_list(config: &Config, command: &ListCommand) -> Result<()> {
     let (count, total_size) = objects.iter()
         .fold((0, 0), |(c, s), f| (c + 1, s + f.size));
     for object in objects {
-        println!("{},{},{}", object.path.display(), object.size, object.upload_time);
+        println!("{},{},{}", object.path.display(), humanize(object.size), object.upload_time);
     }
     if !matches!(command.format, Some(ListCommandFormat::Csv)) {
-        println!("list {} objects {} bytes", count, total_size);
+        println!("list {} objects {}", count, humanize(total_size));
     }
     Ok(())
 }
