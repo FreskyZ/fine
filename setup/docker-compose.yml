@@ -91,9 +91,12 @@ services:
       FINE_SOCKET_DIR: /run/fine
       FINE_CONFIG_DIR: /etc/fine
       FINE_DEBUG: 1 # use this to enable debug log
-    ports:
-      - 80:80
-      - 443:443
+    # you need this to make dontry.py work, currently there seems no
+    # simple document about how to do that with firewall backend nftables
+    network_mode: host
+    # host network don't use this
+    # ports:
+    #   - 443:443
     volumes:
       # :ro seems ok, if some error happens, remove ro
       - fine-program:/var/www:ro

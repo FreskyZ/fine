@@ -190,13 +190,11 @@ for rootful docker but not for rootless docker, that's because rootful docker cr
 and configure rules to forward traffic to the dummy device if some process in container need to listen to
 something, rootless mode also don't have the permission to manipulate dummy network interfaces
 
-TODO I gues the correct answer for rootful docker is network host, also see this
-https://deavid.wordpress.com/2019/06/15/how-to-allow-docker-containers-to-see-the-source-ip-address/
-to check userland proxy false, investigate this in future
-
 by the way, windows + wsl + docker desktop also have strange network, and --network host also not works as
 expected, this is even different from rootless docker's --network host behavior and mechanism, to make network
 normal you should avoid docker desktop and use normal linux install approach instead
+
+UPDATE no such issue in nonrootless mode
 
 ### Rootless Docker
 

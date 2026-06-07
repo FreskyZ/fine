@@ -1,15 +1,111 @@
-# IPv6
+# Internet Protocols v6
 
 by the way, even in my home network have a good ipv6 support at this time, comparing to the status a few years ago
 
-for now no specific topics here, cloud service provider configuration is out of scope of this document, docker setup see container.md
+furthur reading:
 
-- check cloud service provider configured ip address by `ip -6 addr`
-- check current ssh connection source ip by `echo $SSH_CLIENT`
-- run simple socket or http server to see source ip, e.g. `nc -l -6 -p 8001 -v`
-- ping from other machine with `ping -6`, curl from other machine with `curl -6`
-- try check ipv6 status from convenient online service like https://ready.chair6.net
-- in this program, refresh https://id.example.com to see last access ip address
+- arch wiki https://wiki.archlinux.org/title/IPv6
+- the link in arch wiki https://linux.die.net/HOWTO/Linux+IPv6-HOWTO/
 
-TODO cloudflare proxied dns record can redirect ipv4 to ipv6, so that you can use ipv6 single stack in cloud server,
-note that generally only work for 80 and 443, to connect ssh and akari from ipv4 machine, you need something like non proxied subdomain, ssh.example.com, etc.
+## Setup
+
+normally after you correctly setup ipv6 on cloud server management page, it will automatically works, check
+
+- `ip -6 addr` for the configured ipv6 addresses, by the way don't be confused by these listed internal addresses
+- `ping6`, `ping -6` or `curl -6` to ping something to confirm outbound traffic works
+- start web servers which listen to any address (`https.createServer(..).listen(443)`, `socket.bind(443)`, etc.),
+  they should be listening any ipv6 address and can be checked by `netstat -tulpn` showing `:::443` and web server
+  request log showing ipv6 source addresses
+- by the way, current ssh session can check `echo $SSH_CLIENT` for source address information
+
+if not, check
+
+- read cloud server provider documents and check instructions again
+- `ip a` whether configured network interface is UP, configured ipv6 addresses are available
+- `ip -6 route` whether default route is available
+- `sysctl net.ipv6.conf.all.disable_ipv6` and `sysctl net.ipv6.conf.default.disable_ipv6` not 1
+- check network service, which is most likely `systemctl status systemd-networkd`,
+  also most likely network configuration tool netplan's configuration `/etc/netplan/*.yml`
+
+by the way, ai may tell you something about networking.service, this is the old networking service that is part
+of the ifupdown package (by the way, don't be confused with the non-official-descendant ifupdown2 package) and
+utilize the ifup/ifdown tools and use the main config file /etc/network/interfaces to setup network interfaces,
+don't follow related instructions if you don't find networking.service or ifupdown tools on your machine
+
+systemd-networkd is the systemd take over version and work with the dedicated networkctl command, and use config
+files in /usr/lib/systemd/network and /run/systemd/network, etc. directories, and may because these config files
+files are complex to configure? there is a netplan network configuration utility that lets you write config in
+a more user friendly yaml format, by the way, netplan is created by the evil canonical, see https://netplan.io/,
+the evil company name is directly in the web page title, by the way, there is another backend?, or renderer
+according to netplan's concept, beside systemd-networkd, the NetworkManager, which looks more desktop environment
+oriented, mainly talking about wifi, mobile network and vpn, should not be related to cloud servers
+
+and now you learned this and ipv6 network still not work? it seems that local configuration on the machine is
+needed if the network interface is assigned an ipv6 prefix on the management page, when the network gateway does
+not dhcpv6 concrete addresses in this case, and the virtual network interface does not slaac generate concrete
+addresses in this case, you need to manually add concrete addresses to netplan config and add a default route to
+the network gateway, whose concrete address, most commonly may be something like fe80::1 local address according
+to ai, if not available on management page, may be available on cloud server instance metadata endpoints, like
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+and https://www.alibabacloud.com/help/zh/ecs/user-guide/view-instance-metadata/,
+at the /network/interfaces/macs/{mac}/ipv6-gateway endpoint, currently for my aliyun config, it is something like
+xxxx:ffff:ffff:ffff:fff7, inside the /64 network of the virtual switch, not inside the /80 prefix assigned to the
+network interface, which effectively create the confusion whether the concrete addresses should use /64 or /80
+prefix length, currently /64 works, seems /80 not work, and not sure /128 works
+
+UPDATE: the netplan config file /etc/netplan/50-cloud-init.yml is not a generic name means initialize cloud env
+that fixed in the operating system image, but a file generated by the tool called cloud-init, which seems common
+in cloud environments for cloud service providers to setup the server with dynamic configurations, which by the
+way also reads the instance metadata information, so this specific file will be overwritten by cloud-init at
+cloud server init time, you need to write your own config file with higher priority like /etc/netplan/60-ipv6.yml
+
+## Service Setup
+
+now that you acquire an address pool with more than number of sand grains on the earth amount of addresses, you
+want to try to assign different addresses to different services on the machine, for host side services or network
+host containers, simply change from something like `https.createServer(...).listen(443)` to
+`.listen('your::conc::rete::addr::1', 443)`, you can start multiple services listening to different address same
+port, but note that once a service is listening to concrete address other services are not allowed to listening
+to unspecified address anymore, you may need to listening to another concrete address or listening to unspecified
+ipv4 address only, like `.listen('0.0.0.0', 443)`
+
+to keep using the default bridge network for normal containers for more secure? context, it is also achievable by
+specifying a concrete address in port mapping syntax, whereas `-p 443` or `-p 443:443` actually means mapping host
+address and port :::443 to container port 443, you can manually specify `-p host:side:ip:addr::1:443:443` in port
+mapping syntax in run command or compose file, and mapping different container port to different host ip addresses
+effectively enables the container to work on multiple public addresses, for outbound traffic,
+it seems to be https://docs.docker.com/engine/network/drivers/bridge/#options host_ipv6 option? not tested
+
+a small testing program:
+
+```typescript
+import fs from 'node:fs/promises';
+import http2 from 'node:http2';
+const domains = [
+    ['example.com', { ipv6: 'xxxx::1' }],
+    ['example2.com', { ipv6: 'xxxx::2' }],
+    ['shortexample.com', { ipv6: 'xxxx::3' }],
+] as const;
+function handle(stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders & http2.IncomingHttpStatusHeader) {
+    stream.respond({
+        'content-type': 'text/html; charset=utf-8',
+        ':status': 200,
+    });
+    stream.end(`<h1>Hello World! source: ${stream.session?.socket?.remoteAddress}, dest: ${stream.session?.socket?.localAddress}</h1>`);
+}
+for (const [domain, config] of domains) {
+    // if you want to listen 0.0.0.0:443 in this test, you have to listen only once and use sni callback
+    // server.listen(443, '0.0.0.0', () => console.log(`listen 0.0.0.0:443 for ${domain}`));
+
+    const server6 = http2.createSecureServer({
+        key: await fs.readFile(`/etc/letsencrypt/live/${domain}/privkey.pem`),
+        cert: await fs.readFile(`/etc/letsencrypt/live/${domain}/fullchain.pem`),
+    });
+    server6.on('error', e => console.error(e));
+    server6.on('stream', handle);
+    server6.listen(443, config.ipv6, () => console.log(`listen ${config.ipv6}:443 for ${domain}`));
+}
+// docker run -it --rm --name mi6 --network host -v certificates:/etc/letsencrypt -v.:/work fine/node /work/ipv6-test.ts
+```
+
+TODO you really want to dive into docker's network filter rules to investigate how to map addresses and ports by your own and how to write effective ban rules?

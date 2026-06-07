@@ -47,12 +47,14 @@ httpServer.listen({ fd: 3 }); // instead of .listen(80)
 httpsServer.listen({ fd: 4 }); // instead of .listen(443)
 ```
 
-enable and start the socket and service
+enable and start the socket and service, enable is linking the unit file into some specially
+named directories, making systemd schedule these services to run in dedicated stages of startup,
+if you don't restart the machine, you don't need to enable the service?
 
 ```sh
+$ systemctl daemon-reload
 $ systemctl enable fine.socket
 $ systemctl start fine.socket
-$ systemctl enable fine.socket
 ```
 
 use `systemctl stop fine.socket` to stop both, disable to disable and edit

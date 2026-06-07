@@ -110,6 +110,10 @@ const httpsServer = http2.createSecureServer({
       }
    },
 }, app);
+// or use different https server for different domains
+const httpsServers = domains.map(...);
+// use setCreateContext method to reload context if certificate is updated
+httpsServer.setSecureContext({ key: ..., cert: ... });
 ```
 
 ### Certificate Authorities
