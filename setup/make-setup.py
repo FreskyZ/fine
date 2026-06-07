@@ -36,7 +36,7 @@ setup_script += 'mkdir -p backup\n./doki -c doki.toml sync oss:active backup\n'
 for path in list_objects('active'):
     if not path.name.startswith('fine-logs'):
         setup_script += f'docker compose run --rm --name restore1 -v .:/work --entrypoint "python -m tarfile -e /work/backup/{path.name} /" restore\n'
-# ATTENTION python -m tarfile -e does not preserve owner
+# ATTENTION python -m tarfile -e does not preserve owner?
 setup_script += 'docker compose run --rm --name restore1 --entrypoint "chown -R 70:70 /data/base" restore\n'
 # now the database setup script will read sql files in backup folder and use that
 # # the original restore script use complex check command to confirm database exist and no data exist:
@@ -107,9 +107,6 @@ with open(os.environ['DOKI_CONFIG']) as f:
     doki_config = doki_config.replace('internal = false', 'internal = true')
 
 with tarfile.open('fine-setup.tar.xz', 'w:xz') as f:
-    # now that install docker is not part of server setup
-    # you can include docker-setup here to reduce one sftp upload
-    f.add('docker-setup.py')
     f.add('docker-compose.yml', 'compose.yml')
     f.add('doki')
     add_text_file(f, 'doki.toml', doki_config)
