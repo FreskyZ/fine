@@ -2,11 +2,13 @@
 example.com:
   # wildcard for acquire a certificate with example.com + *.example.com
   wildcard: true
+  ipv6: 1:2:3:4:5:6:7:8
 
 example-2.com:
   # alias for check for cname alias before manipulating dns records
   alias: true
   wildcard: true
+  ipv6: 2:3:4:5:6:7:8:9
 
 # wildcard default to false, alias default to false
 short-example.com:

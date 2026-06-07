@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import npfs from 'node:fs';
-import http from 'node:http';
 import http2 from 'node:http2';
 import net from 'node:net';
 import path from 'node:path';
@@ -50,9 +49,9 @@ const adminInterfaceHandlers = [
     handleAccessCommand,
     handleChannelCommand,
 ];
-const adminInterfaceConnections: net.Socket[] = [];
+const adminServerConnections: net.Socket[] = [];
 adminServer.on('connection', connection => {
-    adminInterfaceConnections.push(connection);
+    adminServerConnections.push(connection);
 
     const sendResponse = (id: number, result: AdminInterfaceResult) => {
         if (Array.isArray(result.logs)) {
@@ -70,7 +69,7 @@ adminServer.on('connection', connection => {
         connection.write(JSON.stringify({ id, ...result }));
     };
     connection.on('close', () => {
-        adminInterfaceConnections.splice(adminInterfaceConnections.indexOf(connection), 1);
+        adminServerConnections.splice(adminServerConnections.indexOf(connection), 1);
     });
     connection.on('error', error => {
         console.log(`admin connection error: ${error.message}`);
@@ -151,10 +150,7 @@ async function setupCertificates() {
 }
 await setupCertificates();
 
-const httpServer = http.createServer((request, response) => {
-    response.writeHead(301, { location: 'https://' + request.headers.host + request.url }).end();
-});
-const httpsServer = http2.createSecureServer({
+const webServer = http2.createSecureServer({
     SNICallback: (servername, callback) => {
         const splitted = servername.split('.');
         if (splitted.length < 2) {
@@ -171,34 +167,10 @@ const httpsServer = http2.createSecureServer({
     },
 }, app.callback());
 
-const httpConnections: { [key: string]: net.Socket } = {};
-httpServer.on('connection', socket => {
-    const key = `http:${socket.remoteAddress}:${socket.remotePort}`;
-    httpConnections[key] = socket;
-    socket.on('error', (error: any) => {
-        // according to log, these 2 errors happens kind of frequently (several times a day) while **only** on http socket
-        // I guess they are sent by some bad guys or auto guys which supprised by my 301 reponse or http2 server (which are both not very normal behavior)
-        // like many tries to connect to something like notebook/admin interface logged in this site Jan 2019 version
-        // ignore them
-        if (error.code == 'ECONNRESET' && error.syscall == 'read') {
-            // ignore
-        } else if (error.code == 'ECONNRESET' && error.syscall == 'write') {
-            // now you have ECONNRESET + write?
-        } else if (error.code == 'HPE_INVALID_METHOD') {
-            // ignore
-        } else {
-            log.error({ type: 'http socket error', error });
-        }
-    });
-    socket.on('close', () => delete httpConnections[key]);
-});
-httpsServer.on('connection', (socket: net.Socket) => {
-    const key = `https:${socket.remoteAddress}:${socket.remotePort}`;
-    httpConnections[key] = socket;
-    socket.on('error', error => {
-        log.error({ type: 'https socket error', error });
-    });
-    socket.on('close', () => delete httpConnections[key]);
+const webServerConnections: http2.ServerHttp2Session[] = [];
+webServer.on('session', session => {
+    webServerConnections.push(session);
+    session.on('close', () => webServerConnections.splice(webServerConnections.indexOf(session), 1));
 });
 
 // servers start and close // that's how they are implemented braceful
@@ -217,30 +189,14 @@ Promise.all([
     }),
     new Promise<void>((resolve, reject) => {
         const handleListenError = (error: Error) => {
-            console.log(`http server error: ${error.message}`);
+            console.log(`web server error: ${error.message}`);
             reject();
         };
-        httpServer.once('error', handleListenError);
-        httpServer.listen(80, () => {
-            httpServer.removeListener('error', handleListenError);
-            httpServer.on('error', error => {
-                // wrap and goto uncaught exception
-                // // currently this is never reached
-                throw new Error('http server error: ' + error.message);
-            });
-            resolve();
-        });
-    }),
-    new Promise<void>((resolve, reject) => {
-        const handleListenError = (error: Error) => {
-            console.log(`https server error: ${error.message}`);
-            reject();
-        };
-        httpsServer.once('error', handleListenError);
-        httpsServer.listen(443, () => {
-            httpsServer.removeListener('error', handleListenError);
-            httpsServer.on('error', error => {
-                throw new Error('https server error: ' + error.message);
+        webServer.once('error', handleListenError);
+        webServer.listen(443, () => {
+            webServer.removeListener('error', handleListenError);
+            webServer.on('error', error => {
+                throw new Error('web server error: ' + error.message);
             });
             resolve();
         });
@@ -253,10 +209,10 @@ Promise.all([
     process.exit(101);
 });
 
-let shuttingdown = false;
+let shutdownRequested = false;
 function shutdown() {
-    if (shuttingdown) { return; }
-    shuttingdown = true; // prevent reentry
+    if (shutdownRequested) { return; }
+    shutdownRequested = true; // prevent reentry
 
     setTimeout(() => {
         console.log('fine shutdown timeout, abort');
@@ -264,11 +220,15 @@ function shutdown() {
     }, 30_000);
 
     // destroy connections
-    for (const socket of adminInterfaceConnections) {
-        socket.destroy();
+    for (const socket of adminServerConnections) {
+        if (!socket.destroyed) {
+            socket.end();
+        }
     }
-    for (const key in httpConnections) {
-        httpConnections[key].destroy();
+    for (const session of webServerConnections) {
+        if (!session.destroyed) {
+            session.goaway();
+        }
     }
 
     // wait all server close
@@ -277,12 +237,8 @@ function shutdown() {
             if (error) { console.log(`failed to close socket server: ${error.message}`); reject(); }
             else { resolve(); }
         })),
-        new Promise<void>((resolve, reject) => httpServer.close(error => {
-            if (error) { console.log(`failed to close http server: ${error.message}`); reject(); }
-            else { resolve(); }
-        })),
-        new Promise<void>((resolve, reject) => httpsServer.close(error => {
-            if (error) { console.log(`failed to close http2 server: ${error.message}`); reject(error); }
+        new Promise<void>((resolve, reject) => webServer.close(error => {
+            if (error) { console.log(`failed to close web server: ${error.message}`); reject(error); }
             else { resolve(); }
         })),
     ]).then(() => {
