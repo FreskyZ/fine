@@ -1,6 +1,7 @@
 # Internet Protocols v6
 
 by the way, even in my home network have a good ipv6 support at this time, comparing to the status a few years ago
+UPDATE: docker's ipv6 support also improves a lot in recent years
 
 furthur reading:
 
@@ -9,71 +10,95 @@ furthur reading:
 
 ## Setup
 
-normally after you correctly setup ipv6 on cloud server management page, it will automatically works, check
+normally after you setup ipv6 on cloud server management page, it will automatically works, check
 
-- `ip -6 addr` for the configured ipv6 addresses, by the way don't be confused by these listed internal addresses
+- `ip -6 addr` for the configured ipv6 addresses, by the way don't be confused by those link local addresses
 - `ping6`, `ping -6` or `curl -6` to ping something to confirm outbound traffic works
-- start web servers which listen to any address (`https.createServer(..).listen(443)`, `socket.bind(443)`, etc.),
-  they should be listening any ipv6 address and can be checked by `netstat -tulpn` showing `:::443` and web server
-  request log showing ipv6 source addresses
-- by the way, current ssh session can check `echo $SSH_CLIENT` for source address information
+- start a web server listen to any address (`https.createServer(..).listen(443)`, `socket.bind(443)`, etc.),
+  they should be listening any ipv6 address now and can be checked by `netstat -tulpn` showing `:::443` and
+  access from other device will show ipv6 source address in request log
+- by the way, check `echo $SSH_CLIENT` for ssh connection info
 
-if not, check
+if not work, check
 
 - read cloud server provider documents and check instructions again
-- `ip a` whether configured network interface is UP, configured ipv6 addresses are available
+- `ip addr` whether configured network interface is UP, configured ipv6 addresses are available
 - `ip -6 route` whether default route is available
 - `sysctl net.ipv6.conf.all.disable_ipv6` and `sysctl net.ipv6.conf.default.disable_ipv6` not 1
-- check network service, which is most likely `systemctl status systemd-networkd`,
-  also most likely network configuration tool netplan's configuration `/etc/netplan/*.yml`
+- check network service, which is likely `systemctl status systemd-networkd`,
+  also likely network configuration tool netplan configuration `/etc/netplan/*.yml`
 
-by the way, ai may tell you something about networking.service, this is the old networking service that is part
-of the ifupdown package (by the way, don't be confused with the non-official-descendant ifupdown2 package) and
-utilize the ifup/ifdown tools and use the main config file /etc/network/interfaces to setup network interfaces,
-don't follow related instructions if you don't find networking.service or ifupdown tools on your machine
+by the way, ai may show instructions about networking.service, ifup/ifdown commands and /etc/network/interfaces
+config file, that's the old network service, if you don't find the service unit file or ifup/ifdown commands on
+you machine then don't follow related instructions. by the way, they are available in the ifupdown package in
+major package repositories, don't know what will happen in normal images with systemd-networkd or networkmanager
 
-systemd-networkd is the systemd take over version and work with the dedicated networkctl command, and use config
-files in /usr/lib/systemd/network and /run/systemd/network, etc. directories, and may because these config files
-files are complex to configure? there is a netplan network configuration utility that lets you write config in
-a more user friendly yaml format, by the way, netplan is created by the evil canonical, see https://netplan.io/,
-the evil company name is directly in the web page title, by the way, there is another backend?, or renderer
-according to netplan's concept, beside systemd-networkd, the NetworkManager, which looks more desktop environment
-oriented, mainly talking about wifi, mobile network and vpn, should not be related to cloud servers
+systemd-networkd is systemd, use networkctl command, and /run/systemd/network and /user/lib/systemd/network for
+config files, and maybe because these files are complex to write?, there is a netplan network configuration tool
+that allow you to write network config in a more user friendly yaml format, by the way, netplan is created by
+the evil canonical, see https://netplan.io, the evil company name is directly placed in the web page title, by
+the way, there is another backend, or renderer according to netplan's concept, beside systemd-networkd, which is
+called NetworkManager, which looks more suitable to desktop environment, mainly talks about wifi, mobile network
+and vpn, should not be related to cloud environment
 
-and now you learned this and ipv6 network still not work? it seems that local configuration on the machine is
-needed if the network interface is assigned an ipv6 prefix on the management page, when the network gateway does
-not dhcpv6 concrete addresses in this case, and the virtual network interface does not slaac generate concrete
-addresses in this case, you need to manually add concrete addresses to netplan config and add a default route to
-the network gateway, whose concrete address, most commonly may be something like fe80::1 local address according
-to ai, if not available on management page, may be available on cloud server instance metadata endpoints, like
-https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
-and https://www.alibabacloud.com/help/zh/ecs/user-guide/view-instance-metadata/,
-at the /network/interfaces/macs/{mac}/ipv6-gateway endpoint, currently for my aliyun config, it is something like
-xxxx:ffff:ffff:ffff:fff7, inside the /64 network of the virtual switch, not inside the /80 prefix assigned to the
-network interface, which effectively create the confusion whether the concrete addresses should use /64 or /80
-prefix length, currently /64 works, seems /80 not work, and not sure /128 works
+and now you learned this and ipv6 network still not work? it seems that furthur configuration on the machine is
+needed if your cloud server provider support assigning an ipv6 prefix to a network interface in network settings
+but not support assigning static addresses based on that, namely
 
-UPDATE: the netplan config file /etc/netplan/50-cloud-init.yml is not a generic name means initialize cloud env
-that fixed in the operating system image, but a file generated by the tool called cloud-init, which seems common
-in cloud environments for cloud service providers to setup the server with dynamic configurations, which by the
-way also reads the instance metadata information, so this specific file will be overwritten by cloud-init at
-cloud server init time, you need to write your own config file with higher priority like /etc/netplan/60-ipv6.yml
+```sh
+ip -6 addr add xxxx::1/64 dev eth0
+ip -6 route add default via xxxx::yyyy dev eth0
+```
+
+or in netplan yaml
+
+```yml
+network:
+  ethernets:
+    eth0:
+      addresses:
+        - xxxx:1/64
+      routes:
+        - to: default
+          via: xxxx::yyyy
+```
+
+you may want at least one static address to use in dns records if you don't want to use dns provider api and ip
+monitor command https://man7.org/linux/man-pages/man8/ip-monitor.8.html (why do ip command support everything?)
+to update dns records when addresses change. the /64 may be the size of the subnet defined by the virtual switch
+and may not be the prefix length assigned to the cloud server which may only indicates a routing config but not
+subnet size, for now for aliyun default ipv6 setting, vpc use /56, virtual switch use /64, cloud server use /80
+and static address with /64 prefix length seems work, /80 seems not work, not sure whether /128 works
+
+the network gateway address xxxx::yyyy, if is not the common fe80::1 local address according to ai, and if not
+available in cloud server network settings as a config or information, may be available in cloud server instance
+metadata endpoints, like https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html and
+https://www.alibabacloud.com/help/zh/ecs/user-guide/view-instance-metadata/,
+at the /network/interfaces/macs/{mac}/ipv6-gateway endpoint, for now for aliyun default ipv6 setting, looks like
+xxxx:ffff:ffff:ffff:fff7, which also indicates it's a /64 network, not a /80 network
+
+note if you see a netplan config file /etc/netplan/50-cloud-init.yml, this is not a generic file name that mean
+initializing cloud environment with basic network settings, but is a file generated by a tool called cloud-init,
+which seems commonly used by cloud server providers, to setup cloud server for different user settings without
+modifying operating system image itself, which may also access instance metadata endpoints for different parts
+on the cloud server, so this specific file will be overwritten cloud-init at startup time, you need to write the
+config files with manual settings with a higher priority like /etc/netplan/60-ipv6.yml
 
 ## Service Setup
 
-now that you acquire an address pool with more than number of sand grains on the earth amount of addresses, you
-want to try to assign different addresses to different services on the machine, for host side services or network
-host containers, simply change from something like `https.createServer(...).listen(443)` to
-`.listen('your::conc::rete::addr::1', 443)`, you can start multiple services listening to different address same
-port, but note that once a service is listening to concrete address other services are not allowed to listening
-to unspecified address anymore, you may need to listening to another concrete address or listening to unspecified
-ipv4 address only, like `.listen('0.0.0.0', 443)`
+now that you have acquire an address pool with more than number of sand grains on the earth amount of addresses,
+you may want to assign different addresses to different services on the same machine, for services on the host or
+containers with host network, simply change from something like `https.createServer(...).listen(443)` to
+`.listen('your::stat::icad::dres::1', 443)`, you can start multiple services listening to different addresses but
+same port, but note that once a service is listening to a specified address, other services cannot listen to
+unspecified address anymore, they can listen to another specified address or listening to unspecified ipv4 address
+only, like `.listen('0.0.0.0', 443)`
 
-to keep using the default bridge network for normal containers for more secure? context, it is also achievable by
-specifying a concrete address in port mapping syntax, whereas `-p 443` or `-p 443:443` actually means mapping host
-address and port :::443 to container port 443, you can manually specify `-p host:side:ip:addr::1:443:443` in port
-mapping syntax in run command or compose file, and mapping different container port to different host ip addresses
-effectively enables the container to work on multiple public addresses, for outbound traffic,
+to keep using the default bridge network for normal containers for security? requirements, it is also achievable
+by specifying an ip address in port mapping syntax, whereas `-p 443` or `-p 443:443` actually means mapping
+unspecified host address :::443 to container port 443, you can manually specify `-p host:side:ip:addr::1:443:443`
+in port mapping parameter in run command or compose file, and mapping different container port to different host
+ip addresses effectively allows a single container to work with multiple public addresses, for outbound traffics,
 it seems to be https://docs.docker.com/engine/network/drivers/bridge/#options host_ipv6 option? not tested
 
 a small testing program:
@@ -108,4 +133,185 @@ for (const [domain, config] of domains) {
 // docker run -it --rm --name mi6 --network host -v certificates:/etc/letsencrypt -v.:/work fine/node /work/ipv6-test.ts
 ```
 
-TODO you really want to dive into docker's network filter rules to investigate how to map addresses and ports by your own and how to write effective ban rules?
+## The Abyss
+
+or **docker network internals**
+
+the investigation target is to understand how to put generic ban ip rules with `userland-proxy=false`
+and `firewall-backend=nftables`, this section is in ipv6.md because ipv6 is half of the ip protocols,
+half of the firewall rules, half of the docker network configurations, etc. not because container.md
+network section is occupied by network issues from the evil rootless mode
+
+and conclusion
+
+> add rules to custom table family=inet type=filter hook=forward TODO test run
+
+conclusion is here or else it will be hard to find, docker network document has the answer, but I
+cannot read through the complete document before I understand the internals after the investigation
+https://docs.docker.com/engine/network/firewall-nftables/#example-restricting-external-connections-to-containers
+
+### Network Devices
+
+docker network default use bridge network driver https://docs.docker.com/engine/network/drivers/bridge/,
+the major motivation of bridge network driver is isolation, that not allow external network to access network
+in container without configuration, while still allow containers in the same network to access each other and
+exposing network services inside containers with proper configuration, it utilize
+
+- network bridge https://wiki.archlinux.org/title/Network_bridge
+- network namespace https://man.archlinux.org/man/network_namespaces.7.en
+
+network bridges, other virtual network interfaces (and real network interfaces) and network namespaces can be
+inspected by the `ip` command, which is likely default included in normal images, or available in the iproute2
+package https://packages.debian.org/trixie/iproute2
+
+- ip: https://man.archlinux.org/man/ip.8.en
+- ip addr: https://man.archlinux.org/man/ip-address.8.en
+- ip netns: https://man.archlinux.org/man/ip-netns.8.en
+- etc. by the way, interface, addr and route information comes from https://man.archlinux.org/man/rtnetlink.7
+
+run docker compose up and run remote akari shell in this project, and run ip a get something like this
+
+```
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether {eth0:real:mac} brd ff:ff:ff:ff:ff:ff
+    inet {eth0:real:ip}/20 metric 100 brd 172.20.127.255 scope global dynamic eth0
+       valid_lft 1891822250sec preferred_lft 1891822250sec
+    inet6 {eth0:real:ip6}::1/64 scope global
+       valid_lft forever preferred_lft forever
+    inet6 fe80::216:3eff:fe24:815e/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default
+    link/ether ae:9b:82:e1:35:5c brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+    inet6 fd15:9f9f:b9d6::1/64 scope global nodad
+       valid_lft forever preferred_lft forever
+    inet6 fe80::ac9b:82ff:fee1:355c/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+4: br-f7a45e44929b: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default
+    link/ether e6:0b:44:0a:02:b7 brd ff:ff:ff:ff:ff:ff
+    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-f7a45e44929b
+       valid_lft forever preferred_lft forever
+    inet6 fd15:9f9f:b9d6:1::1/64 scope global nodad
+       valid_lft forever preferred_lft forever
+    inet6 fe80::e40b:44ff:fe0a:2b7/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+77: veth6d0d2b6@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-f7a45e44929b state UP group default
+    link/ether 3a:12:af:11:0f:b0 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet6 fe80::3812:afff:fe11:fb0/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+78: vethb27010e@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-f7a45e44929b state UP group default
+    link/ether 9a:6e:aa:22:dd:46 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+    inet6 fe80::986e:aaff:fe22:dd46/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+80: veth0c8fbe8@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-f7a45e44929b state UP group default
+    link/ether 2a:fd:5f:09:9b:d1 brd ff:ff:ff:ff:ff:ff link-netnsid 2
+    inet6 fe80::28fd:5fff:fe09:9bd1/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+```
+
+where
+
+- lo, eth0, docker0, br-*, veth* are network interfaces
+- docker0 is docker default created bridge network whose name is bridge, the relationship can be confirmed by
+  `docker network inspect bridge` check `['Options']['com.docker.network.bridge.name']` how do you specify this
+  in --format?, you can specify another name or using an exiting device in docker daemon settings
+- br-* is docker compose default created bridge network, the hex part in the name is leading part of network id
+- veth* are virtual ethernet devices, seems one for each container, names seems random generated
+  the @if(\d+) part is not part of veth name, but a reference to its peer network interface index inside network
+  namespace, e.g. 80: vethxxxx@if2's peer device may be a 2: eth0@if80 inside namespace, note that they are not
+  the same device and have different name, mac address and ip addresses
+
+you may look through ip netns document and see link-netnsid 2 in the veth link information, and want to ask why
+`ip netns list` is showing nothing, that's because ip netns list only lists named network namespaces but a network
+namespace does not necessary have a name, although you may want something to run in ip netns exec {netnsname}, but
+the easiest way to inspect docker managed namespace is to `docker exec containername ip a`
+
+- by the way if you are inside a remote akari shell in this project, run `!ip a`,
+- or find process id --format '{{ .State.Pid }}' and run `nsenter -t <PID> -n ip a`,
+- or find sandbox key --format '{{ .NetworkSettings.SandboxKey }}' and run `nsenter --net=/var/run/docker/netns/xxxx ip a`
+- or link the symbolic link in proc fs `ln -sf /proc/<PID>/ns/net /var/run/netns/custom-name`, and don't forget to
+  mkdir -p if the target directory not exist, also see /proc/pid/ns directory in man namespace
+
+by the way, the /proc/pid/ns/net file is a symbolic link to something like `net:[\d+]`, which is reasonable, but
+the sandbox key file is even not a symbolic link? and search result for "docker sandbox" is covered by the docker
+desktop product called sandbox which seems to be related with ai? UPDATE: use mount | grep netns to find the file
+is a nsfs mount, and use stat /var/run/docker/netns/xxxx to find the inode is same as the readlink result number,
+both of them are magic symbolic links and magic files, yes, everthing is a file
+
+and ip a inside namespace looks like
+
+```
+1: lo: ...
+2: eth0@if80: <BROADCAST,MULTICAST,UP,LOWER_UP,M-DOWN> mtu 1500 qdisc noqueue state UP
+link/ether ca:f3:7c:2e:2d:43 brd ff:ff:ff:ff:ff:ff
+inet 172.18.0.4/16 brd 172.18.255.255 scope global eth0
+    valid_lft forever preferred_lft forever
+inet6 fd15:9f9f:b9d6:1::4/64 scope global flags 02
+    valid_lft forever preferred_lft forever
+inet6 fe80::c8f3:7cff:fe2e:2d43/64 scope link
+    valid_lft forever preferred_lft forever
+```
+
+- the fd15:...:4 address the value in `docker inspect containername --format {{ .NetworkSettings.Networks.fine1.GlobalIPv6Address }}`,
+  and other containers in the same namespace actually use this ip to communicate with this container
+- by the way, br-* main address is also the ipv6 gateway address in `--format {{ .NetworkSettings.Networks.fine1.IPv6Gateway }}`
+
+additional explanations, if you are interesting
+
+- BROADCAST and MULTICAST means this interface support layer2 broadcast and layer2 multicast
+- UP means it is up from kernel related management feature's perspective
+- LOWER_UP means physical or lower layer is up, like cable is plugged in
+- NO-CARRIOR for docker0 means there is nothing connecting to the bridge,
+  or docker's term there is currently no container connected to the network
+- mtu 1500 is the packet size for layer 2 you learned in school
+- qdisc means queue discipline, seems means queue strategy?, noqueue means no queue in network scheduler,
+  qdisc fq_codel, or fair queue controlled delay is a default? advanced? queue strategy for normal network device?
+  it has a man page https://man7.org/linux/man-pages/man8/tc-fq_codel.8.html
+- master means master-slave relationship between bridge and veth devices
+- group default means default group
+- qlen means queue length
+- link/ether means it is an ethernet or ethernet-like device
+- brd means broadcast address which is always all 1 for normal ethernet devices
+- nodad means no duplicate address detection, why no duplicate address detection?
+- proto kernel_ll means kernel assigned link local address according to slaac,
+  the concrete values are generated from mac address if you look closely, not exactly same, this is eui-64 format
+- M-DOWN means master down, not sure what that mean because the master br-* bridge is not down
+- flags 02 means normal? public address, public from container and inside network namespace's perspective
+
+bring your own namespace, if you are interesting
+
+```sh
+# create namespace
+ip netns add myns1
+# setup veth pair
+ip link add veth1 type veth peer name veth1peer
+ip link set veth1 up
+ip link set veth1peer netns myns1
+ip netns exec myns1 ip link set lo up
+ip netns exec myns1 ip link set veth1peer up
+ip netns exec myns1 ip -6 addr add fd15:9f9f:b9d6::4/64 dev veth1peer
+# setup bridge
+ip link add br1 type bridge
+ip link set br1 up
+ip addr add 172.17.0.1/16 dev br1
+ip -6 addr add fd15:9f9f:b9d6::1/64 dev br1
+# link bridge and veth pair
+ip link set veth1 master br1
+ip netns exec myns1 ip route add default via 172.17.0.1/16
+ip netns exec myns1 ip -6 route add default via fd15:9f9f:b9d6::1/64
+# create 2 veth pairs and then you can ping between them
+```
+
+and that's the end of BYON, because docker does not support custom network namespace, see https://github.com/moby/moby/issues/47828,
+this issue is young and not that related and they discussed a custom work around for the issue creator's need,
+but leave the issue open, which indicates the fate of other issues that will be mentioned in this document, while
+this pr https://github.com/moby/moby/pull/8216, which I think may be the oldest item linked in this document, and
+may be the item with shortest open time? is rejected because of *non technical* reasons https://github.com/moby/moby/pull/8216#issuecomment-63561676
+despite dozens of +1 in comments and only this guy, with pr permissions, have objections
