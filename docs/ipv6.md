@@ -315,3 +315,695 @@ but leave the issue open, which indicates the fate of other issues that will be 
 this pr https://github.com/moby/moby/pull/8216, which I think may be the oldest item linked in this document, and
 may be the item with shortest open time? is rejected because of *non technical* reasons https://github.com/moby/moby/pull/8216#issuecomment-63561676
 despite dozens of +1 in comments and only this guy, with pr permissions, have objections
+
+### Network Filters
+
+bridge network driver use network filters, see also
+https://github.com/moby/moby/blob/master/integration/network/bridge/nftablesdoc/index.md
+
+inspect network filters with nft command https://netfilter.org/projects/nftables/manpage.html
+
+TODO com.docker.network.bridge.gateway_mode_ipv6={nat|routed}?
+
+nft list ruleset output after 
+
+- docker compose up
+- docker compose run akari
+- docker run -itd --rm --name sleep1 -p 5678:5678 alpine sleep infinity
+- docker run -itd --rm --name sleep2 -p {anipv6addr}:12345:23456 alpine sleep infinity
+
+```
+table ip docker-bridges {
+    map filter-forward-in-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump filter-forward-in__docker0,
+                        "br-f7a45e44929b" : jump filter-forward-in__br-f7a45e44929b }
+    }
+    map filter-forward-out-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump filter-forward-out__docker0,
+                        "br-f7a45e44929b" : jump filter-forward-out__br-f7a45e44929b }
+    }
+    map nat-postrouting-in-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump nat-postrouting-in__docker0,
+                        "br-f7a45e44929b" : jump nat-postrouting-in__br-f7a45e44929b }
+    }
+    map nat-postrouting-out-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump nat-postrouting-out__docker0,
+                        "br-f7a45e44929b" : jump nat-postrouting-out__br-f7a45e44929b }
+    }
+
+    chain filter-FORWARD {
+        type filter hook forward priority filter; policy accept;
+        oifname vmap @filter-forward-in-jumps
+        iifname vmap @filter-forward-out-jumps
+    }
+
+    chain nat-OUTPUT {
+        type nat hook output priority dstnat; policy accept;
+        fib daddr type local counter packets 20 bytes 1200 jump nat-prerouting-and-output
+    }
+    chain nat-POSTROUTING {
+        type nat hook postrouting priority srcnat; policy accept;
+        iifname vmap @nat-postrouting-out-jumps
+        oifname vmap @nat-postrouting-in-jumps
+    }
+    chain nat-PREROUTING {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local counter packets 29190 bytes 1738147 jump nat-prerouting-and-output
+    }
+    chain nat-prerouting-and-output {
+        tcp dport 8001 counter packets 0 bytes 0 dnat to 172.18.0.4:8001 comment "DNAT"
+        tcp dport 5678 counter packets 0 bytes 0 dnat to 172.17.0.2:5678 comment "DNAT"
+    }
+
+    chain raw-PREROUTING {
+        type filter hook prerouting priority raw; policy accept;
+        ip daddr 172.18.0.2 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip daddr 172.18.0.3 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip daddr 172.18.0.4 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip daddr 172.17.0.2 iifname != "docker0" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+    }
+
+    chain filter-forward-in__br-f7a45e44929b {
+        ct state established,related counter packets 0 bytes 0 accept
+        iifname "br-f7a45e44929b" counter packets 0 bytes 0 accept comment "ICC"
+        ip daddr 172.18.0.4 tcp dport 8001 counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 drop comment "UNPUBLISHED PORT DROP"
+    }
+    chain filter-forward-out__br-f7a45e44929b {
+        ct state established,related counter packets 1088 bytes 320948 accept
+        counter packets 8 bytes 480 accept comment "OUTGOING"
+    }
+    chain nat-postrouting-in__br-f7a45e44929b {
+        fib saddr type local counter packets 0 bytes 0 masquerade comment "MASQUERADE FROM HOST"
+        ip saddr 172.18.0.4 ip daddr 172.18.0.4 tcp dport 8001 counter packets 0 bytes 0 masquerade comment "MASQ TO OWN PORT"
+    }
+    chain nat-postrouting-out__br-f7a45e44929b {
+        oifname != "br-f7a45e44929b" ip saddr 172.18.0.0/16 counter packets 8 bytes 480 masquerade comment "MASQUERADE"
+    }
+
+    chain filter-forward-in__docker0 {
+        ct state established,related counter packets 0 bytes 0 accept
+        iifname "docker0" counter packets 0 bytes 0 accept comment "ICC"
+        ip daddr 172.17.0.2 tcp dport 5678 counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 drop comment "UNPUBLISHED PORT DROP"
+    }
+    chain filter-forward-out__docker0 {
+        ct state established,related counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 accept comment "OUTGOING"
+    }
+    chain nat-postrouting-in__docker0 {
+        fib saddr type local counter packets 0 bytes 0 masquerade comment "MASQUERADE FROM HOST"
+        ip saddr 172.17.0.2 ip daddr 172.17.0.2 tcp dport 5678 counter packets 0 bytes 0 masquerade comment "MASQ TO OWN PORT"
+    }
+    chain nat-postrouting-out__docker0 {
+        oifname != "docker0" ip saddr 172.17.0.0/16 counter packets 0 bytes 0 masquerade comment "MASQUERADE"
+    }
+}
+table ip6 docker-bridges {
+    map filter-forward-in-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump filter-forward-in__docker0,
+                        "br-f7a45e44929b" : jump filter-forward-in__br-f7a45e44929b }
+    }
+    map filter-forward-out-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump filter-forward-out__docker0,
+                        "br-f7a45e44929b" : jump filter-forward-out__br-f7a45e44929b }
+    }
+    map nat-postrouting-in-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump nat-postrouting-in__docker0,
+                        "br-f7a45e44929b" : jump nat-postrouting-in__br-f7a45e44929b }
+    }
+    map nat-postrouting-out-jumps {
+        type ifname : verdict
+        elements = { "docker0" : jump nat-postrouting-out__docker0,
+                        "br-f7a45e44929b" : jump nat-postrouting-out__br-f7a45e44929b }
+    }
+
+    chain filter-FORWARD {
+        type filter hook forward priority filter; policy accept;
+        oifname vmap @filter-forward-in-jumps
+        iifname vmap @filter-forward-out-jumps
+    }
+
+    chain nat-OUTPUT {
+        type nat hook output priority dstnat; policy accept;
+        fib daddr type local counter packets 0 bytes 0 jump nat-prerouting-and-output
+    }
+
+    chain nat-POSTROUTING {
+        type nat hook postrouting priority srcnat; policy accept;
+        iifname vmap @nat-postrouting-out-jumps
+        oifname vmap @nat-postrouting-in-jumps
+    }
+    chain nat-PREROUTING {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local counter packets 8933 bytes 524628 jump nat-prerouting-and-output
+    }
+    chain nat-prerouting-and-output {
+        ip6 saddr != fe80::/10 tcp dport 5678 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6::2]:5678 comment "DNAT"
+        ip6 saddr != fe80::/10 tcp dport 8001 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6:1::4]:8001 comment "DNAT"
+        ip6 saddr != fe80::/10 ip6 daddr [anipv6addr] tcp dport 12345 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6::2]:23456 comment "DNAT"
+    }
+
+    chain raw-PREROUTING {
+        type filter hook prerouting priority raw; policy accept;
+        ip6 daddr fd15:9f9f:b9d6:1::2 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip6 daddr fd15:9f9f:b9d6:1::3 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip6 daddr fd15:9f9f:b9d6:1::4 iifname != "br-f7a45e44929b" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+        ip6 daddr fd15:9f9f:b9d6::2 iifname != "docker0" counter packets 0 bytes 0 drop comment "DROP DIRECT ACCESS"
+    }
+
+    chain filter-forward-in__br-f7a45e44929b {
+        ct state established,related counter packets 0 bytes 0 accept
+        iifname "br-f7a45e44929b" counter packets 54 bytes 3528 accept comment "ICC"
+        ip6 daddr fd15:9f9f:b9d6:1::4 tcp dport 8001 counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 drop comment "UNPUBLISHED PORT DROP"
+    }
+    chain filter-forward-out__br-f7a45e44929b {
+        ct state established,related counter packets 5 bytes 312 accept
+        counter packets 0 bytes 0 accept comment "OUTGOING"
+    }
+    chain nat-postrouting-in__br-f7a45e44929b {
+        fib saddr type local counter packets 0 bytes 0 masquerade comment "MASQUERADE FROM HOST"
+        ip6 saddr fd15:9f9f:b9d6:1::4 ip6 daddr fd15:9f9f:b9d6:1::4 tcp dport 8001 counter packets 0 bytes 0 masquerade comment "MASQ TO OWN PORT"
+    }
+    chain nat-postrouting-out__br-f7a45e44929b {
+        oifname != "br-f7a45e44929b" ip6 saddr fd15:9f9f:b9d6:1::/64 counter packets 0 bytes 0 masquerade comment "MASQUERADE"
+    }
+
+    chain filter-forward-in__docker0 {
+        ct state established,related counter packets 0 bytes 0 accept
+        iifname "docker0" counter packets 0 bytes 0 accept comment "ICC"
+        ip6 daddr fd15:9f9f:b9d6::2 tcp dport 5678 counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 drop comment "UNPUBLISHED PORT DROP"
+    }
+    chain filter-forward-out__docker0 {
+        ct state established,related counter packets 0 bytes 0 accept
+        counter packets 0 bytes 0 accept comment "OUTGOING"
+    }
+    chain nat-postrouting-in__docker0 {
+        fib saddr type local counter packets 0 bytes 0 masquerade comment "MASQUERADE FROM HOST"
+        ip6 saddr fd15:9f9f:b9d6::2 ip6 daddr fd15:9f9f:b9d6::2 tcp dport 5678 counter packets 0 bytes 0 masquerade comment "MASQ TO OWN PORT"
+    }
+    chain nat-postrouting-out__docker0 {
+        oifname != "docker0" ip6 saddr fd15:9f9f:b9d6::/64 counter packets 0 bytes 0 masquerade comment "MASQUERADE"
+    }
+}
+```
+
+where
+
+- ip and ip6 chains are very same except detailed ip addresses,
+  docker is not merging them into same table in inet family, not sure why
+- docker0 and br-* is previous bridge devices,
+  172.18.0.1/16 and fd15:9f9f:b9d6:1::/64 is br-* network,
+  172.18.0.2, .3, .4, fd15:9f9f:b9d6:1::1, :2, :3 are container ip addresses
+- the maps are really map data structure in normal programming languages, map strings to some other objects
+- type=filter means filter, filter all packets,
+  type=nat means nat that transforms address and port according to some rule,
+  type=nat normally only trigger for conntrack state = new packets, not for established or related packets
+- fib (forward information base) seems to be required for daddr/saddr type local
+
+setup trace to understand purpose and relationships of rules
+
+- add trace chain `nft 'add chain ip docker-bridges trace-chain { type filter hook prerouting priority raw - 1; }'`
+- set trace `nft add rule ip docker-bridges trace-chain tcp dport != 22 meta nftrace set 1`, always need to
+  exclude ssh or else there will be recursive triggering, may change condition later according to trace targets
+- monitor `nft monitor trace`
+- stop trace `nft delete chain ip docker-bridges trace-chain`
+- see also https://wiki.nftables.org/wiki-nftables/index.php/Ruleset_debug/tracing
+
+first `fetch('https://example.com')` from local to test connectivity and test the tracing rule by the way, at the
+time of writing the main web service is using host network, so this is from other machine to this machine without container actually
+
+```
+trace id 29d99b3b ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 116 ip id 14065 ip length 41 tcp sport 26907 tcp dport 443 tcp flags == ack tcp window 255
+trace id 29d99b3b ip docker-bridges trace-chain rule tcp dport 443 meta nftrace set 1 (verdict continue)
+trace id 29d99b3b ip docker-bridges trace-chain policy accept
+trace id 29d99b3b ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 116 ip id 14065 ip length 41 tcp sport 26907 tcp dport 443 tcp flags == ack tcp window 255
+trace id 29d99b3b ip docker-bridges raw-PREROUTING policy accept
+trace id 29d99b3b inet filter input packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 116 ip id 14065 ip protocol tcp ip length 41 tcp sport 26907 tcp dport 443 tcp flags == ack tcp window 255
+trace id 29d99b3b inet filter input policy accept
+# same packet flow with tcp flags = syn + ack
+# same packet flow with tcp flags = ack
+```
+
+where
+
+- ip dscp is the new name? for type of service field in header
+  and 0x05 is not in dscp registry? https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
+- ip ecn not-ect means explicit congestion notification is not ecn-capable transport
+- tcp flags see `nft decribe tcp flags`, these 3 packets are standard ack + synack + syn handshake flow
+- tcp window is sender advertised tcp receive window, seems to be receive buffer size?
+- specifically for this project, it also go through dontry.py created inet filter table, indicating it's
+  working effectively for this scenario
+
+trace packet flow from other machine to containers with default network by
+
+- `docker run -it --rm --name tcpserver1 -p 8001:8001 python`
+- run python
+```py
+import socket
+def f():
+    server = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('::', 8002))
+    server.listen(1)
+    # accept 1
+    def accept():
+        # connection is a socket object, addr is socket.raddr
+        connection, addr = server.accept()
+        print(f"accept {addr}")
+        data = connection.recv(1024)
+        print(f"recv {data}")
+        connection.sendall(b"ECHO: " + data)
+        connection.close()
+    def close():
+        server.close()
+    return accept, close
+accept, close = f()
+```
+- client side use this, try make it not short to distinguish data packets and non data packets
+  `echo hello1234501234567890123456789012345678901234567890123456789012345678901234567890123456789123456789 | nc -N {ip} {port}`
+- to reduce noice, change trace rule to tcp dport 8001 and tcp sport 8001
+- or use netcat: docker run --rm -p 8001:8001 alpine sh -c "nc -l -p 8001 -c 'read line; echo ECHO: \$line; exit'",
+  nc is default in alpine busybox, but this nc does support -6, which may be ok, and not support -c, which is not ok
+- or use socat: socat TCP-LISTEN:8001,fork,reuseaddr EXEC:"/bin/sh -c \"read line; echo ECHO: \$line\"",
+  this need install, and does not print information messages
+- note that previous ip link command output runs with akari that listen 8001 inside a composed container
+  and a non-composed container listening 5678, with this command the non-composed container is listening 8001,
+  I assume if you understand or follow previous sections you know how the related veth pair and rules in
+  nat-prerouting-and-output chain look like?
+- not fetch('https://example.com:8001'), there seems to be multiple tcp packets for http request and response
+
+```
+# ip packet 1
+trace id 24ccfc7f ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15290 ip length 60 tcp sport 25882 tcp dport 8001 tcp flags == syn tcp window 64240
+trace id 24ccfc7f ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id 24ccfc7f ip docker-bridges trace-chain policy accept
+trace id 24ccfc7f ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15290 ip length 60 tcp sport 25882 tcp dport 8001 tcp flags == syn tcp window 64240
+trace id 24ccfc7f ip docker-bridges raw-PREROUTING policy accept
+trace id 24ccfc7f ip docker-bridges nat-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15290 ip length 60 tcp sport 25882 tcp dport 8001 tcp flags == syn tcp window 64240
+trace id 24ccfc7f ip docker-bridges nat-PREROUTING rule fib daddr type local counter packets 45917 bytes 2726311 jump nat-prerouting-and-output (verdict jump nat-prerouting-and-output)
+trace id 24ccfc7f ip docker-bridges nat-prerouting-and-output rule tcp dport 8001 counter packets 10 bytes 564 dnat to {container:ip}:8001 comment "DNAT" (verdict accept)
+trace id 24ccfc7f ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15290 ip length 60 tcp sport 25882 tcp dport 8001 tcp flags == syn tcp window 64240
+trace id 24ccfc7f ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id 24ccfc7f ip docker-bridges filter-forward-in__docker0 rule ip daddr {container:ip} tcp dport 8001 counter packets 10 bytes 564 accept (verdict accept)
+trace id 24ccfc7f ip docker-bridges nat-POSTROUTING packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15290 ip length 60 tcp sport 25882 tcp dport 8001 tcp flags == syn tcp window 64240
+trace id 24ccfc7f ip docker-bridges nat-POSTROUTING rule oifname vmap @nat-postrouting-in-jumps (verdict jump nat-postrouting-in__docker0)
+trace id 24ccfc7f ip docker-bridges nat-POSTROUTING policy accept
+```
+
+- trace-chain: triggered by dport rule means this is client send, tcp flag syn to initiate connection
+- raw-prerouting: ip daddr is not container ip so ok
+- nat-prerouting: ip daddr is local so jump nat-prerouting-and-output
+- nat-prerouting-and-output: DNAT
+- filter-forward: ip daddr become container ip, ttl reduce 1 by the way, map oif to filter-forward-in-bridge
+- filter-forward-in-docker0: match daddr + dport so accept
+- nat-postrouting: map oif to nat-postrouting-in-bridge
+- no nat-postrouting-in-docker0: not masq from host, not masq from own part so all rules not match
+  I guess all rule not match and no chain level verdict makes this record missing
+
+```
+# ip packet 2
+trace id 977b47d0 ip docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 0 ip length 60 tcp sport 8001 tcp dport 25882 tcp flags == 0x12 tcp window 65160
+trace id 977b47d0 ip docker-bridges trace-chain rule ip saddr {container:ip} meta nftrace set 1 (verdict continue)
+trace id 977b47d0 ip docker-bridges trace-chain policy accept
+trace id 977b47d0 ip docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 0 ip length 60 tcp sport 8001 tcp dport 25882 tcp flags == 0x12 tcp window 65160
+trace id 977b47d0 ip docker-bridges raw-PREROUTING policy accept
+trace id a9585eab ip docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 63 ip id 0 ip length 60 tcp sport 8001 tcp dport 25882 tcp flags == 0x12 tcp window 65160
+trace id a9585eab ip docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id a9585eab ip docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 2281 bytes 134848 accept (verdict accept)
+```
+
+- trace-chain: triggered by saddr rule means this is server send
+  - tcp flag syn ack to accept connection, for combined flags, see `nft describe tcp flags`
+- raw-prerouting: ip daddr is not container ip so ok
+- no nat-prerouting: conntrack record exists TODO check this by /proc/net/conntrack?
+- filter-forward: map iif to filter-forward-out-bridge
+- filter-forward-out-docker0: count as ct state estabilished
+
+```
+# ip packet 3
+trace id a25d87ad ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15291 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id a25d87ad ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id a25d87ad ip docker-bridges trace-chain policy accept
+trace id a25d87ad ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15291 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id a25d87ad ip docker-bridges raw-PREROUTING policy accept
+trace id a25d87ad ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15291 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id a25d87ad ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id a25d87ad ip docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 43 bytes 3450 accept (verdict accept)
+```
+
+- trace-chain: client send ack as the 3rd packet to complete handshake as you learned in school
+- raw-prerouting: same
+- no nat-prerouting: same
+- filter-forward: same
+
+```
+# ip packet 4, client send push + ack, you can see ip length > 100 and contains data
+trace id b213b916 ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15292 ip length 143 tcp sport 25882 tcp dport 8001 tcp flags == 0x18 tcp window 502
+trace id b213b916 ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id b213b916 ip docker-bridges trace-chain policy accept
+trace id b213b916 ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15292 ip length 143 tcp sport 25882 tcp dport 8001 tcp flags == 0x18 tcp window 502
+trace id b213b916 ip docker-bridges raw-PREROUTING policy accept
+trace id b213b916 ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15292 ip length 143 tcp sport 25882 tcp dport 8001 tcp flags == 0x18 tcp window 502
+trace id b213b916 ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id b213b916 ip docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 43 bytes 3450 accept (verdict accept)
+# ip packet 5, server send ack
+trace id 1b4b20c4 ip docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61462 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == ack tcp window 509
+trace id 1b4b20c4 ip docker-bridges trace-chain rule ip saddr {container:ip} meta nftrace set 1 (verdict continue)
+trace id 1b4b20c4 ip docker-bridges trace-chain policy accept
+trace id 1b4b20c4 ip docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61462 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == ack tcp window 509
+trace id 1b4b20c4 ip docker-bridges raw-PREROUTING policy accept
+trace id f1729903 ip docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 63 ip id 61462 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == ack tcp window 509
+trace id f1729903 ip docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id f1729903 ip docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 2281 bytes 134848 accept (verdict accept)
+# ip packet 6, client send fin + ack, as required by nc -N argument
+trace id 32e45a12 ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15293 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == 0x11 tcp window 502
+trace id 32e45a12 ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id 32e45a12 ip docker-bridges trace-chain policy accept
+trace id 32e45a12 ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15293 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == 0x11 tcp window 502
+trace id 32e45a12 ip docker-bridges raw-PREROUTING policy accept
+trace id 32e45a12 ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15293 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == 0x11 tcp window 502
+trace id 32e45a12 ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id 32e45a12 ip docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 43 bytes 3450 accept (verdict accept)
+# ip packet 7, server send push + ack, see data in ip length
+trace id 9b4a6251 ip docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61463 ip length 149 tcp sport 8001 tcp dport 25882 tcp flags == 0x18 tcp window 509
+trace id 9b4a6251 ip docker-bridges trace-chain rule ip saddr {container:ip} meta nftrace set 1 (verdict continue)
+trace id 9b4a6251 ip docker-bridges trace-chain policy accept
+trace id 9b4a6251 ip docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61463 ip length 149 tcp sport 8001 tcp dport 25882 tcp flags == 0x18 tcp window 509
+trace id 9b4a6251 ip docker-bridges raw-PREROUTING policy accept
+trace id c4687929 ip docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 63 ip id 61463 ip length 149 tcp sport 8001 tcp dport 25882 tcp flags == 0x18 tcp window 509
+trace id c4687929 ip docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id c4687929 ip docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 2281 bytes 134848 accept (verdict accept)
+# ip packet 8, server send fin + ack
+trace id 50f80691 ip docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61464 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == 0x11 tcp window 509
+trace id 50f80691 ip docker-bridges trace-chain rule ip saddr {container:ip} meta nftrace set 1 (verdict continue)
+trace id 50f80691 ip docker-bridges trace-chain policy accept
+trace id 50f80691 ip docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 64 ip id 61464 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == 0x11 tcp window 509
+trace id 50f80691 ip docker-bridges raw-PREROUTING policy accept
+trace id bf591b8a ip docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 63 ip id 61464 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == 0x11 tcp window 509
+trace id bf591b8a ip docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id bf591b8a ip docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 2281 bytes 134848 accept (verdict accept)
+# ip packet 9, client send ack
+trace id aaf37dab ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15294 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id aaf37dab ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id aaf37dab ip docker-bridges trace-chain policy accept
+trace id aaf37dab ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15294 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id aaf37dab ip docker-bridges raw-PREROUTING policy accept
+trace id aaf37dab ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15294 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id aaf37dab ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id aaf37dab ip docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 43 bytes 3450 accept (verdict accept)
+# ip packet 10, client send ack, again
+trace id dee2dc16 ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15295 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id dee2dc16 ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
+trace id dee2dc16 ip docker-bridges trace-chain policy accept
+trace id dee2dc16 ip docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15295 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id dee2dc16 ip docker-bridges raw-PREROUTING policy accept
+trace id dee2dc16 ip docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {container:ip} ip dscp 0x05 ip ecn not-ect ip ttl 52 ip id 15295 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == ack tcp window 502
+trace id dee2dc16 ip docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id dee2dc16 ip docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 43 bytes 3450 accept (verdict accept)
+```
+
+by the way `tcpdump 'src host {client:real:ip} and dst port 8001 or dst host {client:real:ip} and not src port 22'`,
+need to specify port or else a lot of ssh traffic, by the way this condition don't need parenthese, but you can even add paren if need in more complex conditions
+
+```
+13:36:50.434586 IP CLIENT > SERVER: Flags [S], seq 1099056358, win 64240, options [mss 1412,sackOK,TS val 1109119823 ecr 0,nop,wscale 7], length 0
+13:36:50.434679 IP SERVER > CLIENT: Flags [S.], seq 1694703917, ack 1099056359, win 65160, options [mss 1460,sackOK,TS val 2187817537 ecr 1109119823,nop,wscale 7], length 0
+13:36:50.445397 IP CLIENT > SERVER: Flags [.], ack 1, win 502, options [nop,nop,TS val 1109119834 ecr 2187817537], length 0
+13:36:50.445674 IP CLIENT > SERVER: Flags [P.], seq 1:92, ack 1, win 502, options [nop,nop,TS val 1109119834 ecr 2187817537], length 91
+13:36:50.445817 IP SERVER > CLIENT: Flags [.], ack 92, win 509, options [nop,nop,TS val 2187817548 ecr 1109119834], length 0
+13:36:50.445888 IP CLIENT > SERVER: Flags [F.], seq 92, ack 1, win 502, options [nop,nop,TS val 1109119834 ecr 2187817537], length 0
+13:36:50.446785 IP SERVER > CLIENT: Flags [P.], seq 1:98, ack 93, win 509, options [nop,nop,TS val 2187817549 ecr 1109119834], length 97
+13:36:50.447703 IP SERVER > CLIENT: Flags [F.], seq 98, ack 93, win 509, options [nop,nop,TS val 2187817550 ecr 1109119834], length 0
+13:36:50.459292 IP CLIENT > SERVER: Flags [.], ack 98, win 502, options [nop,nop,TS val 1109119849 ecr 2187817549], length 0
+13:36:50.459702 IP CLIENT > SERVER: Flags [.], ack 99, win 502, options [nop,nop,TS val 1109119849 ecr 2187817550], length 0
+```
+
+where
+
+- `[S]` means syn, `[S.]` means syn + ack, `[.]` means pure ack, `[P.]` means push + ack, `[F.]` means fin + ack,
+  you nearly always need ack to ack some previous packets in the connection if you forget
+- client initial sequence number 1099056358, server initial sequence number 1694703917
+- packet 2 acking client inital seq +1 means "expecting next packet with or start with this seq number"
+- later `ack 1` means ack relative +1 to initial sequence number, so packet 3, 4, 6 are all acking packet 2
+- for data packets, sequence number 1:92 means for this connection, include data byte range `[1, 92)`,
+  so the server response packet for this packet is ack 93 at packet 7, similar for packet 7 seq number range
+- the 2 ending ack from client is one for ack server's push (data) packet and one for server's fin packet
+
+trace packet flow from containers to other machine by...
+
+now you need another server to start a simple tcp server to avoid potential mess in http traffics, while currently
+I don't have a second server and it's not ok to initiate a connection from my server to my local machine as it will
+be blocked by my home network isp, so I should initiate a connection from my local machine to my server, as my dev
+machine also have docker and docker network setup, right? no, that's another abyss, that you don't find iptables
+and nftables command in wsl distro, while you probably know windows wsl + docker desktop create container with host
+network will display a docker-desktop as hostname that's because the host means the docker desktop dedicated distro
+not your working distro, and the dddd also don't have iptables and nftables command! first, wsl don't default
+support iptables and nftables, and windows docker desktop setup network by some windows side programs, some hyper-v
+network settings and some wsl magics, and they work together to make things smooth when you start a normal develop
+time http server in container and opens that in browser in windows, and windows side firewall rules even work for
+this scenario, without using network filter rules like docker-ce on a linux server, and it will be complex and not
+that meaningful (compare to this already not very meaningful investigation if you skip to the end of this document)
+to investigate architecture and underlying mecahnism
+
+see also https://github.com/microsoft/WSL/issues/11140 and https://github.com/microsoft/WSL/issues/6044 but there
+is a config key called firewall in https://learn.microsoft.com/en-us/windows/wsl/wsl-config, investigate if need?
+update: to make things more cool, network mode=mirrored is related with this
+
+so use https://tcpbin.com/ which selflessly provide a public tcp echo service for demo and test purpose
+
+- modify tracing rules to only track specific ip address
+  - nft add rule ip6 docker-bridges trace-chain ip6 daddr {server:real:ip} meta nftrace set 1
+  - nft add rule ip6 docker-bridges trace-chain ip6 saddr {server:real:ip} meta nftrace set 1
+- docker run -it --rm --name tcpclient1 alpine
+- echo thelongmessage | nc {server:real:ip} 4242
+
+```
+trace id 6e1bec12 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 40 tcp sport 37485 tcp dport 4242 tcp flags == syn tcp window 64800
+trace id 6e1bec12 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id 6e1bec12 ip6 docker-bridges trace-chain policy accept
+trace id 6e1bec12 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 40 tcp sport 37485 tcp dport 4242 tcp flags == syn tcp window 64800
+trace id 6e1bec12 ip6 docker-bridges raw-PREROUTING policy accept
+trace id 6e1bec12 ip6 docker-bridges nat-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 40 tcp sport 37485 tcp dport 4242 tcp flags == syn tcp window 64800
+trace id 6e1bec12 ip6 docker-bridges nat-PREROUTING policy accept
+trace id 89480cd6 ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 40 tcp sport 37485 tcp dport 4242 tcp flags == syn tcp window 64800
+trace id 89480cd6 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id 89480cd6 ip6 docker-bridges filter-forward-out__docker0 rule counter packets 12 bytes 874 accept comment "OUTGOING" (verdict accept)
+trace id 89480cd6 ip6 docker-bridges nat-POSTROUTING packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 40 tcp sport 37485 tcp dport 4242 tcp flags == syn tcp window 64800
+trace id 89480cd6 ip6 docker-bridges nat-POSTROUTING rule iifname vmap @nat-postrouting-out-jumps (verdict jump nat-postrouting-out__docker0)
+trace id 89480cd6 ip6 docker-bridges nat-postrouting-out__docker0 rule oifname != "docker0" ip6 saddr fd15:9f9f:b9d6::/64 counter packets 2 bytes 274 masquerade comment "MASQUERADE" (verdict accept)
+trace id 0b4dde50 ip6 docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 40 tcp sport 4242 tcp dport 37485 tcp flags == 0x12 tcp window 25284
+trace id 0b4dde50 ip6 docker-bridges trace-chain rule ip6 saddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id 0b4dde50 ip6 docker-bridges trace-chain policy accept
+trace id 0b4dde50 ip6 docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 40 tcp sport 4242 tcp dport 37485 tcp flags == 0x12 tcp window 25284
+trace id 0b4dde50 ip6 docker-bridges raw-PREROUTING policy accept
+trace id 0b4dde50 ip6 docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {container:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 46 ip6 flowlabel 574378 ip6 length 40 tcp sport 4242 tcp dport 37485 tcp flags == 0x12 tcp window 25284
+trace id 0b4dde50 ip6 docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id 0b4dde50 ip6 docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 4 bytes 396 accept (verdict accept)
+trace id af0dc0e3 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id af0dc0e3 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id af0dc0e3 ip6 docker-bridges trace-chain policy accept
+trace id af0dc0e3 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id af0dc0e3 ip6 docker-bridges raw-PREROUTING policy accept
+trace id a70d8d48 ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id a70d8d48 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id a70d8d48 ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
+trace id c988a7d9 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 132 tcp sport 37485 tcp dport 4242 tcp flags == 0x18 tcp window 507
+trace id c988a7d9 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id c988a7d9 ip6 docker-bridges trace-chain policy accept
+trace id c988a7d9 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 132 tcp sport 37485 tcp dport 4242 tcp flags == 0x18 tcp window 507
+trace id c988a7d9 ip6 docker-bridges raw-PREROUTING policy accept
+trace id d4299fc9 ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 132 tcp sport 37485 tcp dport 4242 tcp flags == 0x18 tcp window 507
+trace id d4299fc9 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id d4299fc9 ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
+trace id f0024e26 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == 0x11 tcp window 507
+trace id f0024e26 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id f0024e26 ip6 docker-bridges trace-chain policy accept
+trace id f0024e26 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == 0x11 tcp window 507
+trace id f0024e26 ip6 docker-bridges raw-PREROUTING policy accept
+trace id e5dd0fb1 ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == 0x11 tcp window 507
+trace id e5dd0fb1 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id e5dd0fb1 ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
+trace id 929b9a75 ip6 docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == ack tcp window 198
+trace id 929b9a75 ip6 docker-bridges trace-chain rule ip6 saddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id 929b9a75 ip6 docker-bridges trace-chain policy accept
+trace id 929b9a75 ip6 docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == ack tcp window 198
+trace id 929b9a75 ip6 docker-bridges raw-PREROUTING policy accept
+trace id d94b4c39 ip6 docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 132 tcp sport 4242 tcp dport 37485 tcp flags == 0x18 tcp window 198
+trace id d94b4c39 ip6 docker-bridges trace-chain rule ip6 saddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id d94b4c39 ip6 docker-bridges trace-chain policy accept
+trace id d94b4c39 ip6 docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 132 tcp sport 4242 tcp dport 37485 tcp flags == 0x18 tcp window 198
+trace id d94b4c39 ip6 docker-bridges raw-PREROUTING policy accept
+trace id 929b9a75 ip6 docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {container:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 46 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == ack tcp window 198
+trace id 929b9a75 ip6 docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id 929b9a75 ip6 docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 4 bytes 396 accept (verdict accept)
+trace id d94b4c39 ip6 docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {container:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 46 ip6 flowlabel 574378 ip6 length 132 tcp sport 4242 tcp dport 37485 tcp flags == 0x18 tcp window 198
+trace id d94b4c39 ip6 docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id d94b4c39 ip6 docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 4 bytes 396 accept (verdict accept)
+trace id 50e8dc63 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 50e8dc63 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id 50e8dc63 ip6 docker-bridges trace-chain policy accept
+trace id 50e8dc63 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 50e8dc63 ip6 docker-bridges raw-PREROUTING policy accept
+trace id 2716d53d ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 2716d53d ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id 2716d53d ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
+trace id d94b4c39 ip6 docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == 0x11 tcp window 198
+trace id d94b4c39 ip6 docker-bridges trace-chain rule ip6 saddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id d94b4c39 ip6 docker-bridges trace-chain policy accept
+trace id d94b4c39 ip6 docker-bridges raw-PREROUTING packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {eth0:real:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 47 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == 0x11 tcp window 198
+trace id d94b4c39 ip6 docker-bridges raw-PREROUTING policy accept
+trace id d94b4c39 ip6 docker-bridges filter-FORWARD packet: iif "eth0" oif "docker0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip6 saddr {server:real:ip} ip6 daddr {container:ip} ip6 dscp 0x05 ip6 ecn not-ect ip6 hoplimit 46 ip6 flowlabel 574378 ip6 length 32 tcp sport 4242 tcp dport 37485 tcp flags == 0x11 tcp window 198
+trace id d94b4c39 ip6 docker-bridges filter-FORWARD rule oifname vmap @filter-forward-in-jumps (verdict jump filter-forward-in__docker0)
+trace id d94b4c39 ip6 docker-bridges filter-forward-in__docker0 rule ct state established,related counter packets 4 bytes 396 accept (verdict accept)
+trace id 26455bf7 ip6 docker-bridges trace-chain packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 26455bf7 ip6 docker-bridges trace-chain rule ip6 daddr {server:real:ip} meta nftrace set 1 (verdict continue)
+trace id 26455bf7 ip6 docker-bridges trace-chain policy accept
+trace id 26455bf7 ip6 docker-bridges raw-PREROUTING packet: iif "docker0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 64 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 26455bf7 ip6 docker-bridges raw-PREROUTING policy accept
+trace id 94dc4ce2 ip6 docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip6 saddr {container:ip} ip6 daddr {server:real:ip} ip6 dscp cs0 ip6 ecn not-ect ip6 hoplimit 63 ip6 flowlabel 869647 ip6 length 32 tcp sport 37485 tcp dport 4242 tcp flags == ack tcp window 507
+trace id 94dc4ce2 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
+trace id 94dc4ce2 ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
+```
+
+- ip6 dscp cs0 seems to be the default dscp value for normal traffic
+- ip6 flow label is used to indicate intermediate devices to know these belong to the same higher level connection,
+  you can see client side use a constant flow label and server side use a constant flow label
+- ip6 packets without data are shorter, previously recorded ipv4 packets are long seems to be because of tcp options section
+- similar tcp packet flow, client or server see trace rule, daddr is client send, saddr is server send
+  - client send syn
+  - server send ack + syn
+  - client send ack, complete handshake
+  - client send push + ack and data
+  - client send fin + ack, complete send data
+  - server send ack and server send push + ack and data these 2 packets records are mixed
+  - client send ack, ack push data I guess
+  - server send fin + ack, close connection
+  - client send ack, ack fin
+- similar chains
+  - all packet go through raw-prerouting and pass validation
+  - first packet go to nat-prerouting and daddr type is not local and nothing to do and pass
+  - all packet go through filter-forward-out-bridge or filter-forward-in-bridge
+  - first packet successfully trigger filter-forward-out-bridge OUTGOING counter, and never triggers it again
+  - first packet triggers nat-postrouting-out-bridge and source nat/masquerading, change source ip to eth0 real ip
+
+trace packet flow from container host to containers
+
+- start tcpserver at non public port and set tracing rule to only listen specific dport and sport
+- nc localhost or nc :: not work, while nc {container:ip} works? nc {real:public:ip} works
+- for both runnable addresses, nft trace records are same as connect to service with host network
+- oh, userland proxy
+
+UPDATE I still think this is related to the "MASQ FROM HOST" rule, and the source code indicate it's hairpin nat, investigate later
+https://github.com/moby/moby/blob/3c8382add85b6463a93511dc4c3551489350c879/daemon/libnetwork/drivers/bridge/internal/nftabler/network.go#L207
+
+trace packet flow from containers to container host
+
+- need this `docker run -it --rm --name tcpclient1 --add-host host.docker.internal:host-gateway alpine`
+- and connect with `nc host.docker.internal`
+- or change host-gateway to docker0's ipv6 address to make traffic happen in ipv6
+- or change to use public ip address
+- result in records nearly same as native, except first packet tries to go into nat-prerouting, and add a count
+
+trace packet flow between containers in the same network
+
+- docker run -it --rm --name tcpserver1 -p 8002:8002 python
+- docker inspect tcpserver1 --format '{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}'
+- docker run -it --rm --name tcpclient1 alpine
+- docker inspect tcpclient1 --format '{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}'
+- echo thelongmessage | nc {server:container:ip}
+- first packet filter-forward-in-bridge trigger ICC rule, others are same as server in container
+- UPDATE server container don't need to publish port
+- UPDATE cannot access by container name in default bridge network, a custom bridge network can
+
+trace packet flow between containers in different network
+
+- need to use public ip address I guess
+
+trace packet flow within same container because there is a rule like that?
+
+- nothing in nft trace if nc localhost in same container
+- cannot connect with container ip, can connect with public ip
+- triggers nat-postrouting-in-bridge's MASQ TO OWN HOST rule
+
+additional reading if you reached here?
+
+- https://thermalcircle.de/doku.php?id=blog:linux:nftables_packet_flow_netfilter_hooks_detail
+
+### Some Old Things
+
+you may find userland proxy, or the docker-proxy process, is default enabled in normal linux installation while
+ai sometimes call it deprecated, that's because the config key userland-proxy is planned to be default disabled
+since 2015 https://github.com/moby/moby/issues/14856, and the issue is still open at the time of writing (June
+2026), walk through the long history of discussions, they seems to be talk about real client ip need to disable
+userland proxy, which is by the way the topic discussed in container.md network section, and it seems that ipv6
+network completely not work without userland proxy at least before end of 2020, or more specifically, ip6tables
+rules stop experimental in mid 2024, https://docs.docker.com/engine/release-notes/27/#ipv6, and udp traffic not
+work without userland proxy at least before 2023, to make things more cool, the exact discussion about source ip
+https://github.com/moby/moby/issues/15086 is created at similar era and still open at the time of writing, again,
+while I did not encounter this issue after I migrated away from evil rootless mode and the comment 
+https://github.com/moby/moby/issues/15086#issuecomment-3050445563 indicates that enable ipv6 seems solve this
+issue, and you can see core module request log is stripping away ::ffff prefix from source ip, indicating that
+services inside containers with ipv6 enabled docker network always get ipv6 traffic with real source ip? to make
+things more cool, disabling userland proxy was making kernel panic? https://github.com/moby/moby/issues/5618 and
+https://github.com/moby/moby/issues/17443 and these issues even don't get fixed if you look closely
+
+UPDATE see also docs issue https://github.com/docker/docs/issues/17312
+
+you can check docker-proxy is listening your published ports with netstat command before disabling userland proxy,
+and as a common sense you netstat again after disabling userland proxy and see dockerd is listening the port,
+that's because dockerd is preserving the port avoiding other services to listening to the port later or try to
+allocate the port and check whether there is existing service listening the port, because docker network is going
+to redirect the traffic with network filter rules and other normal network service will not notice that, but if
+other service is operating firewall rules there will still be conflicts? see source code
+https://github.com/moby/moby/blob/29f6cd5c90cf836af25dddb82a3dbbf96dba1ee7/daemon/libnetwork/portallocator/osallocator_linux.go#L85,
+see commit https://github.com/moby/libnetwork/commit/198f0ef7cf91431d5b8bbd70f1b2a5dcca46cc2e yet another 2015
+
+you may be notified by dockerd if you configured userland proxy to off and failed to start docker daemon service
+and manually enabled sysctl net.ipv4.ip_forward, net.ipv6.conf.all.forwarding and net.ipv6.conf.default.forwarding,
+this setting enables kernel to support redirecting ip packets with proper target address to other devices, the
+dstnat rule is definitely an example, docker nftables document says you should block unwanted forwarding rules
+manually for security reasons, but not sure how to achieve this by external traffic as normal gateway devices will
+not accept such traffic, ai says something like compromised machine in the same network but still not sure how?
+
+ip forwarding is not old thing, but there is a related old thing br_netfilter, bridge network filter and its sysctl
+net.bridge.bridge-nft-call-iptables and -call-ip6tables, which may not exist in lsmod before you disable userland
+proxy and should automatically appear and automatically set to 1 after you disable userland proxy and restart docker
+daemon, it was needed because network bridge is a layer 2 devices and only bridge layer 2 traffic and does not know
+layer 3 and 4 properties and go through layer 3 and 4 network filter rules in iptables and ip6tables, this kernel
+module, use a whatever-I-currently-still-don't-understand approach to allow iptables and ip6tables to work on bridge
+traffic in FORWARD chains, you may be familiar with filter-forward chain after previous investigation, or the chain
+you put ban ip rules with firewall-backend=iptables which called DOCKER-USER, which is a branch of the FORWARD chain,
+and if you are familiar with kernel source code, it is at https://github.com/torvalds/linux/tree/master/net/bridge/netfilter,
+and ipv6 is at https://github.com/torvalds/linux/blob/master/net/bridge/br_netfilter_ipv6.c, for now bridge network
+driver always enables it at https://github.com/moby/moby/blob/fe5bc81e57442f4664886462eabd6fb71ab813ef/daemon/libnetwork/drivers/bridge/bridge_linux.go#L840,
+document says without this cannot *disable* inter container communication in the same network, why do I need to
+specifically disable icc in the same network? except why docker daemon default created bridge network (that associate
+with docker0) by default disable icc? and ai is currently confusing about the need of br_netfilter because the nftables
+firewall backend config option is a very new feature, current test shows unload the module modprobe -r br_netfilter
+does not affect normal inbound and outbound traffic, TODO try really ban ip in filter forward chain, if ok that mean
+br_netfilter is really an old thing
+
+additional reading?
+https://netdevconf.info/1.1/proceedings/papers/Bridge-filter-with-nftables.pdf
+https://routemyip.com/posts/linux/networking/bridge-netfilter-unexpected-consequences/
+
+### The Grand Conclusion
+
+although the title have to be h3 because the abyss section is h2, and this is not duplication of the early conclusion
+
+the overall bridge network design and setup is modeling threat of a bare metal machine directly connected to internet,
+but cloud servers are not bare metal machine, they are actually a private machine inside private network, and there are
+external firewall settings (normally you use that to open port) and external routing configurations, etc. provided by
+cloud service providers, so the grand conclusion is
+
+DO NOT USE bridge network on cloud servers AND wsl development environment
