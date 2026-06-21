@@ -4,15 +4,23 @@ import os, sys, subprocess, random, time, signal, datetime, pathlib, shutil
 
 # certbot container entrypoint, renew certificates with randomized schedule
 
-def check_deploy_hook(scriptname):
+def check_deploy_hook():
     deploy_dir_path = pathlib.Path('/etc/letsencrypt/renewal-hooks/deploy')
     if not deploy_dir_path.exists():
-        print(f'{scriptname}: missing renewal-hooks/deploy folder, you may need to check volume mapping or setup result')
+        print(f'schedule.py: missing renewal-hooks/deploy folder, you may need to check volume mapping or setup result')
         exit(1)
     deploy_script_path = deploy_dir_path / 'deploy.py'
     if not deploy_script_path.exists():
-        print(f'{scriptname}: deploy deploy hook')
+        print(f'schedule.py: deploy deploy hook')
         shutil.move('/deploy.py', deploy_script_path)
+    else:
+        with open('/deploy.py') as f1:
+            content1 = f1.read()
+        with open(deploy_script_path) as f2:
+            content2 = f2.read()
+        if content1 != content2:
+            print(f'schedule.py: deploy.py is not same! you need to update volume data')
+            exit(1)
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 def schedule(savedir, action):
@@ -112,7 +120,7 @@ def run_renew_command(time):
     child = subprocess.run(["certbot", "renew", '-q'], check=False)
     print(f"schedule.py: renew command complete with return code {child.returncode}")
 
-check_deploy_hook('schedule.py')
+check_deploy_hook()
 savedir = pathlib.Path('/etc/letsencrypt/renewal-schedule')
 if not savedir.exists():
     savedir.mkdir()

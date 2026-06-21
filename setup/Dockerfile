@@ -5,7 +5,7 @@ FROM certbot/certbot:v5.6.0 AS certbot
 # certbot python version can be found at container env PYTHON_VERSION
 # or source code https://github.com/certbot/certbot/blob/main/tools/docker/Dockerfile
 
-LABEL org.opencontainers.image.version=20260519
+LABEL org.opencontainers.image.version=20260618
 
 # the evil pip install to global by default, which is convenient for this case
 RUN pip install --root-user-action=ignore dnspython==2.8.0 pyyaml==6.0.3
