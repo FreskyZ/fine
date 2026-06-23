@@ -89,7 +89,7 @@ WantedBy = timers.target
 '''
 # by the way
 envrc = '''
-alias akari='docker compose run --rm --name akari1 -p 8001:8001 -v .:/self akari'
+alias akari='docker compose run --rm --name akari1 -v .:/self akari'
 '''
 
 def add_text_file(f, name, content, mode=0o644):

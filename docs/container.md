@@ -42,6 +42,8 @@ to create the project from scratch (not tested)
 
 to restore a full backup file from scratch
 
+- not that related with service setup but really cannot categorize
+  to system setup, which is setup per service ipv6 address in ip a or netplan
 - run make-setup.py and upload fine-setup.tar.xz
 - tar xJf fine-setup.tar.xz -C . && ./fine-setup.py and check output
 - docker compose up database and check output

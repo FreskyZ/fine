@@ -1,7 +1,6 @@
 # Internet Protocols v6
 
-by the way, even in my home network have a good ipv6 support at this time, comparing to the status a few years ago
-UPDATE: docker's ipv6 support also improves a lot in recent years
+by the way, even my home network and mobile network have a good ipv6 support at the time of writing
 
 furthur reading:
 
@@ -12,11 +11,11 @@ furthur reading:
 
 normally after you setup ipv6 on cloud server management page, it will automatically works, check
 
-- `ip -6 addr` for the configured ipv6 addresses, by the way don't be confused by those link local addresses
-- `ping6`, `ping -6` or `curl -6` to ping something to confirm outbound traffic works
-- start a web server listen to any address (`https.createServer(..).listen(443)`, `socket.bind(443)`, etc.),
-  they should be listening any ipv6 address now and can be checked by `netstat -tulpn` showing `:::443` and
-  access from other device will show ipv6 source address in request log
+- `ip -6 addr` for the configured ipv6 addresses, by the way don't be confused by link local addresses
+- `ping -6` or `curl -6` to ping something to confirm outbound traffic works, e.g. ip.me, ipv6.baidu.com
+- start a web server listen to unspecified address (`https.createServer(..).listen(443)`, `socket.bind(443)`, etc.),
+  they should be listening unspecified ipv6 address now and can be checked by `netstat -tulpn` showing `:::443` and
+  access from other machine will show ipv6 source address in request log
 - by the way, check `echo $SSH_CLIENT` for ssh connection info
 
 if not work, check
@@ -29,9 +28,9 @@ if not work, check
   also likely network configuration tool netplan configuration `/etc/netplan/*.yml`
 
 by the way, ai may show instructions about networking.service, ifup/ifdown commands and /etc/network/interfaces
-config file, that's the old network service, if you don't find the service unit file or ifup/ifdown commands on
-you machine then don't follow related instructions. by the way, they are available in the ifupdown package in
-major package repositories, don't know what will happen in normal images with systemd-networkd or networkmanager
+config file, that's the old network service, don't follow related instructions if you don't find the service unit
+file or ifup/ifdown commands on your machine, by the way, they are still available in major package repositories,
+not sure what will happen in normal images with systemd-networkd or networkmanager if they are installed together
 
 systemd-networkd is systemd, use networkctl command, and /run/systemd/network and /user/lib/systemd/network for
 config files, and maybe because these files are complex to write?, there is a netplan network configuration tool
@@ -43,7 +42,7 @@ and vpn, should not be related to cloud environment
 
 and now you learned this and ipv6 network still not work? it seems that furthur configuration on the machine is
 needed if your cloud server provider support assigning an ipv6 prefix to a network interface in network settings
-but not support assigning static addresses based on that, namely
+but not support assigning static addresses based on that, run
 
 ```sh
 ip -6 addr add xxxx::1/64 dev eth0
@@ -56,52 +55,59 @@ or in netplan yaml
 network:
   ethernets:
     eth0:
+      match:
+        macaddress: "eth0:ma:ca:dd:re:ss"
       addresses:
-        - xxxx:1/64
+        - static:address::1/64
+        - static:address::2/64
       routes:
         - to: default
-          via: xxxx::yyyy
+          via: gateway:address
 ```
 
 you may want at least one static address to use in dns records if you don't want to use dns provider api and ip
 monitor command https://man7.org/linux/man-pages/man8/ip-monitor.8.html (why do ip command support everything?)
 to update dns records when addresses change. the /64 may be the size of the subnet defined by the virtual switch
-and may not be the prefix length assigned to the cloud server which may only indicates a routing config but not
-subnet size, for now for aliyun default ipv6 setting, vpc use /56, virtual switch use /64, cloud server use /80
-and static address with /64 prefix length seems work, /80 seems not work, not sure whether /128 works
+and may not be the prefix length assigned to the network interface which may only indicates a routing config but
+not a subnet size, for now for aliyun default ipv6 setting, vpc use /56, virtual switch use /64, cloud server use
+/80, static address with /64 prefix length seems work, /80 seems not work, not sure whether /128 works
 
-the network gateway address xxxx::yyyy, if is not the common fe80::1 local address according to ai, and if not
-available in cloud server network settings as a config or information, may be available in cloud server instance
-metadata endpoints, like https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html and
-https://www.alibabacloud.com/help/zh/ecs/user-guide/view-instance-metadata/,
-at the /network/interfaces/macs/{mac}/ipv6-gateway endpoint, for now for aliyun default ipv6 setting, looks like
-xxxx:ffff:ffff:ffff:fff7, which also indicates it's a /64 network, not a /80 network
+the network gateway address, if is not something like fe80::1 link local address, and if not available in cloud
+server network settings as a config or information, may be available in cloud server instance metadata endpoints,
+like https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html and https://www.alibabacloud.com/help/zh/ecs/user-guide/view-instance-metadata/,
+at the /network/interfaces/macs/{mac}/ipv6-gateway endpoint, for now for aliyun default ipv6 setting, maybe looks
+like xxxx:ffff:ffff:ffff:fff7, which also indicates it's a /64 network, not a /80 network
 
 note if you see a netplan config file /etc/netplan/50-cloud-init.yml, this is not a generic file name that mean
 initializing cloud environment with basic network settings, but is a file generated by a tool called cloud-init,
 which seems commonly used by cloud server providers, to setup cloud server for different user settings without
 modifying operating system image itself, which may also access instance metadata endpoints for different parts
-on the cloud server, so this specific file will be overwritten cloud-init at startup time, you need to write the
-config files with manual settings with a higher priority like /etc/netplan/60-ipv6.yml
+on the cloud server, so this specific file will be overwritten by cloud-init at startup time, you need to write
+the config files with manual settings with a higher priority like /etc/netplan/60-ipv6.yml, need chmod 600
 
 ## Service Setup
 
 now that you have acquire an address pool with more than number of sand grains on the earth amount of addresses,
-you may want to assign different addresses to different services on the same machine, for services on the host or
-containers with host network, simply change from something like `https.createServer(...).listen(443)` to
-`.listen('your::stat::icad::dres::1', 443)`, you can start multiple services listening to different addresses but
-same port, but note that once a service is listening to a specified address, other services cannot listen to
-unspecified address anymore, they can listen to another specified address or listening to unspecified ipv4 address
-only, like `.listen('0.0.0.0', 443)`
+you may want to assign different addresses to different services in the same network, for service without docker,
+simply change from something like `https.createServer(...).listen(443)` to `.listen('stat:icad:dres:1', 443)`,
+you can start multiple services listening to different addresses same port, but note that once a service listens
+to a specified address, other services cannot listen to unspecified address anymore, they can listen to another
+specified address or listening to unspecified ipv4 address, like `.listen('0.0.0.0', 443)`
 
-to keep using the default bridge network for normal containers for security? requirements, it is also achievable
-by specifying an ip address in port mapping syntax, whereas `-p 443` or `-p 443:443` actually means mapping
-unspecified host address :::443 to container port 443, you can manually specify `-p host:side:ip:addr::1:443:443`
-in port mapping parameter in run command or compose file, and mapping different container port to different host
-ip addresses effectively allows a single container to work with multiple public addresses, for outbound traffics,
-it seems to be https://docs.docker.com/engine/network/drivers/bridge/#options host_ipv6 option? not tested
+docker by default use bridge network driver to isolate networks, specify ip address in port publish syntax in run
+command or compose file like `-p host:side:ip:addr::1:443:443` to publish port to a specific host side ip address,
+use `com.docker.network.host_ipv6` driver option to specify source nat source ip address
 
-a small testing program:
+to use multiple ip addr in one container (why do you want that?), although seems not directly supported, you can
+
+- map different container port to different public ip address to add inbound addresses
+- exec into a container to add more ip address and add higher priority nftables table to overwrite docker rules
+  to add inbound and outbound addresses
+
+you'd better read through the document to understand docker network internals and especially the true conclusion
+before you do something like this to docker network
+
+a small testing program by the way
 
 ```typescript
 import fs from 'node:fs/promises';
@@ -142,14 +148,6 @@ and `firewall-backend=nftables`, this section is in ipv6.md because ipv6 is half
 half of the firewall rules, half of the docker network configurations, etc. not because container.md
 network section is occupied by network issues from the evil rootless mode
 
-and conclusion
-
-> add rules to custom table family=inet type=filter hook=forward TODO test run
-
-conclusion is here or else it will be hard to find, docker network document has the answer, but I
-cannot read through the complete document before I understand the internals after the investigation
-https://docs.docker.com/engine/network/firewall-nftables/#example-restricting-external-connections-to-containers
-
 ### Network Devices
 
 docker network default use bridge network driver https://docs.docker.com/engine/network/drivers/bridge/,
@@ -159,10 +157,11 @@ exposing network services inside containers with proper configuration, it utiliz
 
 - network bridge https://wiki.archlinux.org/title/Network_bridge
 - network namespace https://man.archlinux.org/man/network_namespaces.7.en
+- network filters (next section)
 
 network bridges, other virtual network interfaces (and real network interfaces) and network namespaces can be
-inspected by the `ip` command, which is likely default included in normal images, or available in the iproute2
-package https://packages.debian.org/trixie/iproute2
+inspected and manipulated by the `ip` command, which is likely default included in normal images, or available
+in the iproute2 package https://packages.debian.org/trixie/iproute2
 
 - ip: https://man.archlinux.org/man/ip.8.en
 - ip addr: https://man.archlinux.org/man/ip-address.8.en
@@ -170,6 +169,8 @@ package https://packages.debian.org/trixie/iproute2
 - etc. by the way, interface, addr and route information comes from https://man.archlinux.org/man/rtnetlink.7
 
 run docker compose up and run remote akari shell in this project, and run ip a get something like this
+UPDATE at the time of writing, the compose project has 2 services using compose project default bridge network,
+corresponds to interface 77 and 78, add a compose run'd container, which corresponds to interface 80
 
 ```
 1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
@@ -220,24 +221,25 @@ where
 
 - lo, eth0, docker0, br-*, veth* are network interfaces
 - docker0 is docker default created bridge network whose name is bridge, the relationship can be confirmed by
-  `docker network inspect bridge` check `['Options']['com.docker.network.bridge.name']` how do you specify this
-  in --format?, you can specify another name or using an exiting device in docker daemon settings
-- br-* is docker compose default created bridge network, the hex part in the name is leading part of network id
-- veth* are virtual ethernet devices, seems one for each container, names seems random generated
-  the @if(\d+) part is not part of veth name, but a reference to its peer network interface index inside network
-  namespace, e.g. 80: vethxxxx@if2's peer device may be a 2: eth0@if80 inside namespace, note that they are not
-  the same device and have different name, mac address and ip addresses
+  `docker network inspect bridge` check `['Options']['com.docker.network.bridge.name']` (how do you specify this
+  in --format?), you can specify another name or using an existing device in docker daemon settings
+- br-* is docker compose default created bridge network, the hex part is the leading part of network id
+- veth* are virtual ethernet devices, one for each container (not for host network containers), names seems to be
+  randomly generated, the @if(\d+) postfix is not part of the device name, but a reference to its peer interface
+  index inside network namespace, e.g. 80: vethxxxx@if2's peer device may be a 2: eth0@if80 inside namespace, note
+  that they are different devices and have different name, mac address and ip addresses
 
-you may look through ip netns document and see link-netnsid 2 in the veth link information, and want to ask why
-`ip netns list` is showing nothing, that's because ip netns list only lists named network namespaces but a network
-namespace does not necessary have a name, although you may want something to run in ip netns exec {netnsname}, but
-the easiest way to inspect docker managed namespace is to `docker exec containername ip a`
+you may have read ip-netns document and see link-netnsid 2 in the veth link information, and run `ip netns list`
+to see nothing, that's because ip-netns only work on named network namespaces which seems need a special file at
+the `/var/run/netns` directory, but a network namespace does not necessary require a name, to run commands inside
+a network namespace managed by docker, instead of `ip netns exec {nsname} ip a`, use
 
+- `docker exec containername ip a`
 - by the way if you are inside a remote akari shell in this project, run `!ip a`,
 - or find process id --format '{{ .State.Pid }}' and run `nsenter -t <PID> -n ip a`,
-- or find sandbox key --format '{{ .NetworkSettings.SandboxKey }}' and run `nsenter --net=/var/run/docker/netns/xxxx ip a`
-- or link the symbolic link in proc fs `ln -sf /proc/<PID>/ns/net /var/run/netns/custom-name`, and don't forget to
-  mkdir -p if the target directory not exist, also see /proc/pid/ns directory in man namespace
+- or find sandbox key '{{ .NetworkSettings.SandboxKey }}' and run `nsenter --net=/var/run/docker/netns/xxxx ip a`
+- or link the symbolic link in proc fs `ln -sf /proc/<PID>/ns/net /var/run/netns/custom-name`,
+  don't forget to mkdir -p by the way, the reference for /proc/pid/ns directory see man namespace
 
 by the way, the /proc/pid/ns/net file is a symbolic link to something like `net:[\d+]`, which is reasonable, but
 the sandbox key file is even not a symbolic link? and search result for "docker sandbox" is covered by the docker
@@ -245,7 +247,7 @@ desktop product called sandbox which seems to be related with ai? UPDATE: use mo
 is a nsfs mount, and use stat /var/run/docker/netns/xxxx to find the inode is same as the readlink result number,
 both of them are magic symbolic links and magic files, yes, everthing is a file
 
-and ip a inside namespace looks like
+ip a inside namespace looks like this
 
 ```
 1: lo: ...
@@ -259,9 +261,9 @@ inet6 fe80::c8f3:7cff:fe2e:2d43/64 scope link
     valid_lft forever preferred_lft forever
 ```
 
-- the fd15:...:4 address the value in `docker inspect containername --format {{ .NetworkSettings.Networks.fine1.GlobalIPv6Address }}`,
-  and other containers in the same namespace actually use this ip to communicate with this container
-- by the way, br-* main address is also the ipv6 gateway address in `--format {{ .NetworkSettings.Networks.fine1.IPv6Gateway }}`
+- the fd15:...:4 address the value in inspect --format {{ .NetworkSettings.Networks.fine1.GlobalIPv6Address }},
+  and other containers in the same network use this ip to communicate with this container
+- by the way, {{ .NetworkSettings.Networks.fine1.IPv6Gateway }} is veth's master bridge device main address
 
 additional explanations, if you are interesting
 
@@ -285,52 +287,30 @@ additional explanations, if you are interesting
 - M-DOWN means master down, not sure what that mean because the master br-* bridge is not down
 - flags 02 means normal? public address, public from container and inside network namespace's perspective
 
-bring your own namespace, if you are interesting
+you can setup network namespaces and virtual interfaces on your own, if you are interesting
 
-```sh
-# create namespace
-ip netns add myns1
-# setup veth pair
-ip link add veth1 type veth peer name veth1peer
-ip link set veth1 up
-ip link set veth1peer netns myns1
-ip netns exec myns1 ip link set lo up
-ip netns exec myns1 ip link set veth1peer up
-ip netns exec myns1 ip -6 addr add fd15:9f9f:b9d6::4/64 dev veth1peer
-# setup bridge
-ip link add br1 type bridge
-ip link set br1 up
-ip addr add 172.17.0.1/16 dev br1
-ip -6 addr add fd15:9f9f:b9d6::1/64 dev br1
-# link bridge and veth pair
-ip link set veth1 master br1
-ip netns exec myns1 ip route add default via 172.17.0.1/16
-ip netns exec myns1 ip -6 route add default via fd15:9f9f:b9d6::1/64
-# create 2 veth pairs and then you can ping between them
-```
+see later br_netfilter investigation part for full instructions
 
-and that's the end of BYON, because docker does not support custom network namespace, see https://github.com/moby/moby/issues/47828,
-this issue is young and not that related and they discussed a custom work around for the issue creator's need,
+but docker does not support bring-your-own-network-namespace, see https://github.com/moby/moby/issues/47828, this
+issue is young and not that related and they discussed a custom work around for the issue creator's specific need,
 but leave the issue open, which indicates the fate of other issues that will be mentioned in this document, while
 this pr https://github.com/moby/moby/pull/8216, which I think may be the oldest item linked in this document, and
-may be the item with shortest open time? is rejected because of *non technical* reasons https://github.com/moby/moby/pull/8216#issuecomment-63561676
+may be the item with shortest open time? is rejected because of *non technical* reason, see https://github.com/moby/moby/pull/8216#issuecomment-63561676
 despite dozens of +1 in comments and only this guy, with pr permissions, have objections
 
 ### Network Filters
 
-bridge network driver use network filters, see also
-https://github.com/moby/moby/blob/master/integration/network/bridge/nftablesdoc/index.md
+see document https://docs.docker.com/engine/network/firewall-nftables/
+also source code document https://github.com/moby/moby/blob/master/integration/network/bridge/nftablesdoc/index.md
 
-inspect network filters with nft command https://netfilter.org/projects/nftables/manpage.html
+TODO investigate com.docker.network.bridge.gateway_mode_ipv6={nat|routed}?
 
-TODO com.docker.network.bridge.gateway_mode_ipv6={nat|routed}?
+nft command https://netfilter.org/projects/nftables/manpage.html, list ruleset output for
 
-nft list ruleset output after 
-
-- docker compose up
+- docker compose up (at the time of writing, 2 service use docker compose default bridge network)
 - docker compose run akari
 - docker run -itd --rm --name sleep1 -p 5678:5678 alpine sleep infinity
-- docker run -itd --rm --name sleep2 -p {anipv6addr}:12345:23456 alpine sleep infinity
+- docker run -itd --rm --name sleep2 -p {specified:ip6:addr}:12345:23456 alpine sleep infinity
 
 ```
 table ip docker-bridges {
@@ -468,7 +448,7 @@ table ip6 docker-bridges {
     chain nat-prerouting-and-output {
         ip6 saddr != fe80::/10 tcp dport 5678 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6::2]:5678 comment "DNAT"
         ip6 saddr != fe80::/10 tcp dport 8001 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6:1::4]:8001 comment "DNAT"
-        ip6 saddr != fe80::/10 ip6 daddr [anipv6addr] tcp dport 12345 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6::2]:23456 comment "DNAT"
+        ip6 saddr != fe80::/10 ip6 daddr {specified:ip6:addr} tcp dport 12345 counter packets 0 bytes 0 dnat to [fd15:9f9f:b9d6::2]:23456 comment "DNAT"
     }
 
     chain raw-PREROUTING {
@@ -483,6 +463,7 @@ table ip6 docker-bridges {
         ct state established,related counter packets 0 bytes 0 accept
         iifname "br-f7a45e44929b" counter packets 54 bytes 3528 accept comment "ICC"
         ip6 daddr fd15:9f9f:b9d6:1::4 tcp dport 8001 counter packets 0 bytes 0 accept
+        ip6 daddr fd15:9f9f:b9d6::2 tcp dport 23456 counter packets 0 bytes 0 accept
         counter packets 0 bytes 0 drop comment "UNPUBLISHED PORT DROP"
     }
     chain filter-forward-out__br-f7a45e44929b {
@@ -525,12 +506,14 @@ where
   172.18.0.1/16 and fd15:9f9f:b9d6:1::/64 is br-* network,
   172.18.0.2, .3, .4, fd15:9f9f:b9d6:1::1, :2, :3 are container ip addresses
 - the maps are really map data structure in normal programming languages, map strings to some other objects
-- type=filter means filter, filter all packets,
+- type=filter means normal filter, filter all packets,
+  type=filter hook=forward means packets forwarded between interfaces,
+  this is the forward in ip forward sysctl config you enabled when start with firewall-backup=nftables
   type=nat means nat that transforms address and port according to some rule,
   type=nat normally only trigger for conntrack state = new packets, not for established or related packets
 - fib (forward information base) seems to be required for daddr/saddr type local
 
-setup trace to understand purpose and relationships of rules
+setup trace to understand usages and relationships of the rules
 
 - add trace chain `nft 'add chain ip docker-bridges trace-chain { type filter hook prerouting priority raw - 1; }'`
 - set trace `nft add rule ip docker-bridges trace-chain tcp dport != 22 meta nftrace set 1`, always need to
@@ -538,9 +521,11 @@ setup trace to understand purpose and relationships of rules
 - monitor `nft monitor trace`
 - stop trace `nft delete chain ip docker-bridges trace-chain`
 - see also https://wiki.nftables.org/wiki-nftables/index.php/Ruleset_debug/tracing
+- search for "trace packet flow" for different scenarios in this document?
 
-first `fetch('https://example.com')` from local to test connectivity and test the tracing rule by the way, at the
-time of writing the main web service is using host network, so this is from other machine to this machine without container actually
+first `fetch('https://example.com')` from local to test connectivity and test the tracing rule for the first time,
+at the time of writing the main web service is using host network, so this is actually trace packet flow from other
+machine to this machine without container
 
 ```
 trace id 29d99b3b ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 116 ip id 14065 ip length 41 tcp sport 26907 tcp dport 443 tcp flags == ack tcp window 255
@@ -556,25 +541,24 @@ trace id 29d99b3b inet filter input policy accept
 
 where
 
-- ip dscp is the new name? for type of service field in header
+- ip dscp seems to be the new name for type of service field in ipv4 header,
   and 0x05 is not in dscp registry? https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
+  UPDATE also not in nft describe ip dscp
 - ip ecn not-ect means explicit congestion notification is not ecn-capable transport
 - tcp flags see `nft decribe tcp flags`, these 3 packets are standard ack + synack + syn handshake flow
 - tcp window is sender advertised tcp receive window, seems to be receive buffer size?
 - specifically for this project, it also go through dontry.py created inet filter table, indicating it's
-  working effectively for this scenario
+  effective for this scenario
 
-trace packet flow from other machine to containers with default network by
+use python to start a simple tcp server for later scenarios
 
-- `docker run -it --rm --name tcpserver1 -p 8001:8001 python`
-- run python
 ```py
 import socket
-def f():
+def listen(port):
     server = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(('::', 8002))
-    server.listen(1)
+    server.bind(('::', port))
+    server.listen(0)
     # accept 1
     def accept():
         # connection is a socket object, addr is socket.raddr
@@ -587,20 +571,26 @@ def f():
     def close():
         server.close()
     return accept, close
-accept, close = f()
 ```
-- client side use this, try make it not short to distinguish data packets and non data packets
-  `echo hello1234501234567890123456789012345678901234567890123456789012345678901234567890123456789123456789 | nc -N {ip} {port}`
-- to reduce noice, change trace rule to tcp dport 8001 and tcp sport 8001
+
 - or use netcat: docker run --rm -p 8001:8001 alpine sh -c "nc -l -p 8001 -c 'read line; echo ECHO: \$line; exit'",
   nc is default in alpine busybox, but this nc does support -6, which may be ok, and not support -c, which is not ok
-- or use socat: socat TCP-LISTEN:8001,fork,reuseaddr EXEC:"/bin/sh -c \"read line; echo ECHO: \$line\"",
-  this need install, and does not print information messages
+- or use socat: socat TCP-LISTEN:8001,fork,reuseaddr EXEC:"/bin/sh -c \"read line; echo ECHO: \$line\"", this need
+  install, and does not print information messages
+- or use the main web server and run node fetch at client side, while this trace mainly work on ip packets, multiple
+  http connections may mess up trace records
+
+trace packet flow from other machine to containers with default network
+
+- `docker run -it --rm --name tcpserver1 -p 8001:8001 python`
+- run python `accept, close = listen(8001)`, and then` accept()`
+- client side, try make it not short to distinguish data packets and non data packets
+  `echo hello1234501234567890123456789012345678901234567890123456789012345678901234567890123456789123456789 | nc -N {ip} {port}`
+- to reduce noice, change trace rule to `tcp dport 8001` and `tcp sport 8001`
 - note that previous ip link command output runs with akari that listen 8001 inside a composed container
-  and a non-composed container listening 5678, with this command the non-composed container is listening 8001,
-  I assume if you understand or follow previous sections you know how the related veth pair and rules in
-  nat-prerouting-and-output chain look like?
-- not fetch('https://example.com:8001'), there seems to be multiple tcp packets for http request and response
+  and a non-composed container listening 5678, with this command the non-composed container is listening
+  8001, I assume if you understand or follow previous sections you know how the related veth pair and rules
+  in nat-prerouting-and-output chain look like?
 
 ```
 # ip packet 1
@@ -628,7 +618,7 @@ trace id 24ccfc7f ip docker-bridges nat-POSTROUTING policy accept
 - filter-forward-in-docker0: match daddr + dport so accept
 - nat-postrouting: map oif to nat-postrouting-in-bridge
 - no nat-postrouting-in-docker0: not masq from host, not masq from own part so all rules not match
-  I guess all rule not match and no chain level verdict makes this record missing
+  all rule not match and no chain level verdict makes no trace record I guess
 
 ```
 # ip packet 2
@@ -648,6 +638,7 @@ trace id a9585eab ip docker-bridges filter-forward-out__docker0 rule ct state es
 - no nat-prerouting: conntrack record exists TODO check this by /proc/net/conntrack?
 - filter-forward: map iif to filter-forward-out-bridge
 - filter-forward-out-docker0: count as ct state estabilished
+- no nat-postrouting: conntrack record exists
 
 ```
 # ip packet 3
@@ -667,7 +658,7 @@ trace id a25d87ad ip docker-bridges filter-forward-in__docker0 rule ct state est
 - filter-forward: same
 
 ```
-# ip packet 4, client send push + ack, you can see ip length > 100 and contains data
+# ip packet 4, client send push + ack, you can see ip length > 100 indicate it's data packet
 trace id b213b916 ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15292 ip length 143 tcp sport 25882 tcp dport 8001 tcp flags == 0x18 tcp window 502
 trace id b213b916 ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
 trace id b213b916 ip docker-bridges trace-chain policy accept
@@ -685,7 +676,7 @@ trace id 1b4b20c4 ip docker-bridges raw-PREROUTING policy accept
 trace id f1729903 ip docker-bridges filter-FORWARD packet: iif "docker0" oif "eth0" ether saddr {container:mac} ether daddr {docker0:mac} ip saddr {container:ip} ip daddr {client:real:ip} ip dscp cs0 ip ecn not-ect ip ttl 63 ip id 61462 ip length 52 tcp sport 8001 tcp dport 25882 tcp flags == ack tcp window 509
 trace id f1729903 ip docker-bridges filter-FORWARD rule iifname vmap @filter-forward-out-jumps (verdict jump filter-forward-out__docker0)
 trace id f1729903 ip docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 2281 bytes 134848 accept (verdict accept)
-# ip packet 6, client send fin + ack, as required by nc -N argument
+# ip packet 6, client send fin + ack, half close as required by nc -N argument
 trace id 32e45a12 ip docker-bridges trace-chain packet: iif "eth0" ether saddr {last:hop:mac} ether daddr {eth0:real:mac} ip saddr {client:real:ip} ip daddr {eth0:real:ip} ip dscp 0x05 ip ecn not-ect ip ttl 53 ip id 15293 ip length 52 tcp sport 25882 tcp dport 8001 tcp flags == 0x11 tcp window 502
 trace id 32e45a12 ip docker-bridges trace-chain rule tcp dport 8001 meta nftrace set 1 (verdict continue)
 trace id 32e45a12 ip docker-bridges trace-chain policy accept
@@ -733,7 +724,7 @@ trace id dee2dc16 ip docker-bridges filter-forward-in__docker0 rule ct state est
 ```
 
 by the way `tcpdump 'src host {client:real:ip} and dst port 8001 or dst host {client:real:ip} and not src port 22'`,
-need to specify port or else a lot of ssh traffic, by the way this condition don't need parenthese, but you can even add paren if need in more complex conditions
+need to specify port or else recursive triggering of ssh traffic,this condition don't need parenthese, but you can even add parenthese if need more complex conditions
 
 ```
 13:36:50.434586 IP CLIENT > SERVER: Flags [S], seq 1099056358, win 64240, options [mss 1412,sackOK,TS val 1109119823 ecr 0,nop,wscale 7], length 0
@@ -761,23 +752,21 @@ where
 
 trace packet flow from containers to other machine by...
 
-now you need another server to start a simple tcp server to avoid potential mess in http traffics, while currently
-I don't have a second server and it's not ok to initiate a connection from my server to my local machine as it will
-be blocked by my home network isp, so I should initiate a connection from my local machine to my server, as my dev
-machine also have docker and docker network setup, right? no, that's another abyss, that you don't find iptables
-and nftables command in wsl distro, while you probably know windows wsl + docker desktop create container with host
-network will display a docker-desktop as hostname that's because the host means the docker desktop dedicated distro
-not your working distro, and the dddd also don't have iptables and nftables command! first, wsl don't default
-support iptables and nftables, and windows docker desktop setup network by some windows side programs, some hyper-v
-network settings and some wsl magics, and they work together to make things smooth when you start a normal develop
-time http server in container and opens that in browser in windows, and windows side firewall rules even work for
-this scenario, without using network filter rules like docker-ce on a linux server, and it will be complex and not
-that meaningful (compare to this already not very meaningful investigation if you skip to the end of this document)
-to investigate architecture and underlying mecahnism
-
-see also https://github.com/microsoft/WSL/issues/11140 and https://github.com/microsoft/WSL/issues/6044 but there
-is a config key called firewall in https://learn.microsoft.com/en-us/windows/wsl/wsl-config, investigate if need?
-update: to make things more cool, network mode=mirrored is related with this
+now you need another server to start a tcp server, if you are like me and currently don't have a second server and
+my home network isp definitely will block connections initiated from outside, so the natural solution is to start
+the connection from my local machine to the server, my local machine should have similar network setup, right? no,
+that's another abyss, indicate by you cannot find iptables and nftables command on wsl, and as you may probably
+know windows wsl docker desktop have different host network as indicated by the hostname is not a random hex value
+but docker-desktop which is the docker desktop dedicated distro, and you cannot find iptables and nftables command
+on dddd! it turns out that wsl seems don't default support network filtering, see https://github.com/microsoft/WSL/issues/11140
+and https://github.com/microsoft/WSL/issues/6044 while there is a config key called firewall in https://learn.microsoft.com/en-us/windows/wsl/wsl-config,
+not sure whether wsl actually support network filtering at this time, and to make things more cool, wsl network mode
+mirrored is related to this topic, on the docker desktop side, it seems using some windows side programs, hyperv
+features and wsl features and some other magics to make things very smooth when you start a normal development server
+in container and opens that in browser in windows, and make user very confusing without background knowledge of
+docker network internals from linux servers with normal docker-ce installation, currently it is not very meaningful
+to investigate this, especially compare to this already no very meaningful investigation if you skip to the end of
+this document for the true conclusion, so...
 
 so use https://tcpbin.com/ which selflessly provide a public tcp echo service for demo and test purpose
 
@@ -875,6 +864,8 @@ trace id 94dc4ce2 ip6 docker-bridges filter-FORWARD rule iifname vmap @filter-fo
 trace id 94dc4ce2 ip6 docker-bridges filter-forward-out__docker0 rule ct state established,related counter packets 18 bytes 1519 accept (verdict accept)
 ```
 
+where
+
 - ip6 dscp cs0 seems to be the default dscp value for normal traffic
 - ip6 flow label is used to indicate intermediate devices to know these belong to the same higher level connection,
   you can see client side use a constant flow label and server side use a constant flow label
@@ -885,26 +876,33 @@ trace id 94dc4ce2 ip6 docker-bridges filter-forward-out__docker0 rule ct state e
   - client send ack, complete handshake
   - client send push + ack and data
   - client send fin + ack, complete send data
-  - server send ack and server send push + ack and data these 2 packets records are mixed
-  - client send ack, ack push data I guess
+  - server send ack and server send push + ack and data, these 2 packets records are mixed
+  - client send ack, acking push data I guess
   - server send fin + ack, close connection
-  - client send ack, ack fin
+  - client send ack, acking fin
 - similar chains
   - all packet go through raw-prerouting and pass validation
   - first packet go to nat-prerouting and daddr type is not local and nothing to do and pass
   - all packet go through filter-forward-out-bridge or filter-forward-in-bridge
-  - first packet successfully trigger filter-forward-out-bridge OUTGOING counter, and never triggers it again
+  - first packet successfully trigger filter-forward-out-bridge OUTGOING counter, and later packets all trigger conntrack rule as usual
   - first packet triggers nat-postrouting-out-bridge and source nat/masquerading, change source ip to eth0 real ip
+
+TODO with this knowledge you can log network traffic and later change acme network to whitelist
+
+- add rule inet filter forward ip saddr {container:ip} ct state new log prefix "acme traffic: " level info accept
+- add rule inet filter forward ip6 saddr {container:ip6} ct state new log prefix "acme traffic: " level info accept
+- read logs in journalctl I guess
 
 trace packet flow from container host to containers
 
 - start tcpserver at non public port and set tracing rule to only listen specific dport and sport
-- nc localhost or nc :: not work, while nc {container:ip} works? nc {real:public:ip} works
-- for both runnable addresses, nft trace records are same as connect to service with host network
+- nc localhost or nc :: not work, while nc {container:ip} works? and nc {real:public:ip} works
+- for both runnable parameters, nft trace records are same as connect to service with host network
 - oh, userland proxy
 
 UPDATE I still think this is related to the "MASQ FROM HOST" rule, and the source code indicate it's hairpin nat, investigate later
 https://github.com/moby/moby/blob/3c8382add85b6463a93511dc4c3551489350c879/daemon/libnetwork/drivers/bridge/internal/nftabler/network.go#L207
+UPDATE may be also for nat-output chain which is also not triggered in this document
 
 trace packet flow from containers to container host
 
@@ -917,93 +915,372 @@ trace packet flow from containers to container host
 trace packet flow between containers in the same network
 
 - docker run -it --rm --name tcpserver1 -p 8002:8002 python
+  UPDATE server container don't need to publish port
 - docker inspect tcpserver1 --format '{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}'
 - docker run -it --rm --name tcpclient1 alpine
 - docker inspect tcpclient1 --format '{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}'
 - echo thelongmessage | nc {server:container:ip}
 - first packet filter-forward-in-bridge trigger ICC rule, others are same as server in container
-- UPDATE server container don't need to publish port
-- UPDATE cannot access by container name in default bridge network, a custom bridge network can
+- UPDATE cannot access by container name in default bridge network, a custom bridge network can,
+  note this is about default bridge network does not provide name resolving, you still can use ip,
+  the default bridge network is not blocking icc, you can see docker network inspect or the icc rule is not dropping
 
 trace packet flow between containers in different network
 
 - need to use public ip address I guess
 
-trace packet flow within same container because there is a rule like that?
+trace packet flow within same container
 
 - nothing in nft trace if nc localhost in same container
 - cannot connect with container ip, can connect with public ip
 - triggers nat-postrouting-in-bridge's MASQ TO OWN HOST rule
 
-additional reading if you reached here?
+### Conclusion
 
-- https://thermalcircle.de/doku.php?id=blog:linux:nftables_packet_flow_netfilter_hooks_detail
+the *direct answer* is
 
-### Some Old Things
+> add rules to custom table family=inet type=filter hook=forward
 
-you may find userland proxy, or the docker-proxy process, is default enabled in normal linux installation while
-ai sometimes call it deprecated, that's because the config key userland-proxy is planned to be default disabled
-since 2015 https://github.com/moby/moby/issues/14856, and the issue is still open at the time of writing (June
-2026), walk through the long history of discussions, they seems to be talk about real client ip need to disable
-userland proxy, which is by the way the topic discussed in container.md network section, and it seems that ipv6
-network completely not work without userland proxy at least before end of 2020, or more specifically, ip6tables
-rules stop experimental in mid 2024, https://docs.docker.com/engine/release-notes/27/#ipv6, and udp traffic not
-work without userland proxy at least before 2023, to make things more cool, the exact discussion about source ip
-https://github.com/moby/moby/issues/15086 is created at similar era and still open at the time of writing, again,
-while I did not encounter this issue after I migrated away from evil rootless mode and the comment 
-https://github.com/moby/moby/issues/15086#issuecomment-3050445563 indicates that enable ipv6 seems solve this
-issue, and you can see core module request log is stripping away ::ffff prefix from source ip, indicating that
-services inside containers with ipv6 enabled docker network always get ipv6 traffic with real source ip? to make
-things more cool, disabling userland proxy was making kernel panic? https://github.com/moby/moby/issues/5618 and
-https://github.com/moby/moby/issues/17443 and these issues even don't get fixed if you look closely
+docker network document has this answer, see
+https://docs.docker.com/engine/network/firewall-nftables/#example-restricting-external-connections-to-containers,
+but I cannot read through the complete document before I understand docker network internals before this investigation
 
-UPDATE see also docs issue https://github.com/docker/docs/issues/17312
+notice that the overall docker bridge network design is modeling threat of a bare metal machine directly connected to
+the internet, while cloud servers are actually a private machine inside cloud server protected network and there are
+external firewall settings (normally you use that to open port) and external routing configs, etc. so it's meaningless
+to setup firewall here, also for wsl which is private network from windows perspective or from home router and isp's
+perspective, so the *true answer* is
 
-you can check docker-proxy is listening your published ports with netstat command before disabling userland proxy,
-and as a common sense you netstat again after disabling userland proxy and see dockerd is listening the port,
-that's because dockerd is preserving the port avoiding other services to listening to the port later or try to
-allocate the port and check whether there is existing service listening the port, because docker network is going
-to redirect the traffic with network filter rules and other normal network service will not notice that, but if
-other service is operating firewall rules there will still be conflicts? see source code
-https://github.com/moby/moby/blob/29f6cd5c90cf836af25dddb82a3dbbf96dba1ee7/daemon/libnetwork/portallocator/osallocator_linux.go#L85,
-see commit https://github.com/moby/libnetwork/commit/198f0ef7cf91431d5b8bbd70f1b2a5dcca46cc2e yet another 2015
+> DO NOT USE bridge network on cloud servers AND wsl development environment
 
-you may be notified by dockerd if you configured userland proxy to off and failed to start docker daemon service
-and manually enabled sysctl net.ipv4.ip_forward, net.ipv6.conf.all.forwarding and net.ipv6.conf.default.forwarding,
-this setting enables kernel to support redirecting ip packets with proper target address to other devices, the
-dstnat rule is definitely an example, docker nftables document says you should block unwanted forwarding rules
-manually for security reasons, but not sure how to achieve this by external traffic as normal gateway devices will
-not accept such traffic, ai says something like compromised machine in the same network but still not sure how?
+### Additional Reading
 
-ip forwarding is not old thing, but there is a related old thing br_netfilter, bridge network filter and its sysctl
-net.bridge.bridge-nft-call-iptables and -call-ip6tables, which may not exist in lsmod before you disable userland
-proxy and should automatically appear and automatically set to 1 after you disable userland proxy and restart docker
-daemon, it was needed because network bridge is a layer 2 devices and only bridge layer 2 traffic and does not know
-layer 3 and 4 properties and go through layer 3 and 4 network filter rules in iptables and ip6tables, this kernel
-module, use a whatever-I-currently-still-don't-understand approach to allow iptables and ip6tables to work on bridge
-traffic in FORWARD chains, you may be familiar with filter-forward chain after previous investigation, or the chain
-you put ban ip rules with firewall-backend=iptables which called DOCKER-USER, which is a branch of the FORWARD chain,
-and if you are familiar with kernel source code, it is at https://github.com/torvalds/linux/tree/master/net/bridge/netfilter,
-and ipv6 is at https://github.com/torvalds/linux/blob/master/net/bridge/br_netfilter_ipv6.c, for now bridge network
-driver always enables it at https://github.com/moby/moby/blob/fe5bc81e57442f4664886462eabd6fb71ab813ef/daemon/libnetwork/drivers/bridge/bridge_linux.go#L840,
-document says without this cannot *disable* inter container communication in the same network, why do I need to
-specifically disable icc in the same network? except why docker daemon default created bridge network (that associate
-with docker0) by default disable icc? and ai is currently confusing about the need of br_netfilter because the nftables
-firewall backend config option is a very new feature, current test shows unload the module modprobe -r br_netfilter
-does not affect normal inbound and outbound traffic, TODO try really ban ip in filter forward chain, if ok that mean
-br_netfilter is really an old thing
+you may find userland proxy, or the docker-proxy program, is default enabled in normal linux installation, see process
+list when you published a port with default network setting, while ai sometimes call it deprecated, that's because this
+daemon config key is planned to be default disabled since 2015, see https://github.com/moby/moby/issues/14856, which
+have been opened for more than 10 years at the time of writing, walking through the discussion history, this seems to
+be motivated by the issue that real source ip is missing due to this program, which is the same phenomenon as the issue
+investigated in container.md network section (not exactly the same, this is nonrootless), on the other side, ipv6
+network was completely not working without userland proxy at least util 2020, or more specifically, the ip6tables rules
+and daemon config key stop experiment in mid 2024, see https://docs.docker.com/engine/release-notes/27/#ipv6, by the
+way udp traffic seems not working without userland proxy at least before 2023, to make things more cool, the exact
+discussion about source ip issue https://github.com/moby/moby/issues/15086 is created at same era and still open at the
+time of writing, again, after more than 10 years, again, and makes a lot of confusion to container.md network section
+investigation before I realized rootless and nonrootless are completely different topic, to make things even more cool,
+although this issue seems not resolved util today, https://github.com/moby/moby/issues/15086#issuecomment-3050445563
+points out that enabling ipv6 network seems make things work, which seems to be the reason for container.md network
+final update statement, "no such issue", which according to my knowledege learned from this investigation, cannot be
+achieved by current network setup, this may also be related to my web server's source ip information always have an
+`::ffff:` ipv4 mapped ipv5 address prefix, hope this issue can be explained before the end of **next decate**, to make
+things extremely cool, disabling userland proxy seems causing kernel panic, https://github.com/moby/moby/issues/5618
+and https://github.com/moby/moby/issues/17443, and these issues even don't get closed as fixed if you look closely,
+additionaly, docs repo issue https://github.com/docker/docs/issues/17312 is new, open, and not helpful, the result for
+this is simple though, just manually disabling userland proxy in docker daemon config file
 
-additional reading?
+after disabling userland proxy, you may want to check port status after you published port in a container with default
+network settings and amazingly find dockerd is now listening the port, as you know according to network filter rules,
+they have higher priority than normal process normally listening port, so traffic will never flow into dockerd because
+of this operation, and the real reason, also because of this, if without dockerd listening to the port and address in
+a normal way, an earlier other process or a later process trying to listen this port and address will not throw error
+and silently be taken precedance by the network filter rules, cause confusion and errors, so this should be reasonable,
+except not check existing dnat rules, may be in other tables and with different priority?
+
+see source code https://github.com/moby/moby/blob/29f6cd5c90cf836af25dddb82a3dbbf96dba1ee7/daemon/libnetwork/portallocator/osallocator_linux.go#L85,
+see commit https://github.com/moby/libnetwork/commit/198f0ef7cf91431d5b8bbd70f1b2a5dcca46cc2e, this is also 2015 by the
+way, if you find this is another repository, that is moby/libnetwork merged into moby/moby at about 2020, but the old
+repo is not archived, at the time of writing, again, after more than 5 years?
+
+you may be notice dockerd raising error if you configured userland proxy to off and failed to start docker daemon and
+manually enabled sysctl net.ipv4.ip_forward, net.ipv6.conf.all.forwarding and net.ipv6.conf.default.forwarding, this
+enables kernel to support redirecting incoming ip packets with proper target address to other devices, the dstnat rule
+is a common example, docker nftables document says you should block unwanted forwarding between non docker managed
+devices for security reasons, but not sure how to achieve this as external traffic with incorrect ip address will not
+be send to the machine? ai says something like compromised machine in the same network but still not sure how? at least
+there is no not docker managed virtual devices and no not docker managed private networks so no need to action
+
+ip forwarding is not the old thing, but beside this, you may notice that docker daemon is loading br_netfilter kernel
+module silently automatically (I forget how do I initially noticed this, but let's skip this part), and with so many
+errors, lies, ineffeciencies and failures in docker document and development history I think this should not be needed
+with nft firewall backend, this kernel module, and it's default enabled net.bridge.bridge-nf-call-ip{6}tables settings,
+when there is traffic inside bridge network (from within the network to within the same network), calls iptables and
+ip6tables FORWARD chain to process it through conditions reading ip layer properties and may be tcp layer properties,
+which allow docker's claim about support *disabling* inter container communication by adding dropping rules in this
+chain, while there don't exist a net.bridge.bridge-nf-call-nftables sysctl setting, and nftables natively have support
+for bridge family that itself can have a type=filter hook=forward chain, so docker must don't need br_netfilter when
+working with nftables, and manually unload the module shows inbound traffic and outbound traffic works correctly, and
+ban ip rules in filter forward chain works correctly, and drop icc rule in filter forward chain works correctly, so the
+conclusion is that br_netfilter module is the old thing and can be unloaded and should not load with nftables
+
+and docker source code claiming it's needed with !icc or !userland-proxy must be an error, at
+https://github.com/moby/moby/blob/fe5bc81e57442f4664886462eabd6fb71ab813ef/daemon/libnetwork/drivers/bridge/bridge_linux.go#L840
+
+to make sure unload br_netfilter module does not have functionality leakage, disable docker auto start (systemctl
+disable of docker.service, docker.socket and containerd) and restart machine and manually setup test
+
+```sh
+# 1. confirm ipv6 address setup ok, confirm ip forwarding enabled
+#    confirm br_netfilter not loaded, net.bridge.bridge-nf-call-iptables not exist
+# 2. create namespace, by the way, this will mkdir -p /var/run/netns
+ip netns add net1
+ip netns add net2
+# 3. setup bridge
+ip link add br1 type bridge
+ip link set br1 up
+# make it large in last segment so that I can use 1 for veth1, 2 for veth2 in last segment
+ip addr add 172.16.0.253/16 dev br1
+ip addr add fdf4:3eca:9036::fff3/64 dev br1
+# 4. setup veth
+# docker make veth1p called eth0 and have index 2, not sure how to achieve that
+ip link add veth1 type veth peer name veth1p
+ip link set veth1 up
+# it seems that bridge can only be up when there exists slave device
+# it seems fe80 link local addr is assigned after addr is assigned and state is up
+ip link set veth1 master br1
+ip link set veth1p netns net1
+ip netns exec net1 ip link set lo up
+ip netns exec net1 ip link set veth1p up
+ip netns exec net1 ip addr add 172.16.0.1/16 dev veth1p
+# this seems should be a unique local addr fc00::/7, or fc00::/8 + fd00::/8 if you are not awared
+# it seems fe80 link local addr is assigned after this step
+ip netns exec net1 ip addr add fdf4:3eca:9036::1/64 dev veth1p
+# add route inside namespace or else outbound traffic cannot work, gateway addr is br1 addr
+ip netns exec net1 ip route add default via 172.16.0.253
+ip netns exec net1 ip route add default via fdf4:3eca:9036::fff3
+ip link add veth2 type veth peer name veth2p
+ip link set veth2 up
+ip link set veth2 master br1
+ip link set veth2p netns net2
+ip netns exec net2 ip link set lo up
+ip netns exec net2 ip link set veth2p up
+ip netns exec net2 ip addr add 172.16.0.2/16 dev veth2p
+ip netns exec net2 ip addr add fdf4:3eca:9036::2/64 dev veth2p
+ip netns exec net2 ip route add default via 172.16.0.253
+ip netns exec net2 ip route add default via fdf4:3eca:9036::fff3
+# 5. test ping from within namespace
+ip netns exec net1 ping -c4 172.16.0.253
+ip netns exec net1 ping -c4 fdf4:3eca:9036::fff3
+ip netns exec net2 ping -c4 172.16.0.253
+ip netns exec net2 ping -c4 fdf4:3eca:9036::fff3
+```
+
+6. nft -f test-bridge.conf
+
+```nft
+# strange method to flush table if exist by always create the table and flush it
+# if the table already exists, the empty table statement do nothing
+table inet test-bridge
+flush table inet test-bridge
+
+table inet test-bridge {
+    chain nat-prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        # for inet family need a dnat ip and dnat ip6 to distinguish ipv4 and ipv6
+        fib daddr type local tcp dport 8001 counter dnat ip to 172.16.0.1:8001 comment "DNAT4"
+        fib daddr type local tcp dport 8001 counter dnat ip6 to [fdf4:3eca:9036::1]:8001 comment "DNAT6"
+    }
+    chain filter-forward {
+        type filter hook forward priority filter; policy accept;
+        # many rules in filter-forwarwd-in and filter-forward-out, so keep this structure
+        oifname "br1" jump filter-forward-in
+        iifname "br1" jump filter-forward-out
+    }
+    chain filter-forward-in {
+        ct state established,related counter accept
+        # later change this to drop
+        iifname "br1" counter accept comment "ICC"
+        ip daddr 172.16.0.1 tcp dport 8001 counter accept
+        ip6 daddr fdf4:3eca:9036::1 tcp dport 8001 counter accept
+        counter drop comment "UNPUBLISHED PORT"
+    }
+    chain filter-forward-out {
+        ct state established,related counter accept
+        counter accept comment "OUTBOUND INITIATED"
+    }
+    # not yet know how to trigger nat-output?
+    # chain nat-output {}
+    chain nat-postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        # nat-postrouting-in are all counter so skip and inline nat-postrouting-out, which also only contains srcnat
+        # ATTENTION srcnat is for all ip address in bridge subnet
+        iifname "br1" oifname != "br1" ip saddr 172.16.0.0/16 masquerade
+        iifname "br1" oifname != "br1" ip6 saddr fdf4:3eca:9036::/64 masquerade
+    }
+    chain trace {
+        type filter hook prerouting priority raw - 1; policy accept;
+    }
+}
+```
+
+7. simple-server.py
+
+```py
+import sys, socket
+if len(sys.argv) < 2:
+    print('USAGE: python simple-server.py port')
+    exit(1)
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as server:
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('::', port))
+    server.listen(0)
+    print(f'listen {port}')
+    while True:
+        try:
+            # connection is a socket object, addr is socket.raddr
+            connection, addr = server.accept()
+        except KeyboardInterrupt:
+            exit(0)
+        print(f"accept {addr}")
+        with connection:
+            data = connection.recv(1024)
+            print(f"recv {data}")
+            connection.sendall(b"ECHO: " + data)
+```
+
+```sh
+# 8. inbound traffic
+# start simple tcp server
+ip netns exec net1 python3 simple-server.py 8001
+# add trace rules
+nft add rule inet test-bridge trace tcp dport 8001 meta nftrace set 1
+nft add rule inet test-bridge trace tcp sport 8001 meta nftrace set 1
+# disable ip forwarding
+sysctl -w net.ipv4.ip_forward=0
+# nc and expect nftrace record to end at DNAT
+nft monitor trace
+sysctl -w net.ipv4.ip_forward=1
+# nc and expect nftrace record same as previous
+# first packet: trace, nat-prerouting: dnat, filter-forward, filter-forward-in, nat-postrouting
+# later packets: trace, filter-forward-out; trace, filter-forward-in
+# by the way, missing default route inside namespace will make all traffic not work
+nft monitor trace
+# 9. outbound traffic
+nft replace rule inet test-bridge trace handle ? tcp dport 4242 meta nftrace set 1
+nft replace rule inet test-bridge trace handle ? tcp sport 4242 meta nftrace set 1
+# note all "accept" in rules are important or else cannot work
+# TODO try to make clear the implicit return or implicit accept mechanism
+ip netns exec net1 zsh -c "echo hello | nc -N 45.79.112.203 4242"
+ip netns exec net1 zsh -c "echo hello | nc -N 2600:3c01::f03c:91ff:feab:f98b 4242"
+# nc and expect nftrace record same as previous
+# first packet: trace, nat-prerouting, filter-forward, filter-forward-out, nat-postrouting: masq
+# later packets: trace, filter-forward-in; trace, filter-forward-out
+nft monitor trace
+# 10. ICC
+nft replace rule inet test-bridge trace handle ? tcp dport 8002 meta nftrace set 1
+nft replace rule inet test-bridge trace handle ? tcp sport 8002 meta nftrace set 1
+# don't forget that icc don't need public port, or don't need dnat rule and rule before drop unpublished port rule
+ip netns exec net1 python3 simple-server.py 8002
+ip netns exec net2 zsh -c "echo hello | nc -N 172.16.0.1 8002"
+# expect no record
+nft monitor trace
+# disable icc, expect no affect
+nft 'replace rule inet test-bridge filter-forward-in handle ? iifname "br1" log prefix "icc drop by inet family: " drop comment "NO ICC"'
+```
+
+11. nft -f test-bridge-bridge.conf
+
+```nft
+table bridge test-bridge
+flush table bridge test-bridge
+table bridge test-bridge {
+    # there is no raw priority in bridge family,
+    # and for current purpose only one chain in bridge family, so just trace this chain
+    chain filter-forward {
+        type filter hook forward priority filter; policy accept;
+        tcp dport 8002 meta nftrace set 1
+        tcp sport 8002 meta nftrace set 1
+        oifname "veth2" iifname "veth1" log prefix "icc drop by bridge family: " drop comment "NO ICC"
+    }
+}
+```
+
+and nft monitor traced records to drop, and journalctl | grep "icc drop by" show drop by bridge family, not inet family,
+while docker does not setup bridge family rules and icc=false seems work, I think this is where br_netfilter really works
+
+also see source code br_netfilter module is calling filter functions at 
+https://github.com/torvalds/linux/blob/1a3746ccbb0a97bed3c06ccde6b880013b1dddc1/net/bridge/br_netfilter_hooks.c#L1106,
+and the callee
+https://github.com/torvalds/linux/blob/1a3746ccbb0a97bed3c06ccde6b880013b1dddc1/net/netfilter/core.c#L580
+contains code referecing NFPROTO_INET at L556, which is only in nftables not in xtables (iptables)
+
+```sh
+# 12. load module
+modprobe br_netfilter
+# these are default enabled according to source code, if not, enable them
+sysctl net.bridge.bridge-nft-call-iptables
+sysctl net.bridge.bridge-nft-call-ip6tables
+# remove bridge family
+nft flush table bridge test-bridge
+# see hit of the drop rule in inet family
+nft monitor trace
+# see related logs
+journalctl | grep "icc drop by inet"
+# unload module
+modprobe -r br_netfilter
+# not found
+sysctl net.bridge.bridge-nf-call-iptables
+# can connect again
+# cannot connect again
+nft -f test-bridge-bridge.conf
+```
+
+this proves br_netfilter's functionality and it's docker's shame to make me think it's incorrect because of the background experiences
+
+13. additional topic, how to setup with veth and bridge in different subnet
+
+```sh
+ip netns exec net1 ip addr add 172.17.0.1/16 dev veth1p
+ip netns exec net1 ip addr add fdf4:3eca:9037::1/64 dev veth1p
+ip netns exec net1 ip addr del 172.16.0.1/16 dev veth1p
+ip netns exec net1 ip addr del fdf4:3eca:9036::1/64 dev veth1p
+# keep original route to see if something works
+# ip netns exec net1 ip route add default via 172.16.0.253
+# ip netns exec net1 ip route add default via fdf4:3eca:9036::fff3
+ip netns exec net2 ip addr add 172.18.0.1/16 dev veth2p
+ip netns exec net2 ip addr add fdf4:3eca:9038::1/64 dev veth2p
+ip netns exec net2 ip addr del 172.16.0.2/16 dev veth2p
+ip netns exec net2 ip addr del fdf4:3eca:9036::2/64 dev veth2p
+# cannot ping, cannot ping public network, cannot inbound traffic
+ip netns exec net1 ping -c4 172.16.0.253
+ip netns exec net1 ping -c4 fdf4:3eca:9036::fff3
+```
+
+UPDATE: communicate public network with private veth network is same topic as previous setup and answer is using nat,
+communicate private networks in different subnets is a common real world problem when the computer is really used as
+a router for scenarios like software defined network (SDN), the most simple answer is static route with ip forwarding
+
+```sh
+ip netns exec net1 ip route add 172.18.0.0/16 via 172.17.0.1
+ip netns exec net2 ip route add 172.17.0.0/16 via 172.18.0.1
+```
+
+and works, by the way, this even works with bridge filter forward chain or inet filter forward chain with br_netfilter,
+and the not simple but seems more normal answer is using bridge network and nat, and this is not for ipv6
+
+```sh
+# Error: Gateway can not be a local address.
+ip netns exec net1 ip route add fdf4:3eca:9038::/64 via fdf4:3eca:9037::1
+# Error: Gateway can not be a local address.
+ip netns exec net1 ip route add fdf4:3eca:9038::/64 via fe80::xxxx (the link local addr) dev veth1p
+# RTNETLINK answers: No route to host
+ip netns exec net1 ip route add fdf4:3eca:9038::/64 via fdf4:3eca:9036::fff3
+```
+
+ai says ipv6 ndp is different from ipv4 arp and that ipv4 allow any address to be gateway and will arp for that device,
+while ipv6 use ndp with more functionality, more security and more performance without broadcast find device request in
+the entire network, and then don't support local address as gateway, not quite understand, investigate in future
+
+14. clear
+
+```sh
+# vethp deleted with network namespace, veth deleted with vethp
+ip netns del net1
+ip netns del net2
+# by the way, nft only records name and don't delete with this
+ip link del br1
+nft flush ruleset
+```
+
+additional additional reading?
 https://netdevconf.info/1.1/proceedings/papers/Bridge-filter-with-nftables.pdf
 https://routemyip.com/posts/linux/networking/bridge-netfilter-unexpected-consequences/
-
-### The Grand Conclusion
-
-although the title have to be h3 because the abyss section is h2, and this is not duplication of the early conclusion
-
-the overall bridge network design and setup is modeling threat of a bare metal machine directly connected to internet,
-but cloud servers are not bare metal machine, they are actually a private machine inside private network, and there are
-external firewall settings (normally you use that to open port) and external routing configurations, etc. provided by
-cloud service providers, so the grand conclusion is
-
-DO NOT USE bridge network on cloud servers AND wsl development environment
