@@ -69,19 +69,20 @@ Persistent = true
 WantedBy = timers.target
 '''
 dontry_service = '''[Unit]
-Description = dontry rule manipulate part
+Description = setup network filters
 
 [Service]
 Type = oneshot
 WorkingDirectory = /work
-ExecStart = /usr/bin/python3 /work/dontry.py system
+ExecStart = /usr/bin/python3 /work/backup.py nft
 '''
-# now that dontry is reading logs backup file, make it run later than backup
+# run twice a day to increase responsibility
 dontry_service_timer = '''[Unit]
 Description = Schedule fine-dontry.service
 
 [Timer]
-OnCalendar = *-*-* 02:10:00
+OnCalendar = *-*-* 02:00:00
+OnCalendar = *-*-* 14:00:00
 Persistent = true
 
 [Install]
@@ -113,7 +114,6 @@ with tarfile.open('fine-setup.tar.xz', 'w:xz') as f:
     f.add('backup.py')
     add_text_file(f, 'fine-backup.service', backup_service)
     add_text_file(f, 'fine-backup.timer', backup_service_timer)
-    f.add('dontry.py')
     add_text_file(f, 'fine-dontry.service', dontry_service)
     add_text_file(f, 'fine-dontry.timer', dontry_service_timer)
     add_text_file(f, '.envrc', envrc)
@@ -167,4 +167,4 @@ print('make-setup.py: create fine-setup.tar.xz')
 # visit id.example.com
 # docker compose up acme
 # python3 backup.py run backup once
-# python3 dontry.py system
+# python3 backup.py nft

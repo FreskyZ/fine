@@ -142,6 +142,8 @@ services:
     image: fine/python
     # assign a special profile so this is excluded in docker compose up (without service name and profile)
     profiles: [backup]
+    # for now the collect work inside container don't need network
+    network_mode: none
     # for now do not make absolute paths more centralized like other containers,
     # a lot of paths are used in backup-schedule.py and they are already centralized,
     # turn them into environment variables is not meaningful

@@ -50,7 +50,7 @@ to restore a full backup file from scratch
 - docker compose up acme and check output
 - docker compose up web and visit id.example.com, this nearly validates everything in core
 - python3 backup.py run check manually trigger run once
-- python3 dontry.py system check manually trigger
+- python3 backup.py nft check manually trigger run once
 - systemctl enable fine-backup.timer && systemctl start fine-backup.timer
 - systemctl enable fine-dontry.timer && systemctl start fine-dontry.timer
 
@@ -350,7 +350,7 @@ need a dedicated python script in future
 
 for reference, say host side working directory is /work,
 
-- include compose.yml, backup.py, dontry.py, doki binary, doki.toml
+- include compose.yml, backup.py, doki binary, doki.toml
 - include normal backup files at /work/back, map to oss path /active
   - fine-database-{datetime}.tar.xz for the backup sql files,
     when new file arrive, old files at local are removed, at oss are moved to oss path /inactive,

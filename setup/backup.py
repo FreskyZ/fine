@@ -1,4 +1,4 @@
-import sys, subprocess, json, datetime, pathlib, tarfile
+import sys, subprocess, json, datetime, pathlib, tarfile, ipaddress
 
 # run subprocess, collect output to display, return stdout, abort on error
 def run_subprocess(command_name, command: list[str]):
@@ -80,6 +80,125 @@ def backup_images():
         '-c', 'doki.toml', '--no-implicit-config-hint', 'sync', '-a', str(images_dir), 'oss:images'])
     print(f'backup.py: backup images complete')
 
+# this is not like backup, but kind of like renaming letsencrypt logs that transform dontry.log to dontry.conf
+# so put it here for now, also for now collect these operations in same script can make file structure simpler
+def collect_network_filters():
+    # convert dontry.log to nftables format dontry.conf, see also src/core/dontry.ts,
+    # works for naive service setup that blocks access to all services on the host *except* in
+    # docker bridge networks, works for services in docker bridge networks with --forward, works
+    # for services in docker bridge networks without br_netfilter(?) with --bridge --forward params
+
+    # nftables: https://netfilter.org/projects/nftables/index.html
+    #      man: https://netfilter.org/projects/nftables/manpage.html
+    # related commands for test or debug:
+    # - list rules: sudo nft list chain ip filter DOCKER-USER
+    # - create set: sudo nft add set ip filter blocked_ips \{ type ipv4_addr\; flags interval\; \}
+    #   can have same name in different family: sudo nft add set ip6 filter blocked_ips \{ type ipv6_addr\; flags interval\; \}
+    # - display set: sudo nft list set ip filter blocked_ips
+    #   json output: sudo nft --json list set ip filter blocked_ips
+    # - add elements: sudo nft add element ip filter blocked_ips \{ 195.179.11.0/24, 45.148.10.0/24 \}
+    #   delete elements: sudo nft delete element ip filter blocked_ips \{ 195.179.11.0/24, 45.148.10.0/24 \}
+    # - use set: sudo nft add rule ip filter DOCKER-USER ip saddr @blocked_ips tcp dport \{ 80, 443 \} counter drop
+    #   this will display a source address 0.0.0.0 in iptables-nft output, but ok in nft
+    # - delete set: sudo nft delete set ip filter blocked_ips, cannot delete when used in rule
+
+    if not pathlib.Path('/.dockerenv').exists():
+        print('backup.py: collect function is expected to run in container')
+        exit(1)
+    if not pathlib.Path('/data/logs/fine/dontry.log').exists():
+        print('not found dontry.log, skip')
+        exit(0)
+    with open('/data/logs/fine/dontry.log') as f:
+        rawlog = f.read()
+    logrecords = [] # (address, network, time)
+    for row in rawlog.splitlines():
+        splitted = row.split(' ')
+        if len(splitted) <= 1:
+            print(f'dontry.py: log record {row} unexpected format?')
+            continue
+        # the z part is literal when write into log, but you can parse it as timezone
+        time = datetime.datetime.strptime(splitted[0], '%Y%m%dT%H%M%S%z')
+        try:
+            address = ipaddress.ip_address(splitted[1])
+        except ValueError as ex:
+            print(f'dontry.py: log record {row} parse ip address fail?', ex)
+            continue
+        network = ipaddress.ip_network(int(address))
+        if isinstance(address, ipaddress.IPv4Address):
+            network = network.supernet(prefixlen_diff=8)
+        elif address.ipv4_mapped is None:
+            network = network.supernet(new_prefix=64)
+        else:
+            # add both records for ipv4 mapped ipv6 records
+            mapped_address = address.ipv4_mapped
+            mapped_network = ipaddress.ip_network(int(mapped_address))
+            mapped_network = mapped_network.supernet(prefixlen_diff=8)
+            logrecords.append((mapped_address, mapped_network, time))
+            # print(f'log {time} {mapped_address} ({mapped_network})')
+            network = network.supernet(prefixlen_diff=8)
+        logrecords.append((address, network, time))
+    # print('\n'.join([str(r) for r in logrecords]))
+
+    elements = []
+    # multiple occurance of ip from same subnet regardless of any time, ban subnet permanently
+    all_networks = set()
+    for address, network, time in logrecords:
+        if network in all_networks:
+            elements.append(network)
+        all_networks.add(network)
+    # single occurance of ip, ban this day
+    now = datetime.datetime.now(tz=datetime.UTC)
+    for address, network, time in logrecords:
+        if network not in elements and (now - time).total_seconds() < 86400:
+            elements.append(address)
+    # TODO need to clear outdated entries?
+    # print('\n'.join([str(r) for r in elements]))
+
+    family = 'bridge' if '--bridge' in sys.argv else 'inet'
+    table = 'dontry'
+    hook = 'forward' if '--forward' in sys.argv else 'input'
+    setname = 'aset'
+
+    b = '\n'
+    b += f'table {family} {table}\n'
+    b += f'flush table {family} {table}\n'
+    b += f'table {family} {table} {{\n'
+    b += f'    set {setname}4 {{\n'
+    b += f'        type ipv4_addr; flags interval;\n'
+    b += f'        elements = {{\n'
+    for element in elements:
+        if isinstance(element, (ipaddress.IPv4Address, ipaddress.IPv4Network)):
+            b += f'            {element},\n' # this even support trailing comma!
+    b += '        }\n'
+    b += '    }\n'
+    b += f'    set {setname}6 {{\n'
+    b += f'        type ipv6_addr; flags interval;\n'
+    b += f'        elements = {{\n'
+    for element in elements:
+        if isinstance(element, (ipaddress.IPv6Address, ipaddress.IPv6Network)):
+            b += f'            {element},\n'
+    b += '        }\n'
+    b += '    }\n'
+    b += f'    chain filter-{hook} {{\n'
+    b += f'        type filter hook {hook} priority filter; policy accept;\n'
+    b += f'        ip saddr @{setname}4 tcp dport 443 counter drop\n'
+    b += f'        ip6 saddr @{setname}6 tcp dport 443 counter drop\n'
+    b += '    }\n'
+    b += '}\n'
+
+    with open('/work/dontry.conf', 'w') as f:
+        f.write(b)
+
+def apply_network_filters():
+    print(f'filter.py: setup nft at {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}')
+    # 1. transform log format into config format
+    workdir = pathlib.Path().absolute()
+    run_subprocess('collect-nft.py', ['docker', 'compose', 'run', '--rm', '--name', 'nft-collect1',
+        '-v', f'{workdir}:/work', '--entrypoint', 'python /work/backup.py collect-nft', 'backup'])
+    # 2. apply
+    run_subprocess('nft', ['nft', '-f', str(workdir / 'dontry.conf')])
+    print(f'filter.py: setup nft complete at {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}')
+
 # collect volume data from mapped /data to mapped /work/backup
 def collect_volume_data():
     if not pathlib.Path('/.dockerenv').exists():
@@ -156,7 +275,7 @@ def run():
     # this remove previous files, can rerun freely even when error happens in following steps
     workdir = pathlib.Path().absolute()
     # for now you cannot see realtime output because they are collected after whole process complete
-    run_subprocess('backup-collect.py', ['docker', 'compose', 'run', '--rm', '--name', 'backup1',
+    run_subprocess('backup-collect.py', ['docker', 'compose', 'run', '--rm', '--name', 'backup-collect1',
         '-v', f'{workdir}:/work', '--entrypoint', 'python /work/backup.py collect', 'backup'])
 
     # 3. upload files
@@ -188,8 +307,12 @@ if len(sys.argv) == 2 and sys.argv[1] == 'run':
     run()
 elif len(sys.argv) == 2 and sys.argv[1] == 'collect':
     collect_volume_data()
+elif len(sys.argv) == 2 and sys.argv[1] == 'nft':
+    apply_network_filters()
+elif len(sys.argv) == 2 and sys.argv[1] == 'collect-nft':
+    collect_network_filters()
 elif len(sys.argv) == 2 and sys.argv[1] == 'images':
     backup_images()
 else:
-    print('USAGE: backup.py run | images')
+    print('USAGE: backup.py run | nft | images')
     exit(1)
