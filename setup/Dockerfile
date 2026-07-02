@@ -32,7 +32,7 @@ ENTRYPOINT ["/schedule.py"]
 # reference https://github.com/docker-library/postgres/blob/master/18/alpine3.23/Dockerfile
 # reference https://github.com/CircleCI-Public/cimg-postgres/blob/main/18.3/Dockerfile
 # docker build --target postgresql-build --tag fine/database:build .
-FROM alpine:3.23.4 AS postgresql-build
+FROM alpine:3.24.1 AS postgresql-build
 
 # https://mesonbuild.com/Getting-meson.html
 # https://github.com/mesonbuild/meson/releases
@@ -49,8 +49,8 @@ mv /meson-1.11.1 /meson
 mv /postgresql-18.4 /postgresql-src
 # install dependencies
 cat <<'EOCAT' > /etc/apk/repositories
-https://mirrors.aliyun.com/alpine/v3.23/main
-https://mirrors.aliyun.com/alpine/v3.23/community
+https://mirrors.aliyun.com/alpine/v3.24/main
+https://mirrors.aliyun.com/alpine/v3.24/community
 EOCAT
 apk update
 # python3: run meson.py
@@ -79,7 +79,7 @@ EORUN
 
 # llvm compilers and runtime libraries
 # see if you don't find it in the future https://github.com/FreskyZ/small/blob/main/devenv/llvm/Dockerfile
-COPY --from=my/llvm:stage2 /llvm-install /usr/local
+COPY --from=my/llvm /llvm-install /usr/local
 
 RUN <<EORUN
 # configure
@@ -102,15 +102,15 @@ cp /usr/local/lib/x86_64-alpine-linux-musl/* /postgresql-install/lib
 # libllvm.so
 cp /usr/local/lib/libLLVM.so.23.0git /postgresql-install/lib
 # libpython.so because no dedicated libs package available
-cp /usr/lib/libpython3.12.so.1.0 /postgresql-install/lib
+cp /usr/lib/libpython3.14.so.1.0 /postgresql-install/lib
 EORUN
 # check psql --version
 # check postgres --version
 
 # docker build --target postgresql --tag fine/database .
-FROM alpine:3.23.4 AS postgresql
+FROM alpine:3.24.1 AS postgresql
 
-LABEL org.opencontainers.image.version=20260530
+LABEL org.opencontainers.image.version=20260702
 
 # all these files will be owned by root in result container,
 # they are 755 so non root user can still run these commands
@@ -125,8 +125,8 @@ COPY --from=fine/database:build /postgresql-install /usr/local
 RUN <<EORUN
 set -ex
 cat <<'EOCAT' > /etc/apk/repositories
-https://mirrors.aliyun.com/alpine/v3.23/main
-https://mirrors.aliyun.com/alpine/v3.23/community
+https://mirrors.aliyun.com/alpine/v3.24/main
+https://mirrors.aliyun.com/alpine/v3.24/community
 EOCAT
 apk update
 apk add --no-cache icu-libs icu-data-full readline openssl liburing zlib zstd-libs

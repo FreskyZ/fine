@@ -76,7 +76,6 @@ services:
       - certificates:/etc/letsencrypt:ro
       - database-logs:/var/lib/pgsql/logs:ro
       - certbot-logs:/var/log/letsencrypt:ro
-      - backup-logs:/var/log/backup:ro
 
   # docker compose up -d web
   # restart: docker compose restart web
@@ -206,8 +205,6 @@ volumes:
     name: fine-program
   fine-public: # should be easier to mount and manipulate
     name: fine-public
-  backup-logs:
-    name: fine-backup-logs
 
 networks:
   default:
